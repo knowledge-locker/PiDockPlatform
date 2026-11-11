@@ -2,6 +2,14 @@ namespace PiDock.Web.Shared;
 
 public static class Format
 {
+    public static string CloudControl(PiDock.Core.StoredDevice device, DateTimeOffset? now = null)
+    {
+        var time = now ?? DateTimeOffset.UtcNow;
+        if(device.Applications is not { } inventory) return "Not reported";
+        if(!device.HasLiveContact || time - device.ReceivedAt >= TimeSpan.FromSeconds(90) || time - inventory.ObservedAt >= TimeSpan.FromSeconds(90))
+            return inventory.ControlEnabled ? "Allowed · stale" : "Off · stale";
+        return inventory.ControlEnabled ? "Allowed" : "Off";
+    }
     public static string Bytes(long? value)
     {
         if (value is null) return "Unavailable";

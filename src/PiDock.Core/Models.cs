@@ -42,7 +42,8 @@ public static class DataPolicyCalculator
 public record InterfaceSnapshot(string Name, string Kind, string State, long ReceivedBytes, long SentBytes, long Errors);
 public record HostSnapshot(DateTimeOffset ObservedAt, string Hostname, string Platform,
     double? CpuPercent, long? MemoryTotalBytes, long? MemoryAvailableBytes, double? TemperatureC,
-    double UptimeSeconds, PolicyBudget Storage, IReadOnlyList<InterfaceSnapshot> Interfaces, string ClockState);
+    double UptimeSeconds, PolicyBudget Storage, IReadOnlyList<InterfaceSnapshot> Interfaces, string ClockState,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TelemetryChannels? Channels = null);
 public record TelemetryEnvelope(int SchemaVersion, string TenantId, string DeviceId, Guid MessageId,
     Guid BootId, long Sequence, HostSnapshot Snapshot, bool IsReplay = false, IReadOnlyList<ResourceAlarm>? Alarms = null, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] RemoteApplicationSnapshot? Applications = null);
 public record StoredDevice(string TenantId, string DeviceId, Guid LastMessageId, DateTimeOffset ReceivedAt, HostSnapshot Snapshot, Guid BootId = default, long Sequence = 0, Guid[]? RetiredBootIds = null, IReadOnlyList<ResourceAlarm>? Alarms = null, bool HasLiveContact = true, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] RemoteApplicationSnapshot? Applications = null);

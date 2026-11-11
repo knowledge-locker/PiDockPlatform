@@ -1,0 +1,47 @@
+@page "/telemetry"
+@inject TelemetryPolicy Policy
+@inject MonitoringService Monitoring
+@inject CloudEnrollmentClient Enrollment
+@inject AuthenticationStateProvider Authentication
+@inject UserStore Users
+<PageTitle>Telemetry channels · PiDockOS</PageTitle>
+<p class="eyebrow">PIDOCKOS / TELEMETRY</p><h1>Telemetry channels</h1>
+<p>Choose the measurements this appliance sends to PiDockCloud. Local monitoring and resource protection continue for every channel.</p>
+<section class="card"><h2>Cloud reporting</h2><p>@Monitoring.TransportStatus · Reports every 30 seconds, with additional reports when local alarms change.</p>
+<div class="signal-picker">
+<label><input type="checkbox" @bind="cpu" />CPU utilization</label>
+<label><input type="checkbox" @bind="memory" />Memory utilization</label>
+<label><input type="checkbox" @bind="storage" />Storage and history budget</label>
+<label><input type="checkbox" @bind="temperature" />Board temperature</label>
+<label><input type="checkbox" @bind="uptime" />Device uptime</label>
+<label><input type="checkbox" @bind="interfaces" />Network interface health and counters</label>
+<label><input type="checkbox" @bind="alarms" />Resource alarms</label>
+</div>
+<p>Device identity, timestamps, clock health, connection heartbeat, container inventory and control acknowledgements are always reported. Resource alarms are a separate channel and may include resource values even when that measurement channel is off.</p>
+<p>Changes apply to newly collected cloud reports. Reports already buffered before this change keep their original contents. Previously received cloud history is retained under the server’s data policy.</p>
+</section>
+<section class="card"><h2>Confirm local ownership</h2><p>Channel settings are saved on this appliance and survive restarts. All channels are enabled by default.</p>
+<label>Your appliance password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
+<label>Fresh authenticator code<input @bind="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" /></label>
+<button disabled="@(busy || !Enrollment.Enabled)" @onclick="Save">Save telemetry channels</button>
+@if(!Enrollment.Enabled) { <p>Isolated UI review. Saving requires a commissioned appliance.</p> }
+<p role="status">@message</p></section>
+@code {
+    private bool cpu, memory, storage, temperature, uptime, interfaces, alarms, busy;
+    private string password = "", otp = "", message = "";
+    protected override void OnInitialized() { var p = Policy.Current; cpu=p.Cpu; memory=p.Memory; storage=p.Storage; temperature=p.Temperature; uptime=p.Uptime; interfaces=p.Interfaces; alarms=p.Alarms; }
+    private async Task Save()
+    {
+        if(busy || !Enrollment.Enabled) return; busy=true;
+        try {
+            var user=(await Authentication.GetAuthenticationStateAsync()).User;
+            if(!Users.IsCurrent(user) || !user.IsInRole("Owner") || Users.Authenticate(user.Identity!.Name!,password,otp,DateTimeOffset.UtcNow) is null) {
+                message="Your local owner password and a fresh authenticator code are required."; return;
+            }
+            Policy.Save(new(cpu,memory,storage,temperature,uptime,interfaces,alarms));
+            message="Telemetry channels saved. New cloud reports will use these settings within 30 seconds.";
+        }
+        catch(IOException) { message="Telemetry settings could not be saved. Check local storage and try again."; }
+        finally { password=""; otp=""; busy=false; }
+    }
+}

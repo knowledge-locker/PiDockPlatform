@@ -38,3 +38,13 @@ python3 tools/verify-delivery.py --enrollment --remote-command --image pidock-de
 ```
 
 This uses disposable cloud/broker state and a fake local Unix runtime. It validates real HTTPS enrollment, mutual TLS, cross-tenant broker rejection, one expiring container command/result round trip, continued sampling during broker outage and deduplicated replay after reconnection. It never changes real containers on a physical Pi.
+
+### Appliance telemetry channels and visible control status
+
+PiDockOS → **Telemetry channels** (`/telemetry`) configures CPU, memory, storage/history budget, temperature, uptime, interface counters and resource alarms independently. All default on. A local Owner password and fresh OTP are required to save the private, atomic `telemetry-channels.json` policy in the shared state directory. Policy survives updates/restarts. Local monitoring and alarm protection continue; the filter applies only when queuing new cloud reports. Previously buffered reports retain their original content and hashes.
+
+Identity, timing/clock health, heartbeat, managed-container inventory and control results remain in the management envelope every 30 seconds. Alarms are independently selectable and can disclose measured resource values. Disabling a measurement does not suppress alarms unless the alarm channel is also disabled. No additional MQTT topics, permissions or network listeners are introduced.
+
+Snapshots carry optional channel availability metadata. Disabled CPU/memory/temperature fields are null, interfaces and alarms are empty; required legacy uptime/storage fields use empty placeholders. Cloud KPIs, historian and exports consult availability metadata so these placeholders are never displayed as measured zero. Legacy snapshots without metadata retain their original interpretation and canonical JSON.
+
+The fleet inventory **Cloud control** column and device dashboard badge distinguish **Allowed**, **Off**, **Not reported** and **stale**. A stored permission is not evidence of current reachability: either contact or inventory older than 90 seconds marks it stale, and existing server-side checks still block stale/offline commands.

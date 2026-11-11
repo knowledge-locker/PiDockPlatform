@@ -16,7 +16,7 @@
 <label>Your appliance password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
 <label>Fresh authenticator code<input @bind="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" /></label>
 <button disabled="@(busy || !Enrollment.Enabled)" @onclick="Retry">Retry cloud connection</button>
-<h3>Remote container management</h3><p>Allow organization owners and administrators in your connected cloud to start, stop and restart PiDock-managed containers. Changes require fresh cloud authentication. Image deployment, system containers, shell access and device I/O stay unavailable remotely.</p>
+<p><a href="/telemetry">Manage telemetry channels →</a></p><h3>Remote container management</h3><p>Allow organization owners and administrators in your connected cloud to start, stop and restart PiDock-managed containers. Changes require fresh cloud authentication. Image deployment, system containers, shell access and device I/O stay unavailable remotely.</p>
 <label><input type="checkbox" style="width:auto" @bind="allowRemoteControl" /> Allow cloud container control</label>
 <button class="secondary" disabled="@(busy || !Enrollment.Enabled)" @onclick="SaveRemotePolicy">Save container access</button><p>Confirm changes with the appliance password and a fresh code above. Current setting: @(Applications.Current.ControlEnabled ? "Allowed" : "Off").</p></section>
 } else {

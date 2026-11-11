@@ -24,6 +24,7 @@ builder.Services.AddSingleton<DeliveryStatus>();
 builder.Services.AddSingleton(sp => new AlarmMonitor(sp.GetRequiredService<StateDirectory>().Path, sp.GetRequiredService<HistoryStore>(), sp.GetRequiredService<TimeProvider>(), builder.Configuration.GetSection("Alarms:Rules").Get<AlarmRule[]>()));
 builder.Services.AddSingleton<TelemetryDeliveryService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryDeliveryService>());
+builder.Services.AddSingleton(sp => new TelemetryPolicy(sp.GetRequiredService<StateDirectory>().Path));
 builder.Services.AddSingleton<MonitoringService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringService>());
 var app = builder.Build();

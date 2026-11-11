@@ -10,11 +10,12 @@
     <section class="card empty"><h1>Device unavailable</h1><p>This device is not available in your organization.</p><a href="/">Return to fleet overview →</a></section>
 } else {
 <div class="page-heading"><div><p class="eyebrow"><a href="/">FLEET</a> / DEVICE DASHBOARD</p><h1>@name</h1><p>@device.Snapshot.Hostname · @device.Snapshot.Platform</p></div><span class="pill @(Online ? "status-online" : "status-offline")">@(Online ? "Online" : "Last known readings") · @Format.Ago(device.ReceivedAt)</span></div>
+<p>Cloud container control: <span class="pill @(Format.CloudControl(device) == "Allowed" ? "status-online" : "status-neutral")">@Format.CloudControl(device)</span> <small>Permission is set by the local owner on PiDockOS. Stale reports do not permit operations.</small></p>
 <div class="metrics device-kpis">
-<section class="card"><span>Device uptime</span><strong>@Format.Uptime(device.Snapshot.UptimeSeconds)</strong></section>
+<section class="card"><span>Device uptime</span><strong>@(device.Snapshot.Channels?.Uptime == false ? "Not shared" : Format.Uptime(device.Snapshot.UptimeSeconds))</strong></section>
 <section class="card"><span>CPU utilization</span><strong>@Format.Percent(device.Snapshot.CpuPercent)</strong></section>
 <section class="card"><span>Memory utilization</span><strong>@Format.Percent(DeviceHistory.Value(device.Snapshot, "memory"))</strong><small>@Format.Bytes(device.Snapshot.MemoryAvailableBytes) available</small></section>
-<section class="card"><span>Free storage</span><strong>@Format.Bytes(device.Snapshot.Storage.FreeBytes)</strong><small>@Format.Percent(DeviceHistory.Value(device.Snapshot, "storage")) used</small></section>
+<section class="card"><span>Free storage</span><strong>@(device.Snapshot.Channels?.Storage == false ? "Not shared" : Format.Bytes(device.Snapshot.Storage.FreeBytes))</strong><small>@Format.Percent(DeviceHistory.Value(device.Snapshot, "storage")) used</small></section>
 <section class="card"><span>Board temperature</span><strong>@(device.Snapshot.TemperatureC is { } t ? $"{t:0.#} °C" : "Unavailable")</strong></section>
 </div>
 <details class="card container-panel"><summary>Managed containers <span class="pill status-neutral">@(device.Applications?.Applications.Count.ToString() ?? "Not reported")</span></summary>

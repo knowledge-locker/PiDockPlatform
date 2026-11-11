@@ -25,8 +25,8 @@ public static class DeviceHistory
     public static double? Value(HostSnapshot s, string metric) => metric switch {
         "cpu" => s.CpuPercent,
         "memory" => s.MemoryTotalBytes is > 0 && s.MemoryAvailableBytes is >= 0 ? 100.0 * (s.MemoryTotalBytes.Value - s.MemoryAvailableBytes.Value) / s.MemoryTotalBytes.Value : null,
-        "storage" => s.Storage.TotalBytes > 0 ? 100.0 * (s.Storage.TotalBytes - s.Storage.FreeBytes) / s.Storage.TotalBytes : null,
-        "temperature" => s.TemperatureC, "uptime" => s.UptimeSeconds / 3600, _ => null
+        "storage" => s.Channels?.Storage != false && s.Storage.TotalBytes > 0 ? 100.0 * (s.Storage.TotalBytes - s.Storage.FreeBytes) / s.Storage.TotalBytes : null,
+        "temperature" => s.TemperatureC, "uptime" => s.Channels?.Uptime == false ? null : s.UptimeSeconds / 3600, _ => null
     };
     public static string Label(string metric) => metric switch { "cpu" => "CPU utilization", "memory" => "Memory utilization", "storage" => "Storage utilization", "temperature" => "Temperature", "uptime" => "Uptime", _ => metric };
     public static string Unit(string metric) => metric == "temperature" ? "°C" : metric == "uptime" ? "hours" : "%";
