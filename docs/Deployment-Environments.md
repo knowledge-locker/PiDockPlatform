@@ -40,4 +40,6 @@ Development is an engineering environment. Production remains gated on isolated 
 
 ## Current setup status
 
-PiDockPlatform has been discovered and approved as a web application in PRX3MUS. Its production hostname relationship and Development → Production flow are configured. The approved custom development hostname is being configured in the per-application hosting form. Public DNS and live installations remain pending supporting-service and runtime configuration.
+PiDockPlatform has been discovered and approved as a web application in PRX3MUS. Both approved hostname relationships and the Development → Production flow are saved in its per-application hosting form. Public DNS and live installations remain pending supporting-service and runtime configuration.
+
+The first development container was published successfully as `ghcr.io/knowledge-locker/pidockcloud:0.1.0-dev.1` from source `9c17744dab05b12c1bf072cfc4018926560d543b`. Immutable image: `ghcr.io/knowledge-locker/pidockcloud@sha256:f2d9210cb54c4eff9b9af3c1ea33b3a74995010903e8546b37a64d513a0f648d`. [Publication run](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43063467498). GitHub Linux AMD64 validation passed all 59 tests, in addition to macOS and local Linux ARM64. SDK selection is exact so locked dependencies match CI and Docker.

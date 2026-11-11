@@ -15,7 +15,7 @@ The specification remains the production target. This increment establishes runn
 | Cloud users | Multiple console-provisioned users, tenant claim enforcement, Owner/Administrator-only enrollment with fresh MFA | Online user administration, fleet/device grant scopes, other privileged action policies, account recovery |
 | Enrollment | Single-use expiring codes, CSR validation, device-specific certificates, key-bound response recovery, local key generation and automatic MQTT activation | Isolated signing service, renewal, revocation, migration and production provisioning |
 | Persistence | Atomic protected account files, segmented local telemetry, atomic fleet JSON | PostgreSQL/RLS, migrations, historical queries, log/object storage, tested backup/restore |
-| Packaging | HTTPS cloud container, mTLS broker, local-only Compose package, non-root services | Digest-pinned release artifacts, CA lifecycle, SBOM/signatures, public hosting and PROX3MUS integration |
+| Packaging | HTTPS cloud container, mTLS broker, local-only Compose package, non-root services | Complete release signing/CA lifecycle, public hosting, runtime secrets/volumes and PRX3MUS installation |
 | OS | Systemd integration units and acceptance checklist | Buildroot image, supported kernel/drivers, RTC/NTS, verified root, signed A/B updates, secure provisioning |
 
 ## Next implementation order
@@ -54,3 +54,5 @@ The products are now PiDockOS and PiDockCloud, collectively PiDockPlatform. PiDo
 The isolated real MQTT/mTLS outage test passed: first persistence receipt, continued sampling with the broker stopped, and reconnection with four unique archived samples and zero pending samples. The normal preview stack was left running. See [Monitoring and delivery](Monitoring-and-Delivery.md) for guarantees and limits.
 
 Validation for the enrollment increment: 59 tests pass on macOS and Linux ARM64; the Release build has zero warnings/errors. The isolated HTTPS enrollment plus MQTT outage check passed, including cross-tenant rejection and four unique archived samples with zero pending. The source repository preserves its initial license and commit.
+
+GitHub CI also passed on Linux AMD64. A manually dispatched publication produced the first PiDockCloud development image with SBOM/provenance and PRX3MUS release metadata. Both hosted domain relationships are staged; DNS and live service deployment remain separate pending runtime storage, broker and signing configuration.
