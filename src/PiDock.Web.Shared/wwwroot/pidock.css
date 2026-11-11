@@ -672,3 +672,13 @@ textarea { width:100%; box-sizing:border-box; padding:12px; border:1px solid var
 
 .trend-cursor { stroke:#38892e; stroke-width:1.5; stroke-dasharray:3 3; pointer-events:none; }
 .trend-cursor-label { display:block; font-size:12px; color:var(--muted); margin:10px 0 -8px; min-height:18px; }
+
+.telemetry-group + .telemetry-group { border-top:1px solid var(--line); margin-top:24px; padding-top:12px; }
+.telemetry-channel-list { padding-left:24px; margin:12px 0 20px; }
+.telemetry-channel-list li { padding:4px 0; }
+.telemetry-channel-list label { display:inline-flex; align-items:center; gap:10px; margin:0; }
+.telemetry-channel-list input { width:auto; margin:0; accent-color:#c51a4a; }
+.telemetry-help { position:fixed; inset:0; margin:auto; width:min(620px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); overflow:auto; padding:28px; border:1px solid var(--line); border-radius:16px; background:var(--surface,#fff); color:var(--text,#282429); box-shadow:0 18px 60px #0003; }
+.telemetry-help::backdrop { background:#28242955; }
+.telemetry-help .section-heading { gap:16px; align-items:center; }
+.telemetry-help h2 { margin:0; }

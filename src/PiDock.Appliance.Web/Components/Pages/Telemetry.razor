@@ -8,17 +8,21 @@
 <p class="eyebrow">PIDOCKOS / TELEMETRY</p><h1>Telemetry channels</h1>
 <p>Choose the measurements this appliance sends to PiDockCloud. Local monitoring and resource protection continue for every channel.</p>
 <section class="card"><h2>Cloud reporting</h2><p>@Monitoring.TransportStatus · Reports every 30 seconds, with additional reports when local alarms change.</p>
-<div class="signal-picker">
-<label><input type="checkbox" @bind="cpu" />CPU utilization</label>
-<label><input type="checkbox" @bind="memory" />Memory utilization</label>
-<label><input type="checkbox" @bind="storage" />Storage and history budget</label>
-<label><input type="checkbox" @bind="temperature" />Board temperature</label>
-<label><input type="checkbox" @bind="uptime" />Device uptime</label>
-<label><input type="checkbox" @bind="interfaces" />Network interface health and counters</label>
-<label><input type="checkbox" @bind="alarms" />Resource alarms</label>
-</div>
+<TelemetryChannelGroup Title="System telemetry">
+<li><label><input type="checkbox" @bind="temperature" />Board temperature</label></li>
+<li><label><input type="checkbox" @bind="cpu" />CPU utilization</label></li>
+<li><label><input type="checkbox" @bind="uptime" />Device uptime</label></li>
+<li><label><input type="checkbox" @bind="memory" />Memory utilization</label></li>
+<li><label><input type="checkbox" @bind="interfaces" />Network interface health and counters</label></li>
+<li><label><input type="checkbox" @bind="alarms" />Resource alarms</label></li>
+<li><label><input type="checkbox" @bind="storage" />Storage and history budget</label></li>
+</TelemetryChannelGroup>
+<button type="button" class="text-button" popovertarget="telemetry-help" aria-haspopup="dialog">Learn more</button>
+<div id="telemetry-help" class="telemetry-help" popover="auto" role="dialog" aria-labelledby="telemetry-help-title">
+<div class="section-heading"><h2 id="telemetry-help-title">About cloud reporting</h2><button type="button" class="secondary" popovertarget="telemetry-help" popovertargetaction="hide" autofocus>Close</button></div>
 <p>Device identity, timestamps, clock health, connection heartbeat, container inventory and control acknowledgements are always reported. Resource alarms are a separate channel and may include resource values even when that measurement channel is off.</p>
 <p>Changes apply to newly collected cloud reports. Reports already buffered before this change keep their original contents. Previously received cloud history is retained under the server’s data policy.</p>
+</div>
 </section>
 <section class="card"><h2>Confirm local ownership</h2><p>Channel settings are saved on this appliance and survive restarts. All channels are enabled by default.</p>
 <label>Your appliance password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
