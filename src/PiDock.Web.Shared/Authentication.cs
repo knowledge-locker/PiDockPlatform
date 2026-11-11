@@ -1,0 +1,103 @@
+using Microsoft.AspNetCore.Hosting;
+using PiDock.Core;
+using System.Net;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+namespace PiDock.Web.Shared;
+
+public static class Authentication
+{
+    public static void AddPiDockAuthentication(this WebApplicationBuilder builder, string product)
+    {
+        var directory = StateFiles.PrepareDirectory(builder.Configuration["PiDock:StateDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, "data"));
+        builder.Services.AddSingleton(new StateDirectory(directory));
+        builder.Services.AddDataProtection().SetApplicationName("PiDock." + product).PersistKeysToFileSystem(new DirectoryInfo(StateFiles.PrepareDirectory(Path.Combine(directory, "keys"))));
+        builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<IDataProtectionProvider>(), directory));
+        builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(o =>
+        {
+            o.Cookie.Name = "PiDock." + product; o.Cookie.HttpOnly = true; o.Cookie.SameSite = SameSiteMode.Strict;
+            o.Cookie.SecurePolicy = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
+            o.LoginPath = "/auth/login"; o.ExpireTimeSpan = TimeSpan.FromMinutes(15); o.SlidingExpiration = false;
+            o.Events.OnValidatePrincipal = context =>
+            {
+                if (!context.HttpContext.RequestServices.GetRequiredService<UserStore>().IsCurrent(context.Principal!)) context.RejectPrincipal();
+                return Task.CompletedTask;
+            };
+        });
+        builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 65536);
+        builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => { o.ValueLengthLimit = 1024; o.ValueCountLimit = 16; o.KeyLengthLimit = 128; });
+        builder.Services.AddAuthorization(); builder.Services.AddCascadingAuthenticationState();
+        builder.Services.AddRateLimiter(options => options.AddPolicy("login", context =>
+            RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })));
+    }
+    public static void MapPiDockAuthentication(this WebApplication app, string product)
+    {
+        var appName = product == "Cloud" ? "PiDockCloud" : "PiDockOS";
+        app.MapGet("/auth/login", (HttpContext context, IAntiforgery antiforgery, UserStore users) =>
+        {
+            var tokens = antiforgery.GetAndStoreTokens(context);
+            var token = WebUtility.HtmlEncode(tokens.RequestToken);
+            var message = users.HasUsers ? "Use your password and external authenticator." : "No account provisioned. Run this service with --commission from a trusted local console.";
+            var error = context.Request.Query.ContainsKey("failed") ? "<p role='alert'>Sign-in failed or temporarily throttled. Check your credentials and device time.</p>" : "";
+            return Results.Content($"""
+                <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · {appName}</title><link rel="stylesheet" href="/_content/PiDock.Web.Shared/pidock.css"></head>
+                <body><main class="login"><div class="brand">◈ {appName} <span>PiDockPlatform</span></div><h1>Sign in to {appName}</h1><p>{message}</p>{error}<form method="post" action="/auth/login">
+                <input type="hidden" name="{tokens.FormFieldName}" value="{token}"><label>Username<input name="username" autocomplete="username" required maxlength="64"></label>
+                <label>Password<input type="password" name="password" autocomplete="current-password" required maxlength="256"></label><label>Authenticator code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]+" minlength="6" maxlength="6" required></label>
+                <button type="submit">Sign in securely →</button></form><small>External authenticator required · No network account reset</small></main></body></html>
+                """, "text/html");
+        }).AllowAnonymous();
+        app.MapPost("/auth/login", async (HttpContext context, IAntiforgery antiforgery, UserStore store) =>
+        {
+            try { await antiforgery.ValidateRequestAsync(context); } catch (AntiforgeryValidationException) { return Results.BadRequest(); }
+            var form = await context.Request.ReadFormAsync();
+            if (form["username"].ToString().Length > 64 || form["password"].ToString().Length > 256 || form["code"].ToString().Length != 6) return Results.Redirect("/auth/login?failed=1");
+            var user = store.Authenticate(form["username"].ToString(), form["password"].ToString(), form["code"].ToString(), DateTimeOffset.UtcNow);
+            if (user is null) return Results.Redirect("/auth/login?failed=1");
+            var claims = new[] { new Claim(ClaimTypes.Name, user.Username), new Claim(ClaimTypes.Role, user.Role), new Claim("tenant", user.TenantId), new Claim("stamp", user.Stamp), new Claim("expires", DateTimeOffset.UtcNow.AddMinutes(15).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)) };
+            await context.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme)), new AuthenticationProperties { IsPersistent = false });
+            return Results.Redirect("/");
+        }).RequireRateLimiting("login").AllowAnonymous();
+        app.MapPost("/auth/logout", async (HttpContext context, IAntiforgery antiforgery) =>
+        {
+            try { await antiforgery.ValidateRequestAsync(context); } catch (AntiforgeryValidationException) { return Results.BadRequest(); }
+            await context.SignOutAsync(); return Results.Redirect("/auth/login");
+        }).RequireAuthorization();
+        app.MapGet("/health/live", () => Results.Ok(new { status = "alive", stage = "engineering-preview" })).AllowAnonymous();
+    }
+    public static bool Commission(this WebApplication app, string[] args, bool singleOwner)
+    {
+        if (!args.Contains("--commission")) return false;
+        if (Console.IsInputRedirected || Console.IsOutputRedirected) throw new InvalidOperationException("Commissioning requires an interactive trusted local terminal.");
+        if (singleOwner && app.Services.GetRequiredService<UserStore>().HasUsers) throw new InvalidOperationException("This appliance already has an owner. Credential recovery is not implemented in the preview.");
+        Console.WriteLine("PiDock engineering preview — local account provisioning. No reset operation is exposed over HTTP.");
+        Console.Write("Username: "); var name = Console.ReadLine() ?? "";
+        Console.Write("Password (14+ characters): "); var password = ReadSecret();
+        Console.Write("Confirm password: "); if (ReadSecret() != password) throw new InvalidOperationException("Passwords do not match.");
+        string tenant = "local", role = "Owner";
+        if (!singleOwner) { Console.Write("Tenant ID: "); tenant = Console.ReadLine() ?? ""; Console.Write("Role (Owner/Administrator/Operator/Viewer/Auditor): "); role = Console.ReadLine() ?? ""; }
+        var secret = Totp.NewSecret();
+        Console.WriteLine("Add a time-based account in your external authenticator. Keep this secret private:"); Console.WriteLine(secret);
+        Console.Write("Enter its current six-digit code: "); var first = Totp.Match(secret, ReadSecret(), DateTimeOffset.UtcNow) ?? throw new InvalidOperationException("Code invalid.");
+        Console.Write("Wait for the NEXT code, then enter it: "); var second = Totp.Match(secret, ReadSecret(), DateTimeOffset.UtcNow, first) ?? throw new InvalidOperationException("Expected a new valid code.");
+        if (second != first + 1) throw new InvalidOperationException("Enrollment requires consecutive authenticator codes. Restart commissioning and try again.");
+        app.Services.GetRequiredService<UserStore>().Add(name, password, secret, tenant, role, singleOwner, second);
+        Console.WriteLine("Account provisioned. Restart normally to serve the UI. Physical-presence enforcement on Pi is a later hardware gate."); return true;
+    }
+    private static string ReadSecret()
+    {
+        var value = new System.Text.StringBuilder();
+        while (true) { var key = Console.ReadKey(true); if (key.Key == ConsoleKey.Enter) break; if (key.Key == ConsoleKey.Backspace) { if (value.Length > 0) value.Length--; } else if (!char.IsControl(key.KeyChar)) value.Append(key.KeyChar); }
+        Console.WriteLine(); return value.ToString();
+    }
+}
+public sealed record StateDirectory(string Path);

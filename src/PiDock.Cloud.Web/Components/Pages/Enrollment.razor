@@ -1,0 +1,53 @@
+@page "/enrollment"
+@inject EnrollmentStore Invitations
+@inject AuthenticationStateProvider Authentication
+@inject UserStore Users
+<PageTitle>Add device · PiDockCloud</PageTitle>
+<div class="page-heading"><div><p class="eyebrow">PIDOCKCLOUD / ENROLLMENT</p><h1>Add a device</h1><p>Create a single-use code, then enter it on your PiDockOS appliance.</p></div><a href="/">Fleet overview →</a></div>
+@if (!Invitations.Ready) { <div class="notice">Device enrollment is not enabled on this server. The server administrator must configure its certificate issuer and MQTT endpoint first.</div> }
+<div class="columns"><section class="card"><h2>1. Create an enrollment code</h2><p>The code belongs to your organization. It expires after ten minutes and connects one device.</p>
+@if (canManage) {
+<label>Device name<input @bind="name" maxlength="80" placeholder="Workshop Pi" autocomplete="off" /></label>
+<label>Your cloud password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
+<label>Fresh authenticator code<input @bind="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" /></label>
+<button @onclick="Create" disabled="@(busy || !Invitations.Ready)">Generate single-use code</button>
+} else { <p>An organization Owner or Administrator must create enrollment codes.</p> }
+<p role="status">@message</p></section>
+<section class="card"><h2>2. Connect from PiDockOS</h2>
+@if (issued is not null) {
+<div class="notice"><strong>Copy this code now. It is shown only here.</strong><p class="enrollment-code">@issued.Code</p><p>Expires @issued.ExpiresAt.UtcDateTime.ToString("HH:mm:ss") UTC. Keep it private.</p></div>
+} else { <p>Your new code will appear here once. Existing codes cannot be displayed again.</p> }
+<ol><li>Sign into the PiDockOS appliance as its local owner.</li><li>Open <strong>Cloud connection</strong> and enter this server’s HTTPS address and the code.</li><li>Confirm with your local password and a fresh authenticator code.</li><li>Return to the fleet overview and wait for the first live reading.</li></ol>
+<p>The appliance keeps its private key and local sign-in credentials. Cloud monitoring does not grant remote I/O control.</p></section></div>
+<section class="card"><div class="section-heading"><h2>Device registrations</h2><button class="secondary" @onclick="Load">Refresh</button></div>
+@if (entries.Count == 0) { <p>No device invitations yet.</p> }
+else { <table><thead><tr><th>Name</th><th>Device ID</th><th>Enrollment</th><th>Code expiry (UTC)</th><th>Action</th></tr></thead><tbody>@foreach (var entry in entries) {
+<tr><td>@entry.Name</td><td><small>@entry.DeviceId</small></td><td><span class="pill">@(entry.State == "Registered" ? "Registered · awaiting or reporting telemetry" : entry.State)</span></td><td>@entry.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td><td>@if(canManage && entry.State == "Pending") { <button class="secondary" disabled="@busy" @onclick="() => Cancel(entry.Id)">Cancel code</button> }</td></tr>
+}</tbody></table> }
+<small>Registered confirms certificate issuance. Fleet contact confirms that monitoring is connected. Cancelling a code does not revoke an issued certificate.</small></section>
+@code {
+    private string name = "", password = "", otp = "", message = ""; private bool busy, canManage;
+    private EnrollmentCode? issued; private IReadOnlyList<DeviceInvitation> entries = [];
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() { var user = (await Authentication.GetAuthenticationStateAsync()).User; canManage = EnrollmentStore.CanManage(user); entries = Invitations.For(user); }
+    private async Task<bool> Confirm()
+    {
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        bool valid = Users.IsCurrent(user) && EnrollmentStore.CanManage(user) && Users.Authenticate(user.Identity!.Name!, password, otp, DateTimeOffset.UtcNow) is not null;
+        password = ""; otp = ""; if (!valid) message = "Your cloud password and a fresh authenticator code are required."; return valid;
+    }
+    private async Task Create()
+    {
+        if(busy) return; busy = true; issued = null;
+        try { if (!await Confirm()) return; issued = Invitations.Create((await Authentication.GetAuthenticationStateAsync()).User, name); message = "Code created. Enter it on the appliance before it expires."; await Load(); }
+        catch(Exception e) when(e is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException) { message = e is ArgumentException or InvalidOperationException ? e.Message : "Enrollment could not be saved. Check server status."; }
+        finally { busy = false; }
+    }
+    private async Task Cancel(Guid id)
+    {
+        if(busy) return; busy = true;
+        try { if (!await Confirm()) return; Invitations.Cancel((await Authentication.GetAuthenticationStateAsync()).User, id); if(issued?.Id == id) issued = null; message = "Invitation cancelled."; await Load(); }
+        catch(Exception e) when(e is IOException or UnauthorizedAccessException) { message = "Invitation could not be cancelled."; }
+        finally { busy = false; }
+    }
+}

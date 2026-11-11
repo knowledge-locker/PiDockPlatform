@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "Microsoft.AspNetCore.App.Internal.Assets": {
+        "type": "Direct",
+        "requested": "[10.0.10, )",
+        "resolved": "10.0.10",
+        "contentHash": "8k0KoYKvNrSqP8E3oDJMBVKavlTEE6BacdLGtEDcxv9Hz0XxWFkD6JdLJsxXUlGeAfZ6YfvWmxKenl73qeCTSA=="
+      },
+      "MQTTnet": {
+        "type": "Transitive",
+        "resolved": "5.2.0.1603",
+        "contentHash": "iNuWVo/568aRo2ExEN2qkC4J5b07ckKqt+9Uok2kIbbK7PMBsXvYiKVENPHmOBWFB5ExhlNQb/qQ8M9/IYRTdQ=="
+      },
+      "pidock.agent": {
+        "type": "Project",
+        "dependencies": {
+          "MQTTnet": "[5.2.0.1603, )",
+          "PiDock.Core": "[1.0.0, )"
+        }
+      },
+      "pidock.appliance.web": {
+        "type": "Project",
+        "dependencies": {
+          "PiDock.Agent": "[1.0.0, )",
+          "PiDock.Core": "[1.0.0, )",
+          "PiDock.Web.Shared": "[1.0.0, )"
+        }
+      },
+      "pidock.cloud.web": {
+        "type": "Project",
+        "dependencies": {
+          "PiDock.Agent": "[1.0.0, )",
+          "PiDock.Core": "[1.0.0, )",
+          "PiDock.Web.Shared": "[1.0.0, )"
+        }
+      },
+      "pidock.core": {
+        "type": "Project"
+      },
+      "pidock.web.shared": {
+        "type": "Project",
+        "dependencies": {
+          "PiDock.Core": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

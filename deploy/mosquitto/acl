@@ -1,0 +1,13 @@
+# Certificate CN is the broker identity, never a client-supplied username.
+# Enrollment issues CN tenant/devices/device, with identifiers validated by the issuer.
+# The identity is inserted as a whole; no client chooses another tenant or device.
+pattern write pidock/v1/tenants/%u/telemetry
+pattern read pidock/v1/tenants/%u/receipts
+
+user local--pi5
+topic write pidock/v1/tenants/local/devices/pi5/telemetry
+topic read pidock/v1/tenants/local/devices/pi5/receipts
+
+user pidock-ingest
+topic read pidock/v1/tenants/+/devices/+/telemetry
+topic write pidock/v1/tenants/+/devices/+/receipts

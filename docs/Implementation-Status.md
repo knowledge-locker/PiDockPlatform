@@ -1,0 +1,56 @@
+# Implementation status
+
+Engineering preview v0.1 — November 10, 2026.
+
+The specification remains the production target. This increment establishes runnable appliance/cloud services and tests; it does not deliver a flashable or production-hardened OS.
+
+| Area | Implemented now | Remaining release work |
+| --- | --- | --- |
+| Accounts | Console commissioning, password/TOTP, replay persistence, throttling, protected accounts, CSRF, session expiration | Physical-presence recovery, hardened clock gate, audited credential lifecycle, trusted local commissioning UX |
+| Appliance UI | Overview, storage policy, applications, live pin map, network counters | Files, network changes/rollback, raw diagnostics, complete error/status handling |
+| Containers | Separate Unix broker, constrained digest-pinned ARM64 deployment, start/stop, resource limits | Archive import, signature policy, persistence, secrets, Compose subset, hardware grants and update rollback |
+| Storage | Percentage budget, protected reserve, per-class oldest-first cleanup, policy preview/save and persistent unsent-loss counters | Allocated-block accounting, application quotas, class/age editing, long-run SD testing |
+| I/O | Correct header map, unknown physical values, opt-in timed simulation | Pi 5 driver, exclusive app handoff, PWM, input simulation API, physical fallback and raw capture |
+| Telemetry | Independent sampling/delivery, mTLS, bounded durable queue, cloud persistence receipts, deduplicated replay, local resource alarms and bounded cloud archive | Remote audit/log sync, cloud incident workflow, notification delivery and PostgreSQL history |
+| Cloud users | Multiple console-provisioned users, tenant claim enforcement, Owner/Administrator-only enrollment with fresh MFA | Online user administration, fleet/device grant scopes, other privileged action policies, account recovery |
+| Enrollment | Single-use expiring codes, CSR validation, device-specific certificates, key-bound response recovery, local key generation and automatic MQTT activation | Isolated signing service, renewal, revocation, migration and production provisioning |
+| Persistence | Atomic protected account files, segmented local telemetry, atomic fleet JSON | PostgreSQL/RLS, migrations, historical queries, log/object storage, tested backup/restore |
+| Packaging | HTTPS cloud container, mTLS broker, local-only Compose package, non-root services | Digest-pinned release artifacts, CA lifecycle, SBOM/signatures, public hosting and PROX3MUS integration |
+| OS | Systemd integration units and acceptance checklist | Buildroot image, supported kernel/drivers, RTC/NTS, verified root, signed A/B updates, secure provisioning |
+
+## Next implementation order
+
+1. Validate the application stack on the available Pi 4 with a 64-bit OS, then the Pi 3B with its tighter memory budget. Use network time after boot for battery-free development. Validate Pi 5-specific kernel/RP1 I/O, RTC holdover and secure boot/update behavior separately when that board is available.
+2. Add hardware-backed commissioning/recovery flow and trusted-clock gating before allowing production authentication.
+3. Implement application manifests, persistent data and publisher policy; integrate the broker with narrow device grants.
+4. Extend the implemented local resource alarms and telemetry replay with remote audit/log synchronization, a cloud incident workflow and notification routing.
+5. Replace the cloud JSON store with PostgreSQL and RLS, then add durable alarms, user administration and notifications.
+6. Build and fault-test the signed image/update pipeline, complete independent security review, and validate PROX3MUS deployment.
+
+No DNS, public service, production credentials, firmware fuses or Raspberry Pi hardware were changed by this increment.
+
+## Verified in this workspace
+
+- Fifty-nine automated tests passed on macOS and Linux ARM64, including HTTP authentication/CSRF, TOTP persistence, storage rotation, tenant isolation, broker isolation, alarm recovery and offline telemetry delivery.
+- Release builds completed with zero warnings and zero errors.
+- The cloud Compose stack built and served HTTPS; its broker accepted the client certificate and forwarded real host telemetry to the durable fleet store.
+- A certificate-authenticated attempt to publish into another tenant returned MQTT Not authorized.
+- The Unix broker deployed the official digest-pinned .NET sample on Docker ARM64; its HTTP endpoint responded. Container inspection confirmed UID/GID 1654, read-only root, privileged=false, dropped capabilities and a 128 MiB memory limit. Start and stop both worked.
+- NuGet reported no known vulnerable package dependencies at validation time; this does not substitute for OS/runtime or security review.
+- Initial product browser testing was blocked by the untrusted development HTTPS certificate. A subsequent isolated Development-only review harness now renders the actual screen components with sample data on loopback HTTP; desktop/mobile visual and interaction checks were completed without changing certificate trust. See UI-Review.md.
+
+Disposable validation accounts and the sample workload are removed after verification. No default user credentials are shipped.
+
+## Monitoring increment
+
+Local sampling now runs independently of network delivery. The bounded outbox persists across restart and clears a sample only after the cloud saves it and publishes a scoped receipt. Lost receipts produce safe retries; replay is archived without replacing newer live readings. Pending samples may still be purged under the configured data policy, with persistent loss counters.
+
+Resource alarms use monotonic hold/recovery timers, preserve active identity across restart and retain unknown-sensor alarms until a known recovery reading. The appliance overview shows alarms and delivery status; the cloud shows reported alarm counts. Alarm configuration is a startup configuration file, not yet a UI editor. External messages and log synchronization remain pending.
+
+## Enrollment and naming increment
+
+The products are now PiDockOS and PiDockCloud, collectively PiDockPlatform. PiDockCloud has an Add device screen and PiDockOS has Cloud connection. Enrollment uses ten-minute organization-scoped invitations, local private keys, HTTPS CSR exchange and MQTT activation without a service restart. Its certificate identity is constrained by Mosquitto patterns. The real Docker check confirmed HTTPS issuance, wrong-tenant rejection, persisted cloud receipts and outage replay. See [Device enrollment](Device-Enrollment.md) and [Deployment environments](Deployment-Environments.md).
+
+The isolated real MQTT/mTLS outage test passed: first persistence receipt, continued sampling with the broker stopped, and reconnection with four unique archived samples and zero pending samples. The normal preview stack was left running. See [Monitoring and delivery](Monitoring-and-Delivery.md) for guarantees and limits.
+
+Validation for the enrollment increment: 59 tests pass on macOS and Linux ARM64; the Release build has zero warnings/errors. The isolated HTTPS enrollment plus MQTT outage check passed, including cross-tenant rejection and four unique archived samples with zero pending. The source repository preserves its initial license and commit.

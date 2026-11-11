@@ -55,3 +55,20 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# PiDockPlatform local state and private identity material
+**/bin/
+**/obj/
+**/data/
+**/.state/
+.env
+*.pfx
+*.key
+*.pem
+*.crt
+*.user
+TestResults/
+.DS_Store
+
+__pycache__/
+*.pyc

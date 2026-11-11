@@ -1,0 +1,28 @@
+@page "/storage"
+@inject HistoryStore History
+@inject AuthenticationStateProvider Authentication
+@inject UserStore Users
+<PageTitle>Data policy · PiDockOS</PageTitle>
+<p class="eyebrow">APPLIANCE / DATA POLICY</p><h1>Data policy</h1><p>Budgets adapt to the data volume and leave space for your applications.</p>
+<div class="metrics"><section class="card"><span>Effective history budget</span><strong>@Format.Bytes(status.Budget.BudgetBytes)</strong></section><section class="card"><span>Free-space reserve</span><strong>@Format.Bytes(status.Budget.ReserveBytes)</strong></section><section class="card"><span>History retained</span><strong>@Format.Bytes(status.Budget.UsedBytes)</strong></section><section class="card"><span>Segments purged this run</span><strong>@status.DeletedSegments</strong></section></div>
+<div class="columns"><section class="card"><h2>Storage policy</h2><label>History budget (% of capacity)<input type="number" min="1" max="50" @bind="historyPercent" @bind:event="oninput" @bind:after="InvalidatePreview" /></label><label>Free-space reserve (%)<input type="number" min="5" max="80" @bind="reservePercent" @bind:event="oninput" @bind:after="InvalidatePreview" /></label><label>Start cleanup (% of budget)<input type="number" min="11" max="95" @bind="cleanupAt" @bind:event="oninput" @bind:after="InvalidatePreview" /></label><label>Clean down to (% of budget)<input type="number" min="10" max="94" @bind="cleanupTo" @bind:event="oninput" @bind:after="InvalidatePreview" /></label><div class="actions"><button @onclick="Preview">Preview changes</button><button class="secondary" @onclick="Defaults">Restore default values</button></div>
+@if (preview is not null) { <div class="notice">Proposed budget: @Format.Bytes(preview.BudgetBytes). Applying can immediately delete oldest monitoring records. Application files are excluded.</div><button @onclick="Apply">Apply policy and clean up</button> }
+@if (message is not null) { <p role="status">@message</p> }</section>
+<section class="card"><h2>History allocation</h2><table><thead><tr><th>Class</th><th>Retained</th><th>Limit</th></tr></thead><tbody>@foreach (var item in status.ClassUsage) { <tr><td>@item.Key</td><td>@Format.Bytes(item.Value)</td><td>@Format.Bytes(status.Budget.ClassLimits[item.Key])</td></tr> }</tbody></table><p>Logs 50% · Telemetry 30% · Audit 15% · Captures 5%</p><p>Oldest segments rotate first. Offline data can also be purged. Allocation shares are currently fixed. Custom shares and age limits are planned.</p><details><summary>Storage accounting details</summary><p>Usage is based on file sizes and actual free space. Disk allocation and application quotas still need hardware validation.</p></details></section></div>
+@code {
+    private HistoryStatus status = default!; private double historyPercent, reservePercent, cleanupAt, cleanupTo; private PolicyBudget? preview; private DataPolicy? reviewedPolicy; private string? message;
+    protected override void OnInitialized() { status = History.Status(); Load(status.Policy); }
+    private void Load(DataPolicy p) { historyPercent = p.HistoryPercent; reservePercent = p.ReservePercent; cleanupAt = p.CleanupAtPercent; cleanupTo = p.CleanupToPercent; }
+    private DataPolicy Candidate() => new(historyPercent, reservePercent, status.Policy.MinimumReserveBytes, cleanupAt, cleanupTo);
+    private void Preview() { try { reviewedPolicy = Candidate(); preview = History.Preview(reviewedPolicy); message = null; } catch (ArgumentException e) { preview = null; message = e.Message; } }
+    private void InvalidatePreview() { preview = null; reviewedPolicy = null; message = null; }
+    private void Defaults() { Load(new()); InvalidatePreview(); message = "Defaults loaded. Preview before applying."; }
+    private async Task Apply()
+    {
+        if (reviewedPolicy is null || reviewedPolicy != Candidate()) { InvalidatePreview(); message = "Settings changed. Preview them again before applying."; return; }
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        if (!Users.IsCurrent(user) || !user.IsInRole("Owner")) { message = "Owner sign-in required."; return; }
+        try { History.Apply(reviewedPolicy); History.Append(HistoryClass.Audit, new { action = "data-policy.changed", user = user.Identity!.Name, at = DateTimeOffset.UtcNow }); status = History.Status(); preview = null; message = "Policy saved. Oldest eligible data has been cleaned up."; }
+        catch (ArgumentException e) { message = e.Message; }
+    }
+}

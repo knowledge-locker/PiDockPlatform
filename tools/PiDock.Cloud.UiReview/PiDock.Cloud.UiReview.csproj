@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><RootNamespace>PiDock.UiReview</RootNamespace></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/PiDock.Agent/PiDock.Agent.csproj" />
+    <ProjectReference Include="../../src/PiDock.Web.Shared/PiDock.Web.Shared.csproj" />
+    <Compile Include="../../src/PiDock.Cloud.Web/DeviceCertificateIssuer.cs" Link="Services/DeviceCertificateIssuer.cs" />
+    <Compile Include="../../src/PiDock.Cloud.Web/EnrollmentStore.cs" Link="Services/EnrollmentStore.cs" />
+    <Compile Include="../../src/PiDock.Cloud.Web/TelemetryArchive.cs" Link="Services/TelemetryArchive.cs" />
+    <Compile Include="../../src/PiDock.Cloud.Web/FleetStore.cs" Link="Services/FleetStore.cs" />
+    <Compile Include="../../src/PiDock.Cloud.Web/IngestionService.cs" Link="Services/IngestionService.cs" />
+    <Content Include="../../src/PiDock.Cloud.Web/Components/Pages/*.razor" Link="Components/Pages/%(Filename)%(Extension)" />
+    <Content Include="../../src/PiDock.Cloud.Web/Components/Layout/MainLayout.razor" Link="Components/Layout/MainLayout.razor" />
+    <Compile Include="../PiDock.UiReview/Program.cs" Link="Program.cs" />
+    <Compile Include="../PiDock.UiReview/ReviewFixture.cs" Link="ReviewFixture.cs" />
+    <Content Include="../PiDock.UiReview/ReviewApp.razor" Link="ReviewApp.razor" />
+    <Content Include="../PiDock.UiReview/ReviewRoutes.razor" Link="ReviewRoutes.razor" />
+    <Content Include="../PiDock.UiReview/_Imports.razor" Link="_Imports.razor" />
+  </ItemGroup>
+</Project>

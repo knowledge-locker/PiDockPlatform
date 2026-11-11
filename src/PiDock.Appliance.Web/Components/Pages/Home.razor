@@ -1,0 +1,33 @@
+@page "/"
+@implements IAsyncDisposable
+@inject MonitoringService Monitoring
+@inject HistoryStore History
+@inject AlarmMonitor Alarms
+<PageTitle>Overview · PiDockOS</PageTitle>
+<div class="page-heading"><div><p class="eyebrow">APPLIANCE / OVERVIEW</p><h1>Device overview</h1><p>Live host health, managed storage, and device interfaces.</p></div><span class="pill">● Live · 2 second refresh</span></div>
+<div class="notice">Engineering preview · Real host measurements. Physical GPIO, verified boot and trusted-clock checks are pending. Container controls require a connected host broker.</div>
+@if (Monitoring.Current is { } host)
+{
+    <div class="metrics">
+        <section class="card"><span>CPU utilization</span><strong>@Format.Percent(host.CpuPercent)</strong><small>@host.Platform</small></section>
+        <section class="card"><span>Memory in use</span><strong>@(host.MemoryTotalBytes is > 0 ? Format.Percent(100d * (host.MemoryTotalBytes - host.MemoryAvailableBytes) / host.MemoryTotalBytes) : "Unavailable")</strong><small>@(host.MemoryAvailableBytes.HasValue ? Format.Bytes(host.MemoryAvailableBytes) + " available" : "No host measurement")</small></section>
+        <section class="card"><span>Storage available</span><strong>@Format.Bytes(host.Storage.FreeBytes)</strong><small>@Format.Bytes(host.Storage.ReserveBytes) protected reserve</small></section>
+        <section class="card"><span>Board temperature</span><strong>@(host.TemperatureC?.ToString("0.#") + (host.TemperatureC.HasValue ? " °C" : "Unavailable"))</strong><small>Available when the host exposes a sensor</small></section>
+    </div>
+    <div class="columns"><section class="card"><div class="section-heading"><h2>Monitoring data storage</h2><a href="/storage">Manage policy →</a></div><p>Logs and telemetry rotate automatically inside the history budget.</p><div class="bar"><span style="width:@Math.Clamp(host.Storage.UsedBytes * 100d / Math.Max(1,host.Storage.BudgetBytes),0,100).ToString(System.Globalization.CultureInfo.InvariantCulture)%"></span></div><div class="split"><span>@Format.Bytes(host.Storage.UsedBytes) retained</span><span>@Format.Bytes(host.Storage.BudgetBytes) budget</span></div></section>
+    <section class="card"><h2>Connection health</h2><dl><dt>Host</dt><dd>@host.Hostname</dd><dt>Telemetry</dt><dd>@Monitoring.TransportStatus</dd><dt>Clock</dt><dd>@host.ClockState</dd><dt>Last measurement</dt><dd>@host.ObservedAt.ToLocalTime().ToString("HH:mm:ss")</dd></dl></section></div>
+    <section class="card"><div class="section-heading"><h2>Resource alarms</h2><span class="pill @(Alarms.Active.Count > 0 ? "status-stale" : "status-neutral")">@Alarms.Active.Count active</span></div>
+    @if (Alarms.Active.Count == 0) { <p>No active resource alarms. Only available measurements are evaluated.</p> }
+    else { <table><thead><tr><th>Condition</th><th>Severity</th><th>Opened (UTC)</th></tr></thead><tbody>@foreach (var alarm in Alarms.Active) { <tr><td>@alarm.Title</td><td><span class="pill @(alarm.Severity == "Critical" ? "status-offline" : "status-stale")">@alarm.Severity</span></td><td>@alarm.OpenedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td></tr> }</tbody></table> }
+    <details><summary>Default alarm rules</summary><p>CPU and memory pressure require five minutes above their thresholds. Temperature and critical disk usage require one minute. Storage reserve pressure opens immediately. Recovery requires 30 seconds below the clear threshold.</p></details></section>
+    var delivery = History.Status();
+    <section class="card"><div class="section-heading"><h2>Telemetry delivery</h2><span class="pill status-neutral">@Monitoring.TransportStatus</span></div><dl><dt>Pending</dt><dd>@delivery.PendingSegments samples</dd><dt>Purged unsent</dt><dd>@delivery.UnsentDropped samples</dd><dt>Not recorded</dt><dd>@delivery.RejectedQueued samples</dd></dl><p>A cloud receipt confirms a sample was saved. Pending data remains subject to your storage limits.</p></section>
+    <section class="card"><div class="section-heading"><h2>Interfaces</h2><a href="/interfaces">Inspect interfaces →</a></div><table><thead><tr><th>Interface</th><th>Type</th><th>State</th><th>Received</th><th>Sent</th><th>Errors</th></tr></thead><tbody>@foreach (var nic in host.Interfaces.Where(n => n.State == "Up").OrderBy(n => n.Name).Take(4)) { <tr><td>@nic.Name</td><td>@nic.Kind</td><td><span class="pill">@nic.State</span></td><td>@Format.Bytes(nic.ReceivedBytes)</td><td>@Format.Bytes(nic.SentBytes)</td><td>@nic.Errors</td></tr> }</tbody></table><small>Showing up to four active interfaces. Counters are cumulative; open Interfaces for the full list.</small></section>
+}
+else { <section class="card"><h2>Waiting for the first host sample…</h2><p>@Monitoring.LastError</p></section> }
+@code {
+    private readonly CancellationTokenSource stop = new(); private Task? refresh;
+    protected override void OnInitialized() => refresh = Refresh();
+    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2)); while (await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(StateHasChanged); } catch (OperationCanceledException) { } }
+    public async ValueTask DisposeAsync() { await stop.CancelAsync(); if (refresh is not null) await refresh; stop.Dispose(); }
+}

@@ -1,0 +1,11 @@
+# Deliberately opt-in, local development only. Never use the preview root CA online in production.
+services:
+  cloud:
+    environment:
+      Enrollment__IssuerCertificatePath: /certs/ca.crt
+      Enrollment__IssuerKeyPath: /enrollment/ca.key
+      Enrollment__BrokerCaPath: /certs/ca.crt
+      Enrollment__MqttHost: localhost
+      Enrollment__MqttPort: "8883"
+    volumes:
+      - ../.state/pki/ca.key:/enrollment/ca.key:ro

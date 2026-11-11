@@ -1,0 +1,40 @@
+@page "/cloud"
+@inject CloudEnrollmentClient Enrollment
+@inject MonitoringService Monitoring
+@inject AuthenticationStateProvider Authentication
+@inject UserStore Users
+<PageTitle>Cloud connection · PiDockOS</PageTitle>
+<p class="eyebrow">PIDOCKOS / CLOUD CONNECTION</p><h1>Connect to PiDockCloud</h1><p>Use your hosted or self-hosted server to monitor this appliance.</p>
+@if (!Enrollment.Enabled) { <div class="notice">Isolated UI review. Device enrollment is available from a commissioned PiDockOS appliance.</div> }
+@if (connection is not null) {
+<section class="card"><h2>Registered with PiDockCloud</h2><dl><dt>Server</dt><dd>@connection.CloudUrl</dd><dt>Organization</dt><dd>@connection.TenantId</dd><dt>Device</dt><dd>@connection.DeviceId</dd><dt>Certificate expires (UTC)</dt><dd>@connection.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</dd><dt>Telemetry</dt><dd>@Monitoring.TransportStatus</dd></dl><p>Registration is saved. Check the overview for delivery receipts and the cloud fleet for live contact.</p></section>
+} else {
+<div class="columns"><section class="card"><h2>Enter your invitation</h2><p>In PiDockCloud, open <strong>Add device</strong> to generate a code.</p>
+<label>PiDockCloud server<input type="url" @bind="server" placeholder="https://pidock.knowledgelocker.ai" autocomplete="off" maxlength="512" /></label>
+<label>Single-use enrollment code<input @bind="enrollmentCode" autocomplete="off" spellcheck="false" maxlength="64" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" /></label>
+<details><summary>Private server certificate authority</summary><p>For a private development server, paste its verified public CA certificate. Public HTTPS services normally need no entry. Certificate checks always remain enabled.</p><label>Public CA certificate<textarea @bind="caPem" rows="5" maxlength="8192"></textarea></label></details>
+<p>Only connect to a server you trust. It will receive device health and resource alarms.</p></section>
+<section class="card"><h2>Confirm local ownership</h2><label>Your appliance password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label><label>Fresh authenticator code<input @bind="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" /></label>
+<button disabled="@(busy || !Enrollment.Enabled)" @onclick="Connect">@(busy ? "Connecting…" : "Connect this appliance")</button><p>The private device key is created here and stays here. Your local password and authenticator secret are never sent to PiDockCloud.</p></section></div>
+}
+<p role="status">@message</p>
+@code {
+    private string server = "", enrollmentCode = "", caPem = "", password = "", otp = "", message = ""; private bool busy; private CloudConnection? connection;
+    protected override void OnInitialized() => connection = Enrollment.Connection;
+    private async Task Connect()
+    {
+        if(busy) return; busy = true;
+        try
+        {
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            bool valid = Users.IsCurrent(user) && user.IsInRole("Owner") && Users.Authenticate(user.Identity!.Name!, password, otp, DateTimeOffset.UtcNow) is not null;
+            password = ""; otp = "";
+            if(!valid) { message = "Your local owner password and a fresh authenticator code are required."; return; }
+            connection = await Enrollment.ConnectAsync(server, enrollmentCode, caPem); enrollmentCode = ""; caPem = "";
+            message = "Device registered. Monitoring will connect automatically; allow up to a minute for the first live reading.";
+        }
+        catch(Exception e) when(e is ArgumentException or InvalidOperationException or IOException or HttpRequestException or System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException or OperationCanceledException)
+        { message = e is ArgumentException or InvalidOperationException ? e.Message : "Connection failed. Verify the server address, certificate trust and device time, then retry with the same code."; }
+        finally { password = ""; otp = ""; busy = false; }
+    }
+}

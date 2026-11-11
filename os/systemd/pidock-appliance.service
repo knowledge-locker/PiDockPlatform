@@ -1,0 +1,29 @@
+[Unit]
+Description=PiDock appliance management preview
+After=network.target
+
+[Service]
+User=pidock
+Group=pidock
+WorkingDirectory=/usr/lib/pidock/appliance
+ExecStart=/usr/bin/dotnet /usr/lib/pidock/appliance/PiDock.Appliance.Web.dll
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=PiDock__StateDirectory=/var/lib/pidock/appliance
+Environment=Broker__SocketPath=/run/pidock/broker.sock
+EnvironmentFile=/etc/pidock/appliance.env
+StateDirectory=pidock/appliance
+UMask=0077
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/pidock/appliance
+
+[Install]
+WantedBy=multi-user.target

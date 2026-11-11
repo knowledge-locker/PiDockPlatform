@@ -1,0 +1,13 @@
+@page "/interfaces"
+@implements IAsyncDisposable
+@inject MonitoringService Monitoring
+<PageTitle>Interfaces · PiDockOS</PageTitle>
+<p class="eyebrow">APPLIANCE / INTERFACES</p><h1>Interface health</h1><p>Live operating-system interface counters. No traffic is captured.</p>
+<section class="card"><table><thead><tr><th>Name</th><th>Link</th><th>Received</th><th>Sent</th><th>Errors</th></tr></thead><tbody>@foreach (var nic in Monitoring.Current?.Interfaces ?? []) { <tr><td>@nic.Name</td><td>@nic.State</td><td>@Format.Bytes(nic.ReceivedBytes)</td><td>@Format.Bytes(nic.SentBytes)</td><td>@nic.Errors</td></tr> }</tbody></table></section>
+<section class="card"><h2>Diagnostics roadmap</h2><p>UART proxies, USB traces, I²C/SPI instrumentation, camera health and filtered packet capture require the restricted host broker. They are deliberately unavailable until its permissions, capture budgets and hardware behavior are tested.</p><span class="pill">No raw bus access from the browser</span></section>
+@code {
+    private readonly CancellationTokenSource stop = new(); private Task? refresh;
+    protected override void OnInitialized() => refresh = Refresh();
+    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2)); while (await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(StateHasChanged); } catch (OperationCanceledException) { } }
+    public async ValueTask DisposeAsync() { await stop.CancelAsync(); if (refresh is not null) await refresh; stop.Dispose(); }
+}

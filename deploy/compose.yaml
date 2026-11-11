@@ -1,0 +1,48 @@
+name: pidock-preview
+services:
+  cloud:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    user: "${PIDOCK_UID:?Run prepare-preview.sh}:${PIDOCK_GID:?Run prepare-preview.sh}"
+    ports: ["127.0.0.1:8443:8443"]
+    environment:
+      AllowedHosts: localhost;127.0.0.1
+      Mqtt__Enabled: "true"
+      Mqtt__Host: broker
+      Mqtt__CertificatePath: /certs/worker.crt
+      Mqtt__PrivateKeyPath: /certs/worker.key
+      Mqtt__CaPath: /certs/ca.crt
+    volumes:
+      - ../.state/cloud:/var/lib/pidock
+      - ../.state/pki/web.crt:/certs/web.crt:ro
+      - ../.state/pki/web.key:/certs/web.key:ro
+      - ../.state/pki/worker.crt:/certs/worker.crt:ro
+      - ../.state/pki/worker.key:/certs/worker.key:ro
+      - ../.state/pki/ca.crt:/certs/ca.crt:ro
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 512m
+    depends_on: [broker]
+    restart: unless-stopped
+  broker:
+    image: eclipse-mosquitto:2.0.22@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c
+    user: "${PIDOCK_UID:?Run prepare-preview.sh}:${PIDOCK_GID:?Run prepare-preview.sh}"
+    ports: ["127.0.0.1:8883:8883"]
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ../.state/pki/ca.crt:/certs/ca.crt:ro
+      - ../.state/pki/broker.crt:/certs/broker.crt:ro
+      - ../.state/pki/broker.key:/certs/broker.key:ro
+      - ../.state/broker:/mosquitto/data
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    restart: unless-stopped

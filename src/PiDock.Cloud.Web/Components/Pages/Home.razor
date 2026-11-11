@@ -1,0 +1,20 @@
+@page "/"
+@implements IAsyncDisposable
+@inject FleetStore Fleet
+@inject IngestionService Ingestion
+@inject EnrollmentStore Invitations
+@inject AuthenticationStateProvider Authentication
+<PageTitle>Fleet · PiDockCloud</PageTitle>
+<div class="page-heading"><div><p class="eyebrow">CLOUD / FLEET OVERVIEW</p><h1>Fleet overview</h1><p>Tenant-scoped device health delivered through authenticated MQTT.</p></div><span class="pill status-neutral">Telemetry: @Ingestion.Status</span></div>
+<div class="notice">Engineering preview · Read-only fleet monitoring. Local device ownership and I/O control remain on the appliance.</div>
+<div class="metrics"><section class="card"><span>Devices</span><strong>@devices.Count</strong></section><section class="card"><span>Online</span><strong>@devices.Count(d => Age(d) < 90)</strong></section><section class="card"><span>Needs attention</span><strong>@devices.Count(d => Age(d) >= 90 || d.Snapshot.Storage.UnderPressure || (d.Alarms?.Count ?? 0) > 0)</strong></section><section class="card"><span>Tenant</span><strong class="small-value">@tenant</strong></section></div>
+<section class="card"><h2>Device inventory</h2>@if (devices.Count == 0) { <div class="empty"><h3>Ready for your first PiDockOS device.</h3><p>Create a single-use enrollment code and connect your PiDockOS appliance.</p><p><a href="/enrollment">Add your first device →</a></p></div> } else { <table><thead><tr><th>Device</th><th>Contact</th><th>CPU</th><th>Free storage</th><th>Reported alarms</th><th>History budget</th><th>Last received (UTC)</th></tr></thead><tbody>@foreach (var device in devices) { <tr><td>@(names.GetValueOrDefault(device.DeviceId) ?? device.DeviceId)<br/><small>@(Age(device) >= 90 ? "Last known readings" : device.Snapshot.Hostname)</small></td><td><span class="pill @(Age(device) < 90 ? "status-online" : Age(device) < 180 ? "status-stale" : "status-offline")">@(Age(device) < 90 ? "Online" : Age(device) < 180 ? "Stale" : "Offline")</span></td><td>@Format.Percent(device.Snapshot.CpuPercent)</td><td>@Format.Bytes(device.Snapshot.Storage.FreeBytes)</td><td>@(device.Alarms?.Count ?? 0)</td><td>@Format.Bytes(device.Snapshot.Storage.BudgetBytes)</td><td>@(device.HasLiveContact ? device.ReceivedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm") : "No live sample")</td></tr> }</tbody></table> }</section>
+<div class="columns"><section class="card"><h2>Local ownership stays local</h2><p>Cloud accounts can view their own tenant’s devices. The cloud cannot reset an appliance account or force an output.</p></section><section class="card"><h2>Same platform, your server</h2><p>This application is packaged for self-hosting alongside a mutual-TLS MQTT broker. Single-use enrollment connects your devices. Notification delivery, PostgreSQL and fine-grained permission grants remain upcoming milestones.</p></section></div>
+@code {
+    private Dictionary<string,string> names = []; private IReadOnlyList<StoredDevice> devices = []; private string tenant = ""; private readonly CancellationTokenSource stop = new(); private Task? refresh;
+    protected override async Task OnInitializedAsync() { await Load(); refresh = Refresh(); }
+    private static double Age(StoredDevice d) => d.HasLiveContact ? (DateTimeOffset.UtcNow - d.ReceivedAt).TotalSeconds : double.PositiveInfinity;
+    private async Task Load() { var user = (await Authentication.GetAuthenticationStateAsync()).User; devices = Fleet.For(user); names = Invitations.For(user).Where(e => e.State == "Registered").ToDictionary(e => e.DeviceId, e => e.Name); tenant = user.FindFirst("tenant")?.Value ?? ""; }
+    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2)); while (await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(async () => { await Load(); StateHasChanged(); }); } catch (OperationCanceledException) { } }
+    public async ValueTask DisposeAsync() { await stop.CancelAsync(); if (refresh is not null) await refresh; stop.Dispose(); }
+}

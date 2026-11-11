@@ -1,0 +1,12 @@
+**/bin
+**/obj
+**/data
+**/.state
+.git
+.env
+**/*.key
+**/*.pfx
+TestResults
+
+**/__pycache__
+**/*.pyc

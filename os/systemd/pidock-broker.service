@@ -1,0 +1,29 @@
+[Unit]
+Description=PiDock restricted container broker preview
+After=docker.service
+Requires=docker.service
+
+[Service]
+User=root
+Group=pidock
+WorkingDirectory=/usr/lib/pidock/broker
+ExecStart=/usr/bin/dotnet /usr/lib/pidock/broker/PiDock.Appliance.Broker.dll
+Environment=Broker__SocketPath=/run/pidock/broker.sock
+Environment=Broker__DockerSocket=/var/run/docker.sock
+Environment=Broker__EnableDeployments=false
+RuntimeDirectory=pidock
+RuntimeDirectoryMode=0750
+UMask=0007
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+ReadWritePaths=/run/pidock
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+using PiDock.Core;
+using Microsoft.AspNetCore.Components.Authorization;
+using PiDock.Agent;
+using PiDock.Appliance.Web.Components;
+using PiDock.Web.Shared;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.AddPiDockAuthentication("Appliance");
+builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddScoped<AuthenticationStateProvider, SessionAuthenticationStateProvider>();
+builder.Services.AddSingleton<ICapacityProbe, DriveCapacityProbe>();
+builder.Services.AddSingleton(sp => new HistoryStore(sp.GetRequiredService<StateDirectory>().Path, sp.GetRequiredService<ICapacityProbe>()));
+builder.Services.AddSingleton<HostMonitor>();
+builder.Services.AddSingleton<BrokerClient>();
+builder.Services.AddSingleton(new GpioSimulator(builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("PiDock:SimulateGpio")));
+builder.Services.AddSingleton(sp => new MqttConnection(builder.Configuration, sp.GetRequiredService<StateDirectory>().Path));
+builder.Services.AddSingleton(sp => new CloudEnrollmentClient(sp.GetRequiredService<StateDirectory>().Path, sp.GetRequiredService<MqttConnection>()));
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton<AgentSession>();
+builder.Services.AddSingleton<DeliveryStatus>();
+builder.Services.AddSingleton(sp => new AlarmMonitor(sp.GetRequiredService<StateDirectory>().Path, sp.GetRequiredService<HistoryStore>(), sp.GetRequiredService<TimeProvider>(), builder.Configuration.GetSection("Alarms:Rules").Get<AlarmRule[]>()));
+builder.Services.AddSingleton<TelemetryDeliveryService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryDeliveryService>());
+builder.Services.AddSingleton<MonitoringService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringService>());
+var app = builder.Build();
+if (app.Commission(args, singleOwner: true)) return;
+if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error"); app.UseHsts(); app.UseHttpsRedirection(); }
+app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter(); app.UseAntiforgery();
+app.MapPiDockAuthentication("Appliance");
+app.MapStaticAssets();
+app.MapGet("/api/status", (MonitoringService monitor) => monitor.Current).RequireAuthorization();
+app.MapRazorComponents<App>().AddInteractiveServerRenderMode().RequireAuthorization();
+app.Run();
+public partial class Program;
