@@ -29,6 +29,12 @@ public sealed class DeviceDashboardTests : IDisposable
     [InlineData(0,"Just now")][InlineData(20,"20s ago")][InlineData(90,"1m ago")][InlineData(7200,"2h ago")][InlineData(172800,"2d ago")]
     public void RelativeContactTimeIsReadable(int seconds,string expected) => Assert.Equal(expected,Format.Ago(clock.GetUtcNow().AddSeconds(-seconds),clock.GetUtcNow()));
     [Fact]
+    public void RemotePolicyUsesTheSameResolvedStateDirectoryAsAuthentication()
+    {
+        using var mqtt=new MqttConnection(Settings);using var agent=new RemoteApplicationAgent(new ConfigurationBuilder().Build(),new Runtime(),mqtt,clock,root);
+        agent.SetEnabled(true);Assert.True(File.Exists(Path.Combine(root,"remote-applications.json")));
+    }
+    [Fact]
     public async Task DeviceOptInAndPersistentDedupProtectRuntimeOperations()
     {
         using var mqtt = new MqttConnection(Settings); var runtime = new Runtime();

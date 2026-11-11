@@ -15,10 +15,10 @@ public sealed class RemoteApplicationAgent : BackgroundService
     private readonly string path; private readonly object gate = new();
     private readonly Channel<ApplicationCommand> commands = Channel.CreateBounded<ApplicationCommand>(16);
     private LocalApplicationPolicy policy; private RemoteApplicationSnapshot current;
-    public RemoteApplicationAgent(IConfiguration configuration, IApplicationRuntime broker, MqttConnection mqtt, TimeProvider clock)
+    public RemoteApplicationAgent(IConfiguration configuration, IApplicationRuntime broker, MqttConnection mqtt, TimeProvider clock, string? directory = null)
     {
         this.broker = broker; this.mqtt = mqtt; this.clock = clock;
-        path = Path.Combine(StateFiles.PrepareDirectory(configuration["PiDock:StateDirectory"] ?? throw new InvalidOperationException("State directory required.")), "remote-applications.json");
+        path = Path.Combine(StateFiles.PrepareDirectory(directory ?? configuration["PiDock:StateDirectory"] ?? Path.Combine(Directory.GetCurrentDirectory(), "data")), "remote-applications.json");
         policy = File.Exists(path) ? JsonSerializer.Deserialize<LocalApplicationPolicy>(File.ReadAllText(path), StateFiles.Json)! : new(false, []);
         current = new(clock.GetUtcNow(), policy.Enabled, "Waiting for container inventory", [], policy.Processed.TakeLast(8).Select(p => p.Result).ToArray());
     }

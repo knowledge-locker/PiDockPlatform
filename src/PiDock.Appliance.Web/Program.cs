@@ -13,7 +13,7 @@ builder.Services.AddSingleton(sp => new HistoryStore(sp.GetRequiredService<State
 builder.Services.AddSingleton<HostMonitor>();
 builder.Services.AddSingleton<BrokerClient>();
 builder.Services.AddSingleton<IApplicationRuntime>(sp => sp.GetRequiredService<BrokerClient>());
-builder.Services.AddSingleton<RemoteApplicationAgent>();
+builder.Services.AddSingleton(sp => new RemoteApplicationAgent(builder.Configuration, sp.GetRequiredService<IApplicationRuntime>(), sp.GetRequiredService<MqttConnection>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<StateDirectory>().Path));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RemoteApplicationAgent>());
 builder.Services.AddSingleton(new GpioSimulator(builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("PiDock:SimulateGpio")));
 builder.Services.AddSingleton(sp => new MqttConnection(builder.Configuration, sp.GetRequiredService<StateDirectory>().Path));

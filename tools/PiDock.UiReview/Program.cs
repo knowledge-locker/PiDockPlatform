@@ -26,7 +26,7 @@ builder.Services.AddSingleton<ICapacityProbe, ReviewCapacity>();
 builder.Services.AddSingleton(sp => new HistoryStore(state, sp.GetRequiredService<ICapacityProbe>()));
 builder.Services.AddSingleton<HostMonitor>(); builder.Services.AddSingleton<BrokerClient>();
 builder.Services.AddSingleton<IApplicationRuntime>(sp => sp.GetRequiredService<BrokerClient>());
-builder.Services.AddSingleton<RemoteApplicationAgent>();
+builder.Services.AddSingleton(sp => new RemoteApplicationAgent(builder.Configuration, sp.GetRequiredService<IApplicationRuntime>(), sp.GetRequiredService<MqttConnection>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<StateDirectory>().Path));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RemoteApplicationAgent>());
 builder.Services.AddSingleton(new GpioSimulator(true)); builder.Services.AddSingleton<MqttConnection>();
 builder.Services.AddSingleton(sp => new CloudEnrollmentClient(state, sp.GetRequiredService<MqttConnection>(), enabled: false));
