@@ -4,7 +4,7 @@ The development portal is https://pidock-dev.knowledgelocker.ai, hosted on `know
 
 ## Deployed services
 
-- Cloud: `prox3mus-pidockplatform-eca278f0`, image `ghcr.io/knowledge-locker/pidockplatform@sha256:2e392e837f7d4c37723c756aecd08c41cd11d2da416fc66bfbf0fa1485135f0b` (`0.1.0-dev.9`, source `8300ed610570bcc84fabb672a65429db8d4992eb`). [Publication and provenance](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43115097225).
+- Cloud: `prox3mus-pidockplatform-eca278f0`, image `ghcr.io/knowledge-locker/pidockplatform@sha256:366a02db81f33fbef06af2b2122e527285917cbe626cb499b7e0870284210295` (`0.1.0-dev.10`, source `a69bf34d26e771a12c5a8b5ccf9f723b35c90d65`). [Publication and provenance](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43119838632).
 - HTTPS: existing Caddy reverse proxy, publicly trusted certificate with automatic renewal. Its exact trusted proxy address is `172.18.0.2`; revalidate this configuration if the Caddy container/network changes. No trust-all forwarded-header setting is used.
 - MQTT: `pidock-development-broker`, a constrained non-root Mosquitto container managed by `/opt/pidock/deploy/compose.development-broker.yaml`. It uses the existing proxy Docker network, with TLS hostname `pidock-development-broker` for the cloud worker and `pidock-dev.knowledgelocker.ai:8883` for devices. Shared-network membership grants no MQTT permissions without a valid certificate.
 - State: the separately labelled development external cloud/broker volumes described in [Persistent storage](Persistent-Storage.md).
@@ -54,4 +54,6 @@ The first physical Pi is now registered. Enrollment UX adds a two-minute connect
 
 Device-specific resource KPIs, relative contact ages, selectable resource trends and scoped CSV/JSON downloads are described in [Device dashboard](Device-Dashboard.md). Remote start/stop/restart requires the updated Pi agent/broker and a local owner opt-in, followed by fresh cloud Owner/Administrator authentication for every operation.
 
-The physical Pi dashboard update is installed and verified against its package hashes. Both Pi services are active, the cloud receives fresh container inventory, and the current inventory contains zero managed containers. Local cloud-control permission remains off until the owner enables it.
+The physical Pi dashboard update is installed and verified against its package hashes. Both Pi services are active, the cloud receives fresh container inventory, and the current inventory contains zero managed containers. The owner has now enabled cloud-control permission; its live report was verified. Release dev.10 makes this status visible in the fleet inventory and device dashboard. The telemetry-channel update package has been staged on the Pi and its manifests verified; installation requires the local administrator step.
+
+Before dev.10 deployment, development backup `d6692829076fce289568067abd868cf81c6c75fc0caeaca9d9de28d4ae6b4df3` passed encrypted data checking and a 478-file restore check. The encrypted repository and recovery password were also copied to the private off-host recovery directory.
