@@ -82,40 +82,58 @@ public sealed class MqttTelemetryPublisher : ITelemetryPublisher, IDisposable
 public sealed class TelemetryDeliveryService(HistoryStore history, MqttConnection mqtt, AgentSession session,
     DeliveryStatus status, TimeProvider clock, ILogger<TelemetryDeliveryService> logger) : BackgroundService
 {
+    private readonly object retryGate = new();
+    private CancellationTokenSource retry = new(); private bool stopped;
+    public void RetryConnection()
+    {
+        lock (retryGate) { if (stopped) return; status.Text = "Retrying cloud connection…"; retry.Cancel(); }
+    }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         MqttConnection? profile = null; MqttTelemetryPublisher? publisher = null;
         var pump = new TelemetryDeliveryPump(history, clock); int failures = 0;
         try
         {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            var current = mqtt.Current;
-            if (!current.Enabled) { await Task.Delay(TimeSpan.FromSeconds(2), clock, stoppingToken); continue; }
-            double delay = 2;
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                if (!ReferenceEquals(profile, current))
-                {
-                    publisher?.Dispose(); publisher = null;
-                    publisher = new MqttTelemetryPublisher(current, history, logger); profile = current;
-                    pump = new TelemetryDeliveryPump(history, clock); failures = 0;
+                CancellationToken retryToken; bool reset;
+                lock (retryGate) {
+                    reset = retry.IsCancellationRequested;
+                    if (reset) { retry.Dispose(); retry = new(); }
+                    retryToken = retry.Token;
                 }
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); timeout.CancelAfter(TimeSpan.FromSeconds(10));
-                await pump.DeliverAsync(profile!.RouteScope, session.BootId, publisher!, timeout.Token);
-                failures = 0;
-                status.Text = history.PendingBatch(profile.RouteScope, 1).Count == 0 ? "Delivered · awaiting next sample" : "Connected · waiting for cloud receipts";
+                if (reset) { publisher?.Dispose(); publisher = null; profile = null; pump = new(history, clock); failures = 0; }
+                using var cycle = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, retryToken);
+                try
+                {
+                    var current = mqtt.Current;
+                    if (!current.Enabled) { await Task.Delay(TimeSpan.FromSeconds(2), clock, cycle.Token); continue; }
+                    double delay = 2;
+                    try
+                    {
+                        if (!ReferenceEquals(profile, current))
+                        {
+                            publisher?.Dispose(); publisher = null;
+                            publisher = new MqttTelemetryPublisher(current, history, logger); profile = current;
+                            pump = new(history, clock); failures = 0;
+                        }
+                        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cycle.Token); timeout.CancelAfter(TimeSpan.FromSeconds(10));
+                        await pump.DeliverAsync(profile!.RouteScope, session.BootId, publisher!, timeout.Token);
+                        failures = 0;
+                        status.Text = history.PendingBatch(profile.RouteScope, 1).Count == 0 ? "Delivered · awaiting next sample" : "Connected · waiting for cloud receipts";
+                    }
+                    catch (OperationCanceledException) when (cycle.IsCancellationRequested) { throw; }
+                    catch (Exception ex) when (ex is IOException or InvalidOperationException or MQTTnet.Exceptions.MqttCommunicationException or System.Security.Cryptography.CryptographicException or OperationCanceledException)
+                    {
+                        status.Text = "Disconnected · samples buffered";
+                        delay = Math.Min(60, Math.Pow(2, Math.Min(++failures, 6))) + Random.Shared.NextDouble();
+                        logger.LogWarning("Telemetry delivery unavailable; retrying with bounded backoff");
+                    }
+                    await Task.Delay(TimeSpan.FromSeconds(delay), clock, cycle.Token);
+                }
+                catch (OperationCanceledException) when (cycle.IsCancellationRequested) { }
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception ex) when (ex is IOException or InvalidOperationException or MQTTnet.Exceptions.MqttCommunicationException or System.Security.Cryptography.CryptographicException or OperationCanceledException)
-            {
-                status.Text = "Disconnected · samples buffered";
-                delay = Math.Min(60, Math.Pow(2, Math.Min(++failures, 6))) + Random.Shared.NextDouble();
-                logger.LogWarning("Telemetry delivery unavailable; retrying with bounded backoff");
-            }
-            await Task.Delay(TimeSpan.FromSeconds(delay), clock, stoppingToken);
         }
-        }
-        finally { publisher?.Dispose(); }
+        finally { publisher?.Dispose(); lock (retryGate) { stopped = true; retry.Dispose(); } }
     }
 }

@@ -5,6 +5,7 @@
     <ProjectReference Include="../../src/PiDock.Web.Shared/PiDock.Web.Shared.csproj" />
     <Compile Include="../../src/PiDock.Cloud.Web/DeviceCertificateIssuer.cs" Link="Services/DeviceCertificateIssuer.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/EnrollmentStore.cs" Link="Services/EnrollmentStore.cs" />
+    <Compile Include="../../src/PiDock.Cloud.Web/EnrollmentProgress.cs" Link="Services/EnrollmentProgress.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/TelemetryArchive.cs" Link="Services/TelemetryArchive.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/FleetStore.cs" Link="Services/FleetStore.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/IngestionService.cs" Link="Services/IngestionService.cs" />

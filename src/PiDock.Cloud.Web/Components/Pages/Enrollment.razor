@@ -1,4 +1,7 @@
 @page "/enrollment"
+@implements IAsyncDisposable
+@inject FleetStore Fleet
+@inject Microsoft.AspNetCore.Components.NavigationManager Navigation
 @inject EnrollmentStore Invitations
 @inject AuthenticationStateProvider Authentication
 @inject UserStore Users
@@ -17,19 +20,55 @@
 @if (issued is not null) {
 <div class="notice"><strong>Copy this code now. It is shown only here.</strong><p class="enrollment-code">@issued.Code</p><p>Expires @issued.ExpiresAt.UtcDateTime.ToString("HH:mm:ss") UTC. Keep it private.</p></div>
 } else { <p>Your new code will appear here once. Existing codes cannot be displayed again.</p> }
-<ol><li>Sign into the PiDockOS appliance as its local owner.</li><li>Open <strong>Cloud connection</strong> and enter this server’s HTTPS address and the code.</li><li>Confirm with your local password and a fresh authenticator code.</li><li>Return to the fleet overview and wait for the first live reading.</li></ol>
+<ol><li>Sign into the PiDockOS appliance as its local owner.</li><li>Open <strong>Cloud connection</strong> and enter this server’s HTTPS address and the code.</li><li>Confirm with your local password and a fresh authenticator code.</li><li>Select <strong>Device registered — watch for connection</strong> below once setup on the appliance finishes.</li></ol>
+@if (issued is not null) {
+<button @onclick="() => Watch(issued.DeviceId)" disabled="@(watching || busy)">@(watching ? "Watching for the first live reading…" : "Device registered — watch for connection")</button>
+}
+@if (watching) { <p role="status">@watchMessage</p><button class="secondary" @onclick="StopWatching">Stop watching</button> }
+@if (timedOut) { <div class="notice" role="status">@watchMessage</div>@if(entries.Any(e => e.DeviceId == watchedDevice && e.State == "Registered")) { <button class="secondary" @onclick="() => Watch(watchedDevice!)">Watch again</button> } else { <button class="secondary" @onclick="TryAgain">Try registration again</button> } }
 <p>The appliance keeps its private key and local sign-in credentials. Cloud monitoring does not grant remote I/O control.</p></section></div>
 <section class="card"><div class="section-heading"><h2>Device registrations</h2><button class="secondary" @onclick="Load">Refresh</button></div>
 @if (entries.Count == 0) { <p>No device invitations yet.</p> }
 else { <table><thead><tr><th>Name</th><th>Device ID</th><th>Enrollment</th><th>Code expiry (UTC)</th><th>Action</th></tr></thead><tbody>@foreach (var entry in entries) {
-<tr><td>@entry.Name</td><td><small>@entry.DeviceId</small></td><td><span class="pill">@(entry.State == "Registered" ? "Registered · awaiting or reporting telemetry" : entry.State)</span></td><td>@entry.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td><td>@if(canManage && entry.State == "Pending") { <button class="secondary" disabled="@busy" @onclick="() => Cancel(entry.Id)">Cancel code</button> }</td></tr>
+<tr><td>@entry.Name</td><td><small>@entry.DeviceId</small></td><td><span class="pill">@(entry.State == "Registered" ? (devices.Any(d => d.DeviceId == entry.DeviceId && d.HasLiveContact && d.ReceivedAt >= DateTimeOffset.UtcNow.AddSeconds(-90)) ? "Connected · live readings" : "Registered · waiting for live readings") : entry.State)</span></td><td>@entry.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td><td>@if(canManage && entry.State == "Pending") { <button class="secondary" disabled="@busy" @onclick="() => Cancel(entry.Id)">Cancel code</button> }@if (entry.State == "Registered") { <button class="secondary" disabled="@watching" @onclick="() => Watch(entry.DeviceId)">Watch for connection</button> }</td></tr>
 }</tbody></table> }
 <small>Registered confirms certificate issuance. Fleet contact confirms that monitoring is connected. Cancelling a code does not revoke an issued certificate.</small></section>
 @code {
     private string name = "", password = "", otp = "", message = ""; private bool busy, canManage;
+    private bool watching, timedOut; private string watchMessage = ""; private string? watchedDevice; private Guid? retryInvitation;
+    private DateTimeOffset watchStarted; private readonly CancellationTokenSource stop = new(); private Task? refresh; private bool navigating;
+    private IReadOnlyList<StoredDevice> devices = [];
     private EnrollmentCode? issued; private IReadOnlyList<DeviceInvitation> entries = [];
-    protected override Task OnInitializedAsync() => Load();
-    private async Task Load() { var user = (await Authentication.GetAuthenticationStateAsync()).User; canManage = EnrollmentStore.CanManage(user); entries = Invitations.For(user); }
+    protected override async Task OnInitializedAsync() { await Load(); refresh = Refresh(); }
+    private void Watch(string deviceId) { watchedDevice = deviceId; watchStarted = DateTimeOffset.UtcNow; watching = true; timedOut = false; watchMessage = "Waiting for the appliance to send a live reading. This can take up to two minutes."; }
+    private void StopWatching() { watching = false; }
+    private void TryAgain() { retryInvitation = issued?.Id; issued = null; timedOut = false; watching = false; password = ""; otp = ""; message = "Check networking on PiDockOS, then enter fresh credentials to generate a new code. If the device already registered, retry its cloud connection and watch its existing registration below."; }
+    private async Task Refresh()
+    {
+        var token = stop.Token;
+        try {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(token)) await InvokeAsync(async () => {
+                await Load();
+                if (watching && watchedDevice is not null) {
+                    var user = (await Authentication.GetAuthenticationStateAsync()).User;
+                    if (EnrollmentProgress.Evaluate(entries.FirstOrDefault(e => e.DeviceId == watchedDevice), devices.FirstOrDefault(d => d.DeviceId == watchedDevice), DateTimeOffset.UtcNow, watchStarted) == EnrollmentConnectionState.Connected) {
+                        watching = false; navigating = true; Navigation.NavigateTo("/"); return;
+                    }
+                    if (DateTimeOffset.UtcNow - watchStarted >= TimeSpan.FromMinutes(2)) {
+                        watching = false; timedOut = true;
+                        watchMessage = entries.Any(e => e.DeviceId == watchedDevice && e.State == "Registered")
+                            ? "Device registered, but no live reading arrived. Check the appliance network and retry its cloud connection, then watch again."
+                            : "No device registered within two minutes. Start again with a new enrollment code.";
+                    }
+                }
+                StateHasChanged();
+            });
+        } catch (OperationCanceledException) { }
+        finally { if(navigating) stop.Dispose(); }
+    }
+    public async ValueTask DisposeAsync() { await stop.CancelAsync(); if (!navigating) { if (refresh is not null) await refresh; stop.Dispose(); } }
+    private async Task Load() { var user = (await Authentication.GetAuthenticationStateAsync()).User; canManage = EnrollmentStore.CanManage(user); entries = Invitations.For(user); devices = Fleet.For(user); }
     private async Task<bool> Confirm()
     {
         var user = (await Authentication.GetAuthenticationStateAsync()).User;
@@ -38,8 +77,14 @@ else { <table><thead><tr><th>Name</th><th>Device ID</th><th>Enrollment</th><th>C
     }
     private async Task Create()
     {
-        if(busy) return; busy = true; issued = null;
-        try { if (!await Confirm()) return; issued = Invitations.Create((await Authentication.GetAuthenticationStateAsync()).User, name); message = "Code created. Enter it on the appliance before it expires."; await Load(); }
+        if(busy) return; busy = true; watching = false; timedOut = false;
+        try { if (!await Confirm()) return;
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            var previous = Invitations.For(user).FirstOrDefault(e => e.Id == (retryInvitation ?? issued?.Id));
+            if (previous?.State == "Registered") { message = "This device already registered. Retry its cloud connection on PiDockOS; watching for telemetry now."; Watch(previous.DeviceId); return; }
+            if (previous?.State == "Pending" && !Invitations.Cancel(user, previous.Id)) { message = "The previous registration changed. Refresh and watch it before starting again."; await Load(); return; }
+            retryInvitation = null; issued = null;
+            issued = Invitations.Create((await Authentication.GetAuthenticationStateAsync()).User, name); message = "Code created. Enter it on the appliance before it expires."; await Load(); }
         catch(Exception e) when(e is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException) { message = e is ArgumentException or InvalidOperationException ? e.Message : "Enrollment could not be saved. Check server status."; }
         finally { busy = false; }
     }

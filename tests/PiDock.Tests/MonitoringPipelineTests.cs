@@ -26,6 +26,34 @@ public sealed class MonitoringPipelineTests : IDisposable
         return new(1, "alpha", "pi4", Guid.NewGuid(), boot ?? Guid.NewGuid(), sequence, sample);
     }
     [Fact]
+    public async Task ManualReconnectInterruptsBackoffWithoutDiscardingQueuedTelemetry()
+    {
+        var store = Store();
+        using var mqtt = new MqttConnection(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+            ["Mqtt:Enabled"] = "true", ["Mqtt:Host"] = "localhost", ["Mqtt:TenantId"] = "alpha", ["Mqtt:DeviceId"] = "pi4"
+        }).Build());
+        var frame = Frame(); store.Enqueue(mqtt.RouteScope, frame);
+        var frozen = new FrozenDeliveryClock();
+        using var worker = new TelemetryDeliveryService(store, mqtt, new AgentSession(), new DeliveryStatus(), frozen,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<TelemetryDeliveryService>.Instance);
+        await worker.StartAsync(default);
+        try {
+            await frozen.Delays.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            worker.RetryConnection();
+            // Backoff never advances on this clock. A second attempt requires the manual wake-up.
+            await frozen.Delays.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(frame.MessageId, Assert.Single(store.PendingBatch(mqtt.RouteScope)).Envelope.MessageId);
+            Assert.Equal("alpha", mqtt.Current.TenantId); Assert.Equal("pi4", mqtt.Current.DeviceId);
+        }
+        finally { await worker.StopAsync(new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token); }
+    }
+    private sealed class FrozenDeliveryClock : TimeProvider
+    {
+        public readonly global::System.Threading.Channels.Channel<bool> Delays = global::System.Threading.Channels.Channel.CreateUnbounded<bool>();
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) { Delays.Writer.TryWrite(true); return new FrozenTimer(); }
+        private sealed class FrozenTimer : ITimer { public bool Change(TimeSpan dueTime, TimeSpan period) => true; public void Dispose() { } public ValueTask DisposeAsync() => ValueTask.CompletedTask; }
+    }
+    [Fact]
     public async Task BrokerAcceptanceWithoutCloudReceiptDoesNotClearQueueAndSurvivesRestart()
     {
         var store = Store(); var frame = Frame(); Assert.True(store.Enqueue("server-a", frame));
