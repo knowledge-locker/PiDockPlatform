@@ -60,3 +60,7 @@ GitHub CI also passed on Linux AMD64. A manually dispatched publication produced
 ## Hosted persistence increment
 
 External environment-specific cloud/broker volumes and encrypted restic repositories are prepared on both hosts. PRX3MUS now supports operator-controlled labelled volumes, individual read-only secret mounts, constrained non-root runtimes, single-writer replacement and safe rollback. Both host agents were updated without replacing existing application containers. Disposable container replacement, account/key retention, active-writer rejection and encrypted recovery passed; the development host also passed real agent-driven replacement. No hosted PiDock application or DNS was installed. Scheduled off-site backups, certificates, broker routing and owner commissioning remain pending. See [Persistent storage](Persistent-Storage.md).
+
+## Hosted development connectivity
+
+PiDockCloud development release `0.1.0-dev.4` is now deployed through PRX3MUS with public Caddy HTTPS, separate development PKI and a certificate-only persistent MQTT broker. Its IPv4 TCP 8883 provider firewall rule is configured. Hosted HTTPS enrollment, cross-tenant MQTT rejection, telemetry persistence/receipt and cleanup passed; an external Mac check verified MQTT TLS and anonymous-client rejection. The cloud awaits private owner/password/external-authenticator commissioning. Production remains uninstalled. The MQTT worker/broker certificates expire on 2027-02-09 UTC and do not renew automatically. See [Hosted development](Development-Cloud.md).

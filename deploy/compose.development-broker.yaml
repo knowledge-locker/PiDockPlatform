@@ -1,0 +1,59 @@
+# Broker support service for the PRX3MUS-managed development cloud.
+name: pidock-development
+services:
+  broker:
+    image: eclipse-mosquitto:2.0.22@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c
+    container_name: pidock-development-broker
+    user: "1883:1883"
+    ports: ["161.35.51.247:8883:8883"]
+    volumes:
+      - type: volume
+        source: broker-state
+        target: /mosquitto/data
+        volume: {nocopy: true}
+      - type: bind
+        source: ./mosquitto/mosquitto.conf
+        target: /mosquitto/config/mosquitto.conf
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./mosquitto/acl.development
+        target: /mosquitto/config/acl
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: /etc/pidock/development/secrets/mqtt/ca.crt
+        target: /certs/ca.crt
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: /etc/pidock/development/secrets/mqtt/broker.crt
+        target: /certs/broker.crt
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: /etc/pidock/development/secrets/mqtt/broker.key
+        target: /certs/broker.key
+        read_only: true
+        bind: {create_host_path: false}
+    networks:
+      proxy:
+        aliases: [pidock-development-broker]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 128m
+    restart: unless-stopped
+    labels:
+      io.pidock.managed: "true"
+      io.pidock.environment: development
+networks:
+  proxy:
+    external: true
+    name: uvention-studio-dev_default
+volumes:
+  broker-state:
+    external: true
+    name: pidock-development-broker
