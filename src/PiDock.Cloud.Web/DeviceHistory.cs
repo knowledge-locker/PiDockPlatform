@@ -31,7 +31,12 @@ public static class DeviceHistory
     public static string Label(string metric) => metric switch { "cpu" => "CPU utilization", "memory" => "Memory utilization", "storage" => "Storage utilization", "temperature" => "Temperature", "uptime" => "Uptime", _ => metric };
     public static string Unit(string metric) => metric == "temperature" ? "°C" : metric == "uptime" ? "hours" : "%";
     private static string Number(double? value) => value is { } v && double.IsFinite(v) ? v.ToString("0.####", CultureInfo.InvariantCulture) : "";
-    private static string Cell(string value) { if (value.Length > 0 && "=+-@\t\r".Contains(value[0])) value = "'" + value; return "\"" + value.Replace("\"", "\"\"") + "\""; }
+    private static string Cell(string value)
+    {
+        var content = value.TrimStart(' ', '\t', '\r', '\n', '\ufeff');
+        if ((content.Length > 0 && "=+-@".Contains(content[0])) || (value.Length > 0 && "\t\r\n".Contains(value[0]))) value = "'" + value;
+        return "\"" + value.Replace("\"", "\"\"") + "\"";
+    }
     public static string Csv(IReadOnlyList<TelemetryEnvelope> frames, IReadOnlyList<string> metrics)
     {
         var text = new StringBuilder("observed_at_utc,device_id,hostname,is_replay," + string.Join(',', metrics.Select(m => m + "_" + (m == "temperature" ? "c" : m == "uptime" ? "hours" : "percent"))) + "\r\n");

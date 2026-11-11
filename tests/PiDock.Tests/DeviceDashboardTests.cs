@@ -86,6 +86,13 @@ public sealed class DeviceDashboardTests : IDisposable
         var csv=DeviceHistory.Csv(history,["cpu","memory"]); Assert.Contains("cpu_percent,memory_percent",csv);Assert.Contains("\"'=dangerous-formula\"",csv);Assert.Contains("25,25",csv);
         Assert.Equal(2,DeviceHistory.Paths(history,"cpu",clock.GetUtcNow().AddHours(-1),clock.GetUtcNow(),100).Count);
     }
+    [Theory]
+    [InlineData("\n=SUM(1,2)")][InlineData(" \t=SUM(1,2)")][InlineData("\ufeff+SUM(1,2)")]
+    public void CsvNeutralizesFormulasHiddenBehindWhitespace(string hostname)
+    {
+        var frame=Frame();var csv=DeviceHistory.Csv([frame with { Snapshot=frame.Snapshot with { Hostname=hostname } }],["cpu"]);
+        Assert.Contains("\"'"+hostname.Replace("\"","\"\"")+"\"",csv);
+    }
     [Fact]
     public void OptionalInventoryDoesNotChangeLegacyTelemetryCanonicalJson()
     {
