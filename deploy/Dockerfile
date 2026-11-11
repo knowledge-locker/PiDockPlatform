@@ -13,7 +13,7 @@ COPY tools ./tools
 RUN dotnet restore PiDock.sln --locked-mode
 RUN dotnet test PiDock.sln --no-restore --configuration Release
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.10@sha256:f1126d438ccc359f51cc6d4701a8deae513856cf10f5fe645d29ea6403dcac6b
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.15@sha256:bfd912c83295ce66d4b706ebb8541b9f14259b0e76fbb88b2751f58ce2399d2e
 WORKDIR /app
 COPY --from=build /out .
 ARG WEB_URLS=https://+:8443

@@ -1,0 +1,52 @@
+{
+  "Agent": {
+    "ApplicationRuntimeProfiles": {
+      "github-1454229394": {
+        "AllowedImages": [
+          "ghcr.io/knowledge-locker/pidockplatform"
+        ],
+        "AllowedHostnames": [
+          "pidock.knowledgelocker.ai"
+        ],
+        "ContainerPort": 8080,
+        "User": "1654:1654",
+        "EnvironmentFile": "/etc/pidock/production/configuration/prx-runtime.env",
+        "SecretRoot": "/etc/pidock/production/secrets",
+        "MemoryMiB": 512,
+        "Volumes": [
+          {
+            "Name": "pidock-production-cloud",
+            "Target": "/var/lib/pidock",
+            "Labels": {
+              "io.pidock.managed": "true",
+              "io.pidock.environment": "production",
+              "io.pidock.role": "cloud"
+            }
+          }
+        ],
+        "Secrets": [
+          {
+            "Source": "mqtt/ca.crt",
+            "Target": "/certs/ca.crt"
+          },
+          {
+            "Source": "mqtt/worker.crt",
+            "Target": "/certs/worker.crt"
+          },
+          {
+            "Source": "mqtt/worker.key",
+            "Target": "/certs/worker.key"
+          },
+          {
+            "Source": "enrollment/issuer.crt",
+            "Target": "/enrollment/issuer.crt"
+          },
+          {
+            "Source": "enrollment/issuer.key",
+            "Target": "/enrollment/issuer.key"
+          }
+        ]
+      }
+    }
+  }
+}

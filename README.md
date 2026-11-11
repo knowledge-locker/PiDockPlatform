@@ -49,7 +49,7 @@ Simulation is permitted only in the Development environment. Console commissioni
 
 ## Self-hosted cloud preview
 
-For the new **Add device → Cloud connection** workflow, see [device enrollment](docs/Device-Enrollment.md). The approved hosted environment names and PRX3MUS requirements are in [deployment environments](docs/Deployment-Environments.md).
+For the new **Add device → Cloud connection** workflow, see [device enrollment](docs/Device-Enrollment.md). The approved hosted environment names and PRX3MUS requirements are in [deployment environments](docs/Deployment-Environments.md). Host volumes, PRX3MUS runtime profiles and encrypted recovery are described in [persistent storage](docs/Persistent-Storage.md).
 
 ```sh
 ./deploy/prepare-preview.sh

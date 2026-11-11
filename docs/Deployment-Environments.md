@@ -30,7 +30,7 @@ PRX3MUS should deploy the digest to development, verify the application and supp
 - A cloud owner account commissioned through a trusted server console, with an external authenticator; no default account is shipped.
 - Backups for state and cryptographic keys, and an initial restore check. An ephemeral web-only container is insufficient.
 
-The observed PRX3MUS hosting form provides hostname, server and application port settings. Persistent volumes, protected issuer files, exact proxy network and native MQTT routing must be verified separately before installation. These details cannot be inferred from the web-hosting form.
+The observed PRX3MUS hosting form provides hostname, server and application port settings. Persistent volumes are now prepared and supported through operator-controlled PRX3MUS runtime profiles. Protected issuer files, the exact proxy network and native MQTT routing must still be verified before installation. See [Persistent storage](Persistent-Storage.md). These details cannot be inferred from the web-hosting form.
 
 ## Validation and DNS cutover
 
@@ -45,3 +45,5 @@ PiDockPlatform has been discovered and approved as a web application in PRX3MUS.
 The first development container was published successfully as `ghcr.io/knowledge-locker/pidockcloud:0.1.0-dev.1` from source `9c17744dab05b12c1bf072cfc4018926560d543b`. Immutable image: `ghcr.io/knowledge-locker/pidockcloud@sha256:f2d9210cb54c4eff9b9af3c1ea33b3a74995010903e8546b37a64d513a0f648d`. [Publication run](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43063467498). GitHub Linux AMD64 validation passed all 59 tests, in addition to macOS and local Linux ARM64. SDK selection is exact so locked dependencies match CI and Docker.
 
 The canonical repository-named cloud image is now `ghcr.io/knowledge-locker/pidockplatform:0.1.0-dev.3`, published from `4497628c172c9d6b184b621db14a3baac2ae67e4` with digest `sha256:8e673129ab177ca152d17591beb51ad485ffc7814435162469aafaf843cb8a9f`. [Publication run](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43068673957). PRX3MUS has verified development release `0.1.0-dev.3` and lists its immutable image as installable. Registry access is already configured on both hosts; anonymous local pulls of the private package are not expected to work. No registry credentials or package visibility were changed. No application was installed and no public DNS records were changed.
+
+Persistent storage is prepared on both hosting servers, and both PRX3MUS agents now load the PiDock runtime profile. Container replacement and encrypted recovery were verified with disposable state. The hosted cloud remains uninstalled while certificates, broker connectivity and owner commissioning are completed. See [Persistent storage](Persistent-Storage.md) for the contract and recovery procedure.

@@ -1,0 +1,119 @@
+# Persistent, private-host deployment contract. Prepare volumes before running.
+# Supply a verified proxy address and provision certificate files before startup.
+name: pidock-${PIDOCK_ENVIRONMENT:?Select development or production}
+services:
+  cloud:
+    image: ${PIDOCK_CLOUD_IMAGE:?Use a verified image digest}
+    user: "1654:1654"
+    labels:
+      io.pidock.managed: "true"
+      io.pidock.environment: ${PIDOCK_ENVIRONMENT}
+    ports: ["127.0.0.1:${PIDOCK_HTTP_PORT:-10080}:8080"]
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_Kestrel__Certificates__Default__Path: ""
+      ASPNETCORE_Kestrel__Certificates__Default__KeyPath: ""
+      PiDock__StateDirectory: /var/lib/pidock
+      AllowedHosts: ${PIDOCK_HOSTNAME:?Set the approved portal hostname}
+      ReverseProxy__Enabled: "true"
+      ReverseProxy__KnownProxies__0: ${PIDOCK_PROXY_ADDRESS:?Set the exact private reverse proxy address}
+      Mqtt__Enabled: "true"
+      Mqtt__Host: broker
+      Mqtt__CertificatePath: /certs/worker.crt
+      Mqtt__PrivateKeyPath: /certs/worker.key
+      Mqtt__CaPath: /certs/ca.crt
+      Enrollment__IssuerCertificatePath: /enrollment/issuer.crt
+      Enrollment__IssuerKeyPath: /enrollment/issuer.key
+      Enrollment__BrokerCaPath: /certs/ca.crt
+      Enrollment__MqttHost: ${PIDOCK_HOSTNAME}
+      Enrollment__MqttPort: ${PIDOCK_MQTT_PORT:-18883}
+    volumes:
+      - type: volume
+        source: cloud-state
+        target: /var/lib/pidock
+        volume: {nocopy: true}
+      - type: bind
+        source: ${PIDOCK_SECRETS_DIRECTORY:?Set the protected secrets directory}/mqtt/worker.crt
+        target: /certs/worker.crt
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${PIDOCK_SECRETS_DIRECTORY}/mqtt/worker.key
+        target: /certs/worker.key
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${PIDOCK_SECRETS_DIRECTORY}/mqtt/ca.crt
+        target: /certs/ca.crt
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${PIDOCK_SECRETS_DIRECTORY}/enrollment/issuer.crt
+        target: /enrollment/issuer.crt
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${PIDOCK_SECRETS_DIRECTORY}/enrollment/issuer.key
+        target: /enrollment/issuer.key
+        read_only: true
+        bind: {create_host_path: false}
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 512m
+    restart: unless-stopped
+    depends_on: [broker]
+  broker:
+    image: eclipse-mosquitto:2.0.22@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c
+    user: "1883:1883"
+    labels:
+      io.pidock.managed: "true"
+      io.pidock.environment: ${PIDOCK_ENVIRONMENT}
+    ports: ["127.0.0.1:${PIDOCK_MQTT_PORT:-18883}:8883"]
+    volumes:
+      - type: volume
+        source: broker-state
+        target: /mosquitto/data
+        volume: {nocopy: true}
+      - type: bind
+        source: ./mosquitto/mosquitto.conf
+        target: /mosquitto/config/mosquitto.conf
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./mosquitto/acl
+        target: /mosquitto/config/acl
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${PIDOCK_SECRETS_DIRECTORY}/mqtt/ca.crt
+        target: /certs/ca.crt
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${PIDOCK_SECRETS_DIRECTORY}/mqtt/broker.crt
+        target: /certs/broker.crt
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${PIDOCK_SECRETS_DIRECTORY}/mqtt/broker.key
+        target: /certs/broker.key
+        read_only: true
+        bind: {create_host_path: false}
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 128m
+    restart: unless-stopped
+volumes:
+  cloud-state:
+    external: true
+    name: ${PIDOCK_CLOUD_VOLUME:?Prepare the cloud volume first}
+  broker-state:
+    external: true
+    name: ${PIDOCK_BROKER_VOLUME:?Prepare the broker volume first}

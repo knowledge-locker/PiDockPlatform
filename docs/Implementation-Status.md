@@ -14,8 +14,8 @@ The specification remains the production target. This increment establishes runn
 | Telemetry | Independent sampling/delivery, mTLS, bounded durable queue, cloud persistence receipts, deduplicated replay, local resource alarms and bounded cloud archive | Remote audit/log sync, cloud incident workflow, notification delivery and PostgreSQL history |
 | Cloud users | Multiple console-provisioned users, tenant claim enforcement, Owner/Administrator-only enrollment with fresh MFA | Online user administration, fleet/device grant scopes, other privileged action policies, account recovery |
 | Enrollment | Single-use expiring codes, CSR validation, device-specific certificates, key-bound response recovery, local key generation and automatic MQTT activation | Isolated signing service, renewal, revocation, migration and production provisioning |
-| Persistence | Atomic protected account files, segmented local telemetry, atomic fleet JSON | PostgreSQL/RLS, migrations, historical queries, log/object storage, tested backup/restore |
-| Packaging | HTTPS cloud container, mTLS broker, local-only Compose package, non-root services | Complete release signing/CA lifecycle, public hosting, runtime secrets/volumes and PRX3MUS installation |
+| Persistence | Atomic protected account files, segmented local telemetry, atomic fleet JSON | PostgreSQL/RLS, migrations, historical queries, log/object storage, scheduled off-site backups |
+| Packaging | HTTPS cloud container, mTLS broker, local-only Compose package, non-root services | Complete release signing/CA lifecycle, public hosting, certificate provisioning, MQTT routing and PRX3MUS application installation |
 | OS | Systemd integration units and acceptance checklist | Buildroot image, supported kernel/drivers, RTC/NTS, verified root, signed A/B updates, secure provisioning |
 
 ## Next implementation order
@@ -56,3 +56,7 @@ The isolated real MQTT/mTLS outage test passed: first persistence receipt, conti
 Validation for the enrollment increment: 59 tests pass on macOS and Linux ARM64; the Release build has zero warnings/errors. The isolated HTTPS enrollment plus MQTT outage check passed, including cross-tenant rejection and four unique archived samples with zero pending. The source repository preserves its initial license and commit.
 
 GitHub CI also passed on Linux AMD64. A manually dispatched publication produced the first PiDockCloud development image with SBOM/provenance and PRX3MUS release metadata. Both hosted domain relationships are staged; DNS and live service deployment remain separate pending runtime storage, broker and signing configuration.
+
+## Hosted persistence increment
+
+External environment-specific cloud/broker volumes and encrypted restic repositories are prepared on both hosts. PRX3MUS now supports operator-controlled labelled volumes, individual read-only secret mounts, constrained non-root runtimes, single-writer replacement and safe rollback. Both host agents were updated without replacing existing application containers. Disposable container replacement, account/key retention, active-writer rejection and encrypted recovery passed; the development host also passed real agent-driven replacement. No hosted PiDock application or DNS was installed. Scheduled off-site backups, certificates, broker routing and owner commissioning remain pending. See [Persistent storage](Persistent-Storage.md).
