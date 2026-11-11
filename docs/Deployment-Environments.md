@@ -13,7 +13,7 @@ PRX3MUS's current profile defaults to `dev.{domain}`. Our selected development n
 
 ## Container publication
 
-The manually dispatched **Publish PiDockCloud container** workflow tests the source, publishes `ghcr.io/knowledge-locker/pidockcloud:<version>`, and uploads a `prox3mus-release-<version>` artifact containing the verified immutable digest and source commit. Its metadata matches the existing PRX3MUS publication contract. It publishes an AMD64 cloud image for the current hosting servers. The local self-hosted image can still be built for its host architecture.
+The manually dispatched **Publish PiDockCloud container** workflow tests the source, publishes `ghcr.io/knowledge-locker/pidockplatform:<version>` (the cloud application image under the repository-based PRX3MUS name), and uploads a `prox3mus-release-<version>` artifact containing the verified immutable digest and source commit. Its metadata matches the existing PRX3MUS publication contract. It publishes an AMD64 cloud image for the current hosting servers. The local self-hosted image can still be built for its host architecture.
 
 The publication build explicitly selects HTTP port 8080 inside the private reverse-proxy network and leaves the image's local HTTPS certificate paths empty. The normal `deploy/Dockerfile` build retains HTTPS on 8443 for local Compose. Never expose the internal HTTP listener directly to the internet.
 
@@ -32,9 +32,9 @@ PRX3MUS should deploy the digest to development, verify the application and supp
 
 The observed PRX3MUS hosting form provides hostname, server and application port settings. Persistent volumes, protected issuer files, exact proxy network and native MQTT routing must be verified separately before installation. These details cannot be inferred from the web-hosting form.
 
-## Acceptance before DNS cutover
+## Validation and DNS cutover
 
-Verify public HTTPS and WebSocket behavior, local login/MFA, code creation/cancellation/expiry, a device's HTTPS enrollment, certificate-based MQTT, wrong-tenant rejection, live readings, cloud receipts, outage replay and restart persistence. Confirm the same account and registration remain after replacing the container. Verify the broker is unavailable without a valid client certificate.
+Before DNS changes, verify internal health, persistent state, supporting services and the staged Caddy route. Then cut over only the two approved hostnames, let Caddy obtain their certificates, and verify public HTTPS and WebSocket behavior, local login/MFA, code creation/cancellation/expiry, device HTTPS enrollment, certificate-based MQTT, wrong-tenant rejection, live readings, cloud receipts, outage replay and restart persistence. Confirm the same account and registration remain after replacing the container. Verify the broker is unavailable without a valid client certificate.
 
 Development is an engineering environment. Production remains gated on isolated signing, certificate renewal/revocation, trusted-clock/local recovery enforcement and the remaining security work in the main specification. Reserving its hostname does not declare it production-ready.
 

@@ -13,7 +13,8 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/knowledge-locker/pidockcloud
+  # PRX3MUS's default publication contract uses the lowercase repository name.
+  IMAGE: ghcr.io/knowledge-locker/pidockplatform
 
 jobs:
   publish:
