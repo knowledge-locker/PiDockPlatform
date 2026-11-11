@@ -30,6 +30,9 @@ public static class ReviewSamples
             var envelope = new TelemetryEnvelope(1, "review", item.Item1, Guid.NewGuid(), Guid.NewGuid(), 1, snapshot);
             records.Add(new StoredDevice("review", item.Item1, envelope.MessageId, item.Item2, snapshot, envelope.BootId, 1));
         }
+        var invitations = records.Select(d => new DeviceInvitation(Guid.NewGuid(), "review", d.DeviceId, d.DeviceId, "review-owner", now.AddMinutes(-1), now.AddMinutes(9), new string('0', 64), "Registered")).ToList();
+        invitations.Add(new DeviceInvitation(Guid.NewGuid(), "review", "sample-pending", "Pending connection sample", "review-owner", now, now.AddMinutes(10), new string('0', 64)));
+        StateFiles.WriteAtomic(Path.Combine(directory, "enrollments.json"), System.Text.Json.JsonSerializer.Serialize(invitations, StateFiles.Json));
         StateFiles.WriteAtomic(Path.Combine(directory, "fleet.json"), System.Text.Json.JsonSerializer.Serialize(records, StateFiles.Json));
     }
 }

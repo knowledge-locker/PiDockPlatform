@@ -13,7 +13,7 @@
 <label>Device name<input @bind="name" maxlength="80" placeholder="Workshop Pi" autocomplete="off" /></label>
 <label>Your cloud password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
 <label>Fresh authenticator code<input @bind="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" /></label>
-<button @onclick="Create" disabled="@(busy || !Invitations.Ready)">Generate single-use code</button>
+<button @onclick="Create" disabled="@(busy || watching || !Invitations.Ready)">Generate single-use code</button>
 } else { <p>An organization Owner or Administrator must create enrollment codes.</p> }
 <p role="status">@message</p></section>
 <section class="card"><h2>2. Connect from PiDockOS</h2>
@@ -30,7 +30,7 @@
 <section class="card"><div class="section-heading"><h2>Device registrations</h2><button class="secondary" @onclick="Load">Refresh</button></div>
 @if (entries.Count == 0) { <p>No device invitations yet.</p> }
 else { <table><thead><tr><th>Name</th><th>Device ID</th><th>Enrollment</th><th>Code expiry (UTC)</th><th>Action</th></tr></thead><tbody>@foreach (var entry in entries) {
-<tr><td>@entry.Name</td><td><small>@entry.DeviceId</small></td><td><span class="pill">@(entry.State == "Registered" ? (devices.Any(d => d.DeviceId == entry.DeviceId && d.HasLiveContact && d.ReceivedAt >= DateTimeOffset.UtcNow.AddSeconds(-90)) ? "Connected · live readings" : "Registered · waiting for live readings") : entry.State)</span></td><td>@entry.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td><td>@if(canManage && entry.State == "Pending") { <button class="secondary" disabled="@busy" @onclick="() => Cancel(entry.Id)">Cancel code</button> }@if (entry.State == "Registered") { <button class="secondary" disabled="@watching" @onclick="() => Watch(entry.DeviceId)">Watch for connection</button> }</td></tr>
+<tr><td>@entry.Name</td><td><small>@entry.DeviceId</small></td><td><span class="pill">@(entry.State == "Registered" ? (devices.Any(d => d.DeviceId == entry.DeviceId && d.HasLiveContact && d.ReceivedAt >= DateTimeOffset.UtcNow.AddSeconds(-90)) ? "Connected · live readings" : "Registered · waiting for live readings") : entry.State)</span></td><td>@entry.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td><td>@if(canManage && entry.State == "Pending") { <button class="secondary" disabled="@busy" @onclick="() => Cancel(entry.Id)">Cancel code</button> }@if (entry.State is "Registered" or "Pending") { <button class="secondary" disabled="@watching" @onclick="() => Watch(entry.DeviceId)">Watch for connection</button> }</td></tr>
 }</tbody></table> }
 <small>Registered confirms certificate issuance. Fleet contact confirms that monitoring is connected. Cancelling a code does not revoke an issued certificate.</small></section>
 @code {
@@ -42,7 +42,7 @@ else { <table><thead><tr><th>Name</th><th>Device ID</th><th>Enrollment</th><th>C
     protected override async Task OnInitializedAsync() { await Load(); refresh = Refresh(); }
     private void Watch(string deviceId) { watchedDevice = deviceId; watchStarted = DateTimeOffset.UtcNow; watching = true; timedOut = false; watchMessage = "Waiting for the appliance to send a live reading. This can take up to two minutes."; }
     private void StopWatching() { watching = false; }
-    private void TryAgain() { retryInvitation = issued?.Id; issued = null; timedOut = false; watching = false; password = ""; otp = ""; message = "Check networking on PiDockOS, then enter fresh credentials to generate a new code. If the device already registered, retry its cloud connection and watch its existing registration below."; }
+    private void TryAgain() { retryInvitation = issued?.Id ?? entries.FirstOrDefault(e => e.DeviceId == watchedDevice)?.Id; issued = null; timedOut = false; watching = false; password = ""; otp = ""; message = "Check networking on PiDockOS, then enter fresh credentials to generate a new code. If the device already registered, retry its cloud connection and watch its existing registration below."; }
     private async Task Refresh()
     {
         var token = stop.Token;
@@ -52,10 +52,14 @@ else { <table><thead><tr><th>Name</th><th>Device ID</th><th>Enrollment</th><th>C
                 await Load();
                 if (watching && watchedDevice is not null) {
                     var user = (await Authentication.GetAuthenticationStateAsync()).User;
-                    if (EnrollmentProgress.Evaluate(entries.FirstOrDefault(e => e.DeviceId == watchedDevice), devices.FirstOrDefault(d => d.DeviceId == watchedDevice), DateTimeOffset.UtcNow, watchStarted) == EnrollmentConnectionState.Connected) {
+                    var progress = EnrollmentProgress.Evaluate(entries.FirstOrDefault(e => e.DeviceId == watchedDevice), devices.FirstOrDefault(d => d.DeviceId == watchedDevice), DateTimeOffset.UtcNow, watchStarted);
+                    if (progress == EnrollmentConnectionState.Connected) {
                         watching = false; navigating = true; Navigation.NavigateTo("/"); return;
                     }
-                    if (DateTimeOffset.UtcNow - watchStarted >= TimeSpan.FromMinutes(2)) {
+                    watchMessage = progress == EnrollmentConnectionState.AwaitingTelemetry
+                        ? "Device registered. Waiting for its first live reading…"
+                        : "Waiting for the appliance to register and send its first live reading…";
+                    if (progress == EnrollmentConnectionState.TimedOut) {
                         watching = false; timedOut = true;
                         watchMessage = entries.Any(e => e.DeviceId == watchedDevice && e.State == "Registered")
                             ? "Device registered, but no live reading arrived. Check the appliance network and retry its cloud connection, then watch again."

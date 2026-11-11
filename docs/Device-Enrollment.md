@@ -9,7 +9,8 @@ PiDockOS is the appliance. PiDockCloud is the self-hostable cloud service. PiDoc
 3. Commission PiDockOS locally, establish networking and correct time, then sign into its local HTTPS dashboard.
 4. Open **Cloud connection**, enter the cloud HTTPS origin and enrollment code, and confirm the local owner's password and a fresh authenticator code. For a private CA, supply its independently verified public certificate in the optional trust field.
 5. PiDockOS generates and saves a private RSA key locally, submits only a signed certificate request, validates the returned identity and certificate, then activates MQTT without restarting the appliance. Allow up to a minute for the first sample.
-6. PiDockCloud **Device registrations** confirms certificate issuance; **Fleet overview** confirms live contact. A device is not marked online just because it redeemed a code.
+6. Back in PiDockCloud, select **Device registered — watch for connection**. The screen refreshes registration status and waits up to two minutes for a recent live reading from that exact tenant/device, then returns to **Fleet overview**. You can also watch an existing registration after returning to the page. Certificate issuance alone does not confirm live contact.
+7. If no device registers, select **Try registration again** and use fresh cloud credentials to generate a replacement code; the previous pending code is cancelled. If a certificate was already issued but no reading arrives, retry the saved connection on PiDockOS and watch again. This avoids silently issuing another device identity.
 
 The cloud never receives the local password, authenticator secret or device private key. Network enrollment never claims local ownership or provides local credential recovery. A connected device cannot be moved to another server using this flow; migration and certificate revocation need separate explicit local administration.
 
@@ -68,3 +69,9 @@ The test seeds a disposable invitation directly to isolate the transport/issuer/
 The loopback UI review tools show the real forms but disable enrollment networking and have no configured signing key. Use a commissioned product instance for a real enrollment.
 
 Implementation references: [Microsoft CSR validation API](https://learn.microsoft.com/dotnet/api/System.Security.Cryptography.X509Certificates.CertificateRequest.LoadSigningRequestPem), [Mosquitto certificate identities and ACLs](https://mosquitto.org/man/mosquitto-conf-5.html).
+
+## Connection recovery and default server
+
+PiDockOS fills in its cloud address from `Enrollment:DefaultCloudUrl`, falling back to `https://pidock.knowledgelocker.ai`. The development Pi sets this value to `https://pidock-dev.knowledgelocker.ai`. Self-hosted installations can configure their own default; the field remains editable.
+
+Before registration, **Start over** clears form inputs. It preserves the pending device key so a retry with the same code can recover a lost response. A new code creates a new pending key through the normal enrollment path. After registration, **Retry cloud connection** requires the current local owner password and a fresh authenticator code. It resets the MQTT transport and its retry delay; registration, certificate/private key, routing scope and buffered telemetry are retained. This is transport recovery, not certificate revocation or server migration.
