@@ -25,6 +25,9 @@ builder.Services.AddScoped<AuthenticationStateProvider, SessionAuthenticationSta
 builder.Services.AddSingleton<ICapacityProbe, ReviewCapacity>();
 builder.Services.AddSingleton(sp => new HistoryStore(state, sp.GetRequiredService<ICapacityProbe>()));
 builder.Services.AddSingleton<HostMonitor>(); builder.Services.AddSingleton<BrokerClient>();
+builder.Services.AddSingleton<IApplicationRuntime>(sp => sp.GetRequiredService<BrokerClient>());
+builder.Services.AddSingleton<RemoteApplicationAgent>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RemoteApplicationAgent>());
 builder.Services.AddSingleton(new GpioSimulator(true)); builder.Services.AddSingleton<MqttConnection>();
 builder.Services.AddSingleton(sp => new CloudEnrollmentClient(state, sp.GetRequiredService<MqttConnection>(), enabled: false));
 builder.Services.AddSingleton<IDeviceCertificateIssuer, DeviceCertificateIssuer>();
@@ -36,7 +39,7 @@ builder.Services.AddSingleton(sp => new AlarmMonitor(state, sp.GetRequiredServic
 builder.Services.AddSingleton<TelemetryDeliveryService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryDeliveryService>());
 builder.Services.AddSingleton<MonitoringService>(); builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringService>());
-builder.Services.AddSingleton<FleetStore>(); builder.Services.AddSingleton<IngestionService>();
+builder.Services.AddSingleton<FleetStore>(); builder.Services.AddSingleton<ApplicationCommandStore>(); builder.Services.AddSingleton<IngestionService>();
 if (surface == "cloud") builder.Services.AddHostedService<ReviewFleetUpdates>();
 var app = builder.Build();
 var users = app.Services.GetRequiredService<UserStore>();
@@ -48,6 +51,7 @@ app.Services.GetRequiredService<ReviewIdentity>().User = new ClaimsPrincipal(new
     new Claim("expires",DateTimeOffset.UtcNow.AddHours(8).ToUnixTimeSeconds().ToString())], "ReviewFixture"));
 ReviewSamples.Seed(state);
 app.UseAuthentication(); app.UseAuthorization(); app.UseAntiforgery(); app.MapStaticAssets();
+if (surface == "cloud") DeviceHistory.MapExport(app);
 app.MapRazorComponents<ReviewApp>().AddInteractiveServerRenderMode();
 app.MapPost("/auth/logout", () => Results.Redirect("/"));
 app.Logger.LogInformation("Isolated UI review on loopback: {Surface}. Only disposable sample state is used.", surface);

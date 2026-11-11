@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 namespace PiDock.Core;
 
 public enum AlarmMetric { CpuPercent, MemoryPercent, TemperatureC, DiskUsedPercent, ReservePressure }
@@ -24,7 +25,7 @@ public sealed record AlarmRule(string Id, string Title, AlarmMetric Metric, doub
 public sealed record ResourceAlarm(Guid Id, string RuleId, string Title, string Severity,
     DateTimeOffset OpenedAt, double Value);
 public sealed record AlarmTransition(Guid EventId, ResourceAlarm Alarm, string State, DateTimeOffset ObservedAt);
-public sealed record TelemetryReceipt(int SchemaVersion, string TenantId, string DeviceId, Guid MessageId);
+public sealed record TelemetryReceipt(int SchemaVersion, string TenantId, string DeviceId, Guid MessageId, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ApplicationCommand? Command = null);
 
 public sealed class ResourceAlarmEngine
 {

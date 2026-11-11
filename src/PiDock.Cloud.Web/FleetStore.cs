@@ -28,6 +28,12 @@ public sealed class FleetStore
         if (user.Identity?.IsAuthenticated != true || !IdentityRules.IsId(tenant) || !IdentityRules.IsId(device)) return [];
         return archive.Read(tenant!, device, limit);
     }
+    public IReadOnlyList<TelemetryEnvelope> RangeFor(ClaimsPrincipal user, string device, DateTimeOffset from, DateTimeOffset to)
+    {
+        var tenant = user.FindFirstValue("tenant");
+        if (user.Identity?.IsAuthenticated != true || !IdentityRules.IsId(tenant) || !IdentityRules.IsId(device) || to < from || to - from > TimeSpan.FromDays(31)) return [];
+        return archive.Range(tenant!, device, from, to);
+    }
     public bool Ingest(string topic, TelemetryEnvelope envelope) => Accept(topic, envelope).UpdatedCurrent;
     public TelemetryAcceptance Accept(string topic, TelemetryEnvelope envelope)
     {
@@ -49,7 +55,7 @@ public sealed class FleetStore
                 if (previous.BootId != Guid.Empty && previous.BootId != envelope.BootId) retired = retired.Append(previous.BootId).TakeLast(16).ToArray();
             }
             var record = new StoredDevice(envelope.TenantId, envelope.DeviceId, envelope.MessageId, DateTimeOffset.UtcNow,
-                envelope.Snapshot, envelope.BootId, envelope.Sequence, retired, live ? envelope.Alarms ?? [] : [], live);
+                envelope.Snapshot, envelope.BootId, envelope.Sequence, retired, live ? envelope.Alarms ?? [] : [], live, live ? envelope.Applications : null);
             var updated = devices.ToList(); if (index >= 0) updated[index] = record; else updated.Add(record);
             StateFiles.WriteAtomic(path, JsonSerializer.Serialize(updated, StateFiles.Json));
             devices.Clear(); devices.AddRange(updated); return new(true, true);
@@ -62,6 +68,10 @@ public sealed class FleetStore
             sample is not null && sample.Interfaces is { Count: <= 128 } && sample.Hostname is { Length: > 0 and <= 256 } &&
             sample.Platform is { Length: <= 256 } && sample.ClockState is { Length: <= 512 } && sample.Storage is not null &&
             sample.Storage.FreeBytes >= 0 && sample.Storage.BudgetBytes >= 0 && sample.Storage.ClassLimits is { Count: <= 4 } &&
+            (envelope.Applications is null || (envelope.Applications.Applications is { Count: <= 16 } apps && envelope.Applications.Results is { Count: <= 8 } results &&
+                envelope.Applications.Status is { Length: <= 256 } && apps.All(a => a is not null && a.Id is { Length: 64 } && a.Id.All(char.IsAsciiHexDigit) &&
+                    a.Names is { Length: <= 4 } && a.Names.All(n => n is { Length: <= 128 }) && a.Image is { Length: <= 512 } && a.State is { Length: <= 32 } && a.Status is { Length: <= 256 }) &&
+                results.All(r => r is not null && r.Id != Guid.Empty && r.State is "Completed" or "Rejected" or "Failed" or "Unknown" && r.Message is { Length: <= 256 }))) &&
             sample.Interfaces.All(i => i is not null && i.Name is { Length: <= 128 } && i.State is { Length: <= 64 } && i.Kind is { Length: <= 64 }) &&
             (envelope.Alarms is null || (envelope.Alarms.Count <= 32 && envelope.Alarms.All(a => a is not null && a.Id != Guid.Empty &&
                 IdentityRules.IsId(a.RuleId) && a.Title is { Length: <= 120 } && a.Severity is "Warning" or "Critical" && double.IsFinite(a.Value))));

@@ -31,6 +31,7 @@ public sealed class BrokerTests
     {
         using var http = new HttpClient(new FakeDocker()) { BaseAddress = new Uri("http://localhost") };
         await Assert.ThrowsAsync<ArgumentException>(() => new DockerOperations(http).ChangeState(new string('a', 64), false, default));
+        await Assert.ThrowsAsync<ArgumentException>(() => new DockerOperations(http).Restart(new string('a', 64), default));
     }
     private sealed class FakeDocker : HttpMessageHandler
     {

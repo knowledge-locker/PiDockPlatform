@@ -4,7 +4,7 @@ using PiDock.Core;
 namespace PiDock.Agent;
 
 public sealed class MonitoringService(HostMonitor monitor, HistoryStore history, MqttConnection mqtt,
-    AlarmMonitor alarms, AgentSession session, DeliveryStatus delivery, ILogger<MonitoringService> logger) : BackgroundService
+    AlarmMonitor alarms, AgentSession session, DeliveryStatus delivery, ILogger<MonitoringService> logger, RemoteApplicationAgent? applications = null) : BackgroundService
 {
     private HostSnapshot? current;
     public HostSnapshot? Current => Volatile.Read(ref current);
@@ -23,7 +23,7 @@ public sealed class MonitoringService(HostMonitor monitor, HistoryStore history,
                 if (tick++ % 15 == 0 || transitions.Count > 0)
                 {
                     var profile = mqtt.Current;
-                    var envelope = new TelemetryEnvelope(1, profile.TenantId, profile.DeviceId, Guid.NewGuid(), session.BootId, ++sequence, sample, Alarms: alarms.Active);
+                    var envelope = new TelemetryEnvelope(1, profile.TenantId, profile.DeviceId, Guid.NewGuid(), session.BootId, ++sequence, sample, Alarms: alarms.Active, Applications: applications?.Current);
                     bool stored = profile.Enabled ? history.Enqueue(profile.RouteScope, envelope) : history.Append(HistoryClass.Telemetry, envelope);
                     if (!stored) logger.LogWarning("Telemetry sample dropped by storage policy");
                 }

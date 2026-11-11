@@ -21,6 +21,10 @@ app.MapGet("/applications", (DockerOperations docker, CancellationToken ct) => d
 if (builder.Configuration.GetValue<bool>("Broker:EnableDeployments"))
 {
     app.MapPost("/applications", async (ApplicationManifest manifest, DockerOperations docker, CancellationToken ct) => Results.Ok(new { id = await docker.Deploy(manifest, ct) }));
+}
+if (builder.Configuration.GetValue<bool>("Broker:EnableLifecycle") || builder.Configuration.GetValue<bool>("Broker:EnableDeployments"))
+{
+    app.MapPost("/applications/{id}/restart", async (string id, DockerOperations docker, CancellationToken ct) => { await docker.Restart(id, ct); return Results.Ok(); });
     app.MapPost("/applications/{id}/start", async (string id, DockerOperations docker, CancellationToken ct) => { await docker.ChangeState(id, true, ct); return Results.Ok(); });
     app.MapPost("/applications/{id}/stop", async (string id, DockerOperations docker, CancellationToken ct) => { await docker.ChangeState(id, false, ct); return Results.Ok(); });
 }

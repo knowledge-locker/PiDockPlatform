@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 namespace PiDock.Core;
 
 public enum HistoryClass { Logs, Telemetry, Audit, Captures }
@@ -43,8 +44,8 @@ public record HostSnapshot(DateTimeOffset ObservedAt, string Hostname, string Pl
     double? CpuPercent, long? MemoryTotalBytes, long? MemoryAvailableBytes, double? TemperatureC,
     double UptimeSeconds, PolicyBudget Storage, IReadOnlyList<InterfaceSnapshot> Interfaces, string ClockState);
 public record TelemetryEnvelope(int SchemaVersion, string TenantId, string DeviceId, Guid MessageId,
-    Guid BootId, long Sequence, HostSnapshot Snapshot, bool IsReplay = false, IReadOnlyList<ResourceAlarm>? Alarms = null);
-public record StoredDevice(string TenantId, string DeviceId, Guid LastMessageId, DateTimeOffset ReceivedAt, HostSnapshot Snapshot, Guid BootId = default, long Sequence = 0, Guid[]? RetiredBootIds = null, IReadOnlyList<ResourceAlarm>? Alarms = null, bool HasLiveContact = true);
+    Guid BootId, long Sequence, HostSnapshot Snapshot, bool IsReplay = false, IReadOnlyList<ResourceAlarm>? Alarms = null, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] RemoteApplicationSnapshot? Applications = null);
+public record StoredDevice(string TenantId, string DeviceId, Guid LastMessageId, DateTimeOffset ReceivedAt, HostSnapshot Snapshot, Guid BootId = default, long Sequence = 0, Guid[]? RetiredBootIds = null, IReadOnlyList<ResourceAlarm>? Alarms = null, bool HasLiveContact = true, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] RemoteApplicationSnapshot? Applications = null);
 public static class IdentityRules
 {
     public static bool IsId(string? value) => value is { Length: >= 1 and <= 64 } && value.All(c => char.IsAsciiLetterOrDigit(c) || c == '-');

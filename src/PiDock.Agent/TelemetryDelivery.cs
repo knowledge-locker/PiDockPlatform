@@ -41,7 +41,7 @@ public sealed class MqttTelemetryPublisher : ITelemetryPublisher, IDisposable
     private readonly IMqttClient client = new MqttClientFactory().CreateMqttClient();
     private readonly ILogger logger;
     private bool subscribed;
-    public MqttTelemetryPublisher(MqttConnection connection, HistoryStore history, ILogger logger)
+    public MqttTelemetryPublisher(MqttConnection connection, HistoryStore history, ILogger logger, RemoteApplicationAgent? applications = null)
     {
         this.connection = connection; this.history = history; this.logger = logger; scope = connection.RouteScope;
         client.DisconnectedAsync += _ => { subscribed = false; return Task.CompletedTask; };
@@ -53,7 +53,10 @@ public sealed class MqttTelemetryPublisher : ITelemetryPublisher, IDisposable
                 {
                     var receipt = JsonSerializer.Deserialize<TelemetryReceipt>(e.ApplicationMessage.Payload.ToArray(), StateFiles.Json);
                     if (receipt is { SchemaVersion: 1 } && receipt.TenantId == connection.TenantId && receipt.DeviceId == connection.DeviceId)
+                    {
                         history.Acknowledge(scope, receipt.MessageId);
+                        if (receipt.Command is not null) applications?.Enqueue(receipt.Command);
+                    }
                 }
             }
             catch (Exception ex) when (ex is JsonException or IOException) { logger.LogWarning("Could not apply telemetry receipt; sample remains eligible for retry"); }
@@ -80,7 +83,7 @@ public sealed class MqttTelemetryPublisher : ITelemetryPublisher, IDisposable
 }
 
 public sealed class TelemetryDeliveryService(HistoryStore history, MqttConnection mqtt, AgentSession session,
-    DeliveryStatus status, TimeProvider clock, ILogger<TelemetryDeliveryService> logger) : BackgroundService
+    DeliveryStatus status, TimeProvider clock, ILogger<TelemetryDeliveryService> logger, RemoteApplicationAgent? applications = null) : BackgroundService
 {
     private readonly object retryGate = new();
     private CancellationTokenSource retry = new(); private bool stopped;
@@ -114,7 +117,7 @@ public sealed class TelemetryDeliveryService(HistoryStore history, MqttConnectio
                         if (!ReferenceEquals(profile, current))
                         {
                             publisher?.Dispose(); publisher = null;
-                            publisher = new MqttTelemetryPublisher(current, history, logger); profile = current;
+                            publisher = new MqttTelemetryPublisher(current, history, logger, applications); profile = current;
                             pump = new(history, clock); failures = 0;
                         }
                         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cycle.Token); timeout.CancelAfter(TimeSpan.FromSeconds(10));

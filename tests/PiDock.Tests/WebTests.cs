@@ -58,6 +58,28 @@ public sealed class WebTests
         Assert.Contains((await client.PostAsync("/auth/reset", new StringContent(""))).StatusCode, new[] { HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed });
         Assert.Contains((await client.PostAsync("/api/enroll", new StringContent(""))).StatusCode, new[] { HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed });
     }
+    [Fact]
+    public async Task DeviceHistoryExportsRequireLoginAndStayWithinTheCallersTenant()
+    {
+        using var factory = new PreviewFactory<PiDock.Cloud.Web.CloudMarker>();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect=false, BaseAddress=new Uri("https://localhost") });
+        string range=$"from={Uri.EscapeDataString(DateTimeOffset.UtcNow.AddHours(-1).ToString("O"))}&to={Uri.EscapeDataString(DateTimeOffset.UtcNow.AddMinutes(1).ToString("O"))}";
+        string endpoint="/api/devices/pi5/export?format=csv&signals=cpu,memory&"+range;
+        Assert.Equal(HttpStatusCode.Redirect,(await client.GetAsync(endpoint)).StatusCode);
+        var secret=Totp.NewSecret();factory.Services.GetRequiredService<UserStore>().Add("history-viewer","integration-test-password",secret,"alpha","Viewer",false,-1);
+        var now=DateTimeOffset.UtcNow;var storage=PiDock.Core.DataPolicyCalculator.Evaluate(new(),new(32L<<30,16L<<30,0));
+        var fleet=factory.Services.GetRequiredService<PiDock.Cloud.Web.FleetStore>();
+        foreach(string tenant in new[]{"alpha","other"}) {
+            var sample=new PiDock.Core.HostSnapshot(now,tenant+"-host","Linux",25,1024,512,40,123,storage,[],"Test");
+            fleet.Accept(PiDock.Core.IdentityRules.Topic(tenant,"pi5"),new(1,tenant,"pi5",Guid.NewGuid(),Guid.NewGuid(),1,sample));
+        }
+        await Login(client,"history-viewer",Totp.Code(secret,now.ToUnixTimeSeconds()/30));
+        var response=await client.GetAsync(endpoint);Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.True(response.Headers.CacheControl!.NoStore);
+        var csv=await response.Content.ReadAsStringAsync();Assert.Contains("alpha-host",csv);Assert.DoesNotContain("other-host",csv);
+        Assert.Equal(HttpStatusCode.NotFound,(await client.GetAsync(endpoint.Replace("/pi5/","/other-device/"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,(await client.GetAsync(endpoint.Replace("signals=cpu,memory","signals=password"))).StatusCode);
+        var page=await client.GetAsync("/devices/pi5");Assert.Equal(HttpStatusCode.OK,page.StatusCode);Assert.Contains("Resource trends",await page.Content.ReadAsStringAsync());
+    }
     private static async Task<HttpResponseMessage> Login(HttpClient client, string username, string code)
     {
         var html = await client.GetStringAsync("/auth/login");

@@ -7,6 +7,8 @@
     <Compile Include="../../src/PiDock.Cloud.Web/EnrollmentStore.cs" Link="Services/EnrollmentStore.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/EnrollmentProgress.cs" Link="Services/EnrollmentProgress.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/TelemetryArchive.cs" Link="Services/TelemetryArchive.cs" />
+    <Compile Include="../../src/PiDock.Cloud.Web/DeviceHistory.cs" Link="Services/DeviceHistory.cs" />
+    <Compile Include="../../src/PiDock.Cloud.Web/ApplicationCommandStore.cs" Link="Services/ApplicationCommandStore.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/FleetStore.cs" Link="Services/FleetStore.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/IngestionService.cs" Link="Services/IngestionService.cs" />
     <Content Include="../../src/PiDock.Appliance.Web/Components/Pages/*.razor" Link="Components/Pages/%(Filename)%(Extension)" />

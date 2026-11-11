@@ -12,6 +12,9 @@ import subprocess
 import tempfile
 import time
 import uuid
+import threading
+import socketserver
+from http.server import BaseHTTPRequestHandler
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -33,6 +36,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', default='pidock-preview-cloud')
     parser.add_argument('--enrollment', action='store_true', help='Issue a new device identity through the real HTTPS enrollment endpoint before testing delivery')
+    parser.add_argument("--remote-command", action="store_true", help="Also exercise an opt-in, expiring MQTT container command against a disposable fake Unix broker")
     args = parser.parse_args()
     pki = REPO / '.state/pki'
     for name in ['ca.crt', 'broker.crt', 'broker.key', 'worker.crt', 'worker.key', 'device.crt', 'device.key', 'web.crt', 'web.key']:
@@ -45,6 +49,9 @@ def main():
         (scratch / name).mkdir(mode=0o700)
     broker, cloud = prefix + '-broker', prefix + '-cloud'
     agent = None
+    fake_broker = None
+    runtime_calls = []
+    command_id = str(uuid.uuid4())
     logs = open(scratch / 'agent.log', 'w')
     user = str(os.getuid()) + ':' + str(os.getgid())
 
@@ -63,6 +70,25 @@ def main():
         return result
 
     try:
+        if args.remote_command:
+            from datetime import datetime, timedelta, timezone
+            now = datetime.now(timezone.utc)
+            container_id = 'a' * 64
+            pending = {'command': {'id': command_id, 'tenantId': 'local', 'deviceId': 'pi-enrolled' if args.enrollment else 'pi5',
+                       'action': 'stop', 'containerId': container_id, 'issuedAt': now.isoformat(), 'expiresAt': (now + timedelta(minutes=2)).isoformat(), 'requestedBy': 'fixture-owner'}, 'result': None}
+            (scratch / 'cloud/application-commands.json').write_text(json.dumps([pending]))
+            (scratch / 'agent/remote-applications.json').write_text(json.dumps({'enabled': True, 'processed': []}))
+            class RuntimeHandler(BaseHTTPRequestHandler):
+                def log_message(self, *args): pass
+                def respond(self, body, status=200):
+                    encoded = json.dumps(body).encode(); self.send_response(status); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(encoded))); self.end_headers(); self.wfile.write(encoded)
+                def do_GET(self):
+                    self.respond([{'id': container_id, 'names': ['fixture-app'], 'image': 'fixture/image', 'state': 'running', 'status': 'Up'}])
+                def do_POST(self):
+                    if self.path != '/applications/' + container_id + '/stop': self.respond({}, 403); return
+                    runtime_calls.append(self.path); self.respond({})
+            fake_broker = socketserver.UnixStreamServer(str(scratch / 'runtime.sock'), RuntimeHandler)
+            threading.Thread(target=fake_broker.serve_forever, daemon=True).start()
         run(['docker', 'network', 'create', prefix])
         with socket.socket() as reservation:
             reservation.bind(('127.0.0.1', 0))
@@ -134,10 +160,18 @@ def main():
                     'Mqtt__TenantId': 'local', 'Mqtt__DeviceId': device_id,
                     'Mqtt__CertificatePath': str(device_certificate), 'Mqtt__PrivateKeyPath': str(device_key),
                     'Mqtt__CaPath': str(pki / 'ca.crt')})
-        agent = subprocess.Popen(['dotnet', 'run', '--no-build', '--no-launch-profile', '--project', 'src/PiDock.Appliance.Web',
+        if args.remote_command: env["Broker__SocketPath"] = str(scratch / "runtime.sock")
+        agent = subprocess.Popen(['dotnet', 'run', '-c', 'Release', '--no-build', '--no-launch-profile', '--project', 'src/PiDock.Appliance.Web',
                                   '--urls', 'http://127.0.0.1:0'], cwd=REPO, env=env, stdout=logs, stderr=logs, start_new_session=True)
         wait_for(lambda: any(not r['pending'] for r in records()), 45, 'first durable cloud receipt')
         print('PASS: first sample acknowledged only after cloud persistence', flush=True)
+        if args.remote_command:
+            def completed():
+                entries = json.loads((scratch / 'cloud/application-commands.json').read_text())
+                return any(e['command']['id'] == command_id and e.get('result', {}).get('state') == 'Completed' for e in entries if e.get('result'))
+            wait_for(completed, 75, 'MQTT container command completion in cloud telemetry')
+            if len(runtime_calls) != 1: raise RuntimeError('Remote command was lost or executed more than once.')
+            print('PASS: scoped expiring command travelled in a TLS receipt, executed once and its result returned through telemetry', flush=True)
         run(['docker', 'stop', '-t', '3', broker])
         wait_for(lambda: sum(r['pending'] for r in records()) >= 2, 75, 'two samples buffered while broker is unavailable')
         print('PASS: local sampling continues with the broker stopped', flush=True)
@@ -179,6 +213,7 @@ def main():
                 pass
             except subprocess.TimeoutExpired:
                 os.killpg(agent.pid, signal.SIGKILL); agent.wait(timeout=5)
+        if fake_broker is not None: fake_broker.shutdown(); fake_broker.server_close()
         logs.close()
         for name in [cloud, broker]:
             subprocess.run(['docker', 'rm', '-f', name], capture_output=True)

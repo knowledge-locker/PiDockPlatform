@@ -43,6 +43,12 @@ public sealed class TelemetryArchive
             StateFiles.WriteAtomic(path, json); frames.Add(Key(envelope), (path, frame, length)); bytes += length; return true;
         }
     }
+    public IReadOnlyList<TelemetryEnvelope> Range(string tenant, string device, DateTimeOffset from, DateTimeOffset to)
+    {
+        lock (gate) return frames.Values.Where(f => f.Frame.Envelope.TenantId == tenant && f.Frame.Envelope.DeviceId == device &&
+            f.Frame.Envelope.Snapshot.ObservedAt >= from && f.Frame.Envelope.Snapshot.ObservedAt <= to)
+            .OrderBy(f => f.Frame.Envelope.Snapshot.ObservedAt).Take(10000).Select(f => f.Frame.Envelope).ToArray();
+    }
     public IReadOnlyList<TelemetryEnvelope> Read(string tenant, string device, int limit)
     {
         limit = Math.Clamp(limit, 1, 100);

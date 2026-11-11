@@ -68,6 +68,11 @@ public sealed class DockerOperations(HttpClient engine)
             finally { deploymentLock.Release(); }
         }
     }
+    public async Task Restart(string id, CancellationToken ct)
+    {
+        if (id.Length != 64 || !id.All(char.IsAsciiHexDigit) || !(await List(ct)).Any(c => c.Id == id)) throw new ArgumentException("Unknown managed application.");
+        using var result = await engine.PostAsync($"{Api}/containers/{id}/restart?t=10", null, ct); result.EnsureSuccessStatusCode();
+    }
     public async Task ChangeState(string id, bool start, CancellationToken ct)
     {
         if (id.Length != 64 || !id.All(char.IsAsciiHexDigit) || !(await List(ct)).Any(c => c.Id == id)) throw new ArgumentException("Unknown managed application.");

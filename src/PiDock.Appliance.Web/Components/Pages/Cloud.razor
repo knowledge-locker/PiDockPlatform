@@ -1,6 +1,7 @@
 @page "/cloud"
 @implements IAsyncDisposable
 @inject IConfiguration Settings
+@inject RemoteApplicationAgent Applications
 @inject TelemetryDeliveryService Delivery
 @inject CloudEnrollmentClient Enrollment
 @inject MonitoringService Monitoring
@@ -14,7 +15,10 @@
 <h3>Retry cloud connection</h3><p>Reset the MQTT connection using this device’s saved identity. Buffered telemetry stays queued.</p>
 <label>Your appliance password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
 <label>Fresh authenticator code<input @bind="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" /></label>
-<button disabled="@(busy || !Enrollment.Enabled)" @onclick="Retry">Retry cloud connection</button></section>
+<button disabled="@(busy || !Enrollment.Enabled)" @onclick="Retry">Retry cloud connection</button>
+<h3>Remote container management</h3><p>Allow organization owners and administrators in your connected cloud to start, stop and restart PiDock-managed containers. Changes require fresh cloud authentication. Image deployment, system containers, shell access and device I/O stay unavailable remotely.</p>
+<label><input type="checkbox" style="width:auto" @bind="allowRemoteControl" /> Allow cloud container control</label>
+<button class="secondary" disabled="@(busy || !Enrollment.Enabled)" @onclick="SaveRemotePolicy">Save container access</button><p>Confirm changes with the appliance password and a fresh code above. Current setting: @(Applications.Current.ControlEnabled ? "Allowed" : "Off").</p></section>
 } else {
 <div class="columns"><section class="card"><h2>Enter your invitation</h2><p>In PiDockCloud, open <strong>Add device</strong> to generate a code.</p>
 <label>PiDockCloud server<input type="url" @bind="server" placeholder="https://pidock.knowledgelocker.ai" autocomplete="off" maxlength="512" /></label>
@@ -26,9 +30,9 @@
 }
 <p role="status">@message</p>
 @code {
-    private string server = "", enrollmentCode = "", caPem = "", password = "", otp = "", message = ""; private bool busy; private CloudConnection? connection;
+    private string server = "", enrollmentCode = "", caPem = "", password = "", otp = "", message = ""; private bool busy, allowRemoteControl; private CloudConnection? connection;
     private readonly CancellationTokenSource stop = new(); private Task? refresh;
-    protected override void OnInitialized() { connection = Enrollment.Connection; server = Settings["Enrollment:DefaultCloudUrl"] ?? "https://pidock.knowledgelocker.ai"; refresh = Refresh(); }
+    protected override void OnInitialized() { connection = Enrollment.Connection; allowRemoteControl = Applications.Current.ControlEnabled; server = Settings["Enrollment:DefaultCloudUrl"] ?? "https://pidock.knowledgelocker.ai"; refresh = Refresh(); }
     private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2)); while(await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(StateHasChanged); } catch(OperationCanceledException) { } }
     public async ValueTask DisposeAsync() { await stop.CancelAsync(); if(refresh is not null) await refresh; stop.Dispose(); }
     private void StartOver() { enrollmentCode = ""; caPem = ""; password = ""; otp = ""; message = "Enter a code from PiDockCloud to try again. Retrying the same code recovers the original device key if a response was lost."; }
@@ -39,6 +43,13 @@
         password = ""; otp = "";
         if(!valid) message = "Your local owner password and a fresh authenticator code are required.";
         return valid;
+    }
+    private async Task SaveRemotePolicy()
+    {
+        if(busy || !Enrollment.Enabled) return; busy = true;
+        try { if(!await Confirm()) return; Applications.SetEnabled(allowRemoteControl); message = allowRemoteControl ? "Cloud container control allowed. Its status will appear after the next telemetry update." : "Cloud container control is off. New remote operations will be rejected."; }
+        catch(IOException) { message = "Container access could not be saved."; }
+        finally { busy = false; }
     }
     private async Task Retry()
     {
