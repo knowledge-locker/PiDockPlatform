@@ -4,7 +4,7 @@ The development portal is https://pidock-dev.knowledgelocker.ai, hosted on `know
 
 ## Deployed services
 
-- Cloud: `prox3mus-pidockplatform-eca278f0`, image `ghcr.io/knowledge-locker/pidockplatform@sha256:ae0cf7b6639cd4d2be206c8c54d6eaf1acceac660d0119dde41af12816cd37cd` (`0.1.0-dev.5`, source `bc5306712c19a676108afba19f1fc1bb9b23b7d8`). [Publication and provenance](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43086506950).
+- Cloud: `prox3mus-pidockplatform-eca278f0`, image `ghcr.io/knowledge-locker/pidockplatform@sha256:8c6461f2161e9bdfc9be4b0099d3abbffe7124f68ee31a3d1d35b7cf01291899` (`0.1.0-dev.7`, source `00ac960a869c1441e305bf47ddc4fa47cec841e0`). [Publication and provenance](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43091941350).
 - HTTPS: existing Caddy reverse proxy, publicly trusted certificate with automatic renewal. Its exact trusted proxy address is `172.18.0.2`; revalidate this configuration if the Caddy container/network changes. No trust-all forwarded-header setting is used.
 - MQTT: `pidock-development-broker`, a constrained non-root Mosquitto container managed by `/opt/pidock/deploy/compose.development-broker.yaml`. It uses the existing proxy Docker network, with TLS hostname `pidock-development-broker` for the cloud worker and `pidock-dev.knowledgelocker.ai:8883` for devices. Shared-network membership grants no MQTT permissions without a valid certificate.
 - State: the separately labelled development external cloud/broker volumes described in [Persistent storage](Persistent-Storage.md).
