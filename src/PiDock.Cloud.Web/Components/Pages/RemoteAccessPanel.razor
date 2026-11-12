@@ -1,0 +1,26 @@
+@inject RemoteAccessService Remote
+@inject AuthenticationStateProvider Authentication
+<section class="card"><h2>Remote PiDockOS interface</h2>
+@if (!Remote.Configured) { <p>The server administrator has not configured isolated remote-access hostnames.</p> }
+else {
+<p>@(connected ? "Connected · locally permitted" : "Unavailable · the Pi must be online and its local owner must enable Remote interface access")</p>
+<p>Open a five-minute session with fresh cloud MFA. Sign into PiDockOS with its appliance account; local action confirmations still apply. The cloud relays interface traffic.</p>
+<button disabled="@(busy || !connected || !canManage)" @onclick="Open">Open PiDockOS</button>
+@foreach(var session in sessions) { <p>Session for @session.Actor · expires @session.ExpiresAt.UtcDateTime.ToString("HH:mm:ss") UTC @if(session.LaunchPath.Length > 0) { <a href="@session.LaunchPath" target="_blank" rel="noopener noreferrer">Open secure session →</a> } <button class="secondary" @onclick="() => Revoke(session.Id)">End session</button></p> }
+<details><summary>Recent remote-access audit</summary>@foreach(var entry in audit) { <p><small>@entry.At.UtcDateTime.ToString("u") · @entry.Actor · @entry.Event · @entry.Outcome</small></p> }</details>
+}
+<p role="status">@message</p></section>
+<ReauthenticationDialog @ref="confirmation" Cloud="true" />
+@code {
+    [Parameter, EditorRequired] public StoredDevice Device { get; set; } = default!;
+    private ReauthenticationDialog confirmation = default!; private bool busy, connected, canManage; private string message = "";
+    private RemoteSessionView[] sessions = []; private RemoteAuditEvent[] audit = [];
+    protected override async Task OnParametersSetAsync() { var user = (await Authentication.GetAuthenticationStateAsync()).User; connected = Remote.Connected(Device.TenantId, Device.DeviceId); canManage = EnrollmentStore.CanManage(user); sessions = canManage ? Remote.Sessions(user, Device.DeviceId) : []; audit = Remote.Audit(user, Device.DeviceId); }
+    private async Task Open() {
+        if (busy || !connected || !canManage) return; busy = true; var device = Device.DeviceId;
+        try { if (!await confirmation.Request("Open PiDockOS remotely", $"Allow a five-minute remote interface session for {Device.Snapshot.Hostname}. The appliance’s local permission and sign-in are still required.")) return; Remote.Begin((await Authentication.GetAuthenticationStateAsync()).User, device); message = "Session approved. Select Open secure session to continue in a separate tab."; await OnParametersSetAsync(); }
+        catch (Exception e) when (e is IOException or InvalidOperationException or UnauthorizedAccessException) { message = "Remote session could not be opened. Check local permission, live contact, session and audit status."; }
+        finally { busy = false; }
+    }
+    private async Task Revoke(Guid id) { try { Remote.Revoke((await Authentication.GetAuthenticationStateAsync()).User, id); await OnParametersSetAsync(); } catch (UnauthorizedAccessException) { message = "Owner or administrator access is required."; } }
+}

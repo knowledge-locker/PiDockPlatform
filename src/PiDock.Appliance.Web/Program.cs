@@ -18,6 +18,8 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<OsUpdateAgent>());
 builder.Services.AddSingleton<IApplicationRuntime>(sp => sp.GetRequiredService<BrokerClient>());
 builder.Services.AddSingleton(sp => new RemoteApplicationAgent(builder.Configuration, sp.GetRequiredService<IApplicationRuntime>(), sp.GetRequiredService<MqttConnection>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<StateDirectory>().Path));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RemoteApplicationAgent>());
+builder.Services.AddSingleton(sp => new RemoteInterfaceAgent(sp.GetRequiredService<CloudEnrollmentClient>(), sp.GetRequiredService<StateDirectory>().Path, sp.GetRequiredService<ILogger<RemoteInterfaceAgent>>()));
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RemoteInterfaceAgent>());
 builder.Services.AddSingleton(new GpioSimulator(builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("PiDock:SimulateGpio")));
 builder.Services.AddSingleton(sp => new MqttConnection(builder.Configuration, sp.GetRequiredService<StateDirectory>().Path));
 builder.Services.AddSingleton(sp => new CloudEnrollmentClient(sp.GetRequiredService<StateDirectory>().Path, sp.GetRequiredService<MqttConnection>()));
@@ -34,7 +36,17 @@ var installedRelease = OsUpdateRules.Installed(AppContext.BaseDirectory);
 var app = builder.Build();
 if (app.Commission(args, singleOwner: true)) return;
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error"); app.UseHsts(); app.UseHttpsRedirection(); }
-app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter(); app.UseAntiforgery();
+app.UseAuthentication();
+app.Use(async (context, next) => {
+    var relay = context.RequestServices.GetRequiredService<RemoteInterfaceAgent>();
+    var proof = context.Request.Headers["X-PiDock-Remote-Proof"].ToString();
+    if (proof.Length > 0) {
+        if (!relay.Allowed || proof != relay.LocalProof || !Guid.TryParse(context.Request.Headers["X-PiDock-Remote-Id"], out var session)) { context.Response.StatusCode = 403; return; }
+        if (context.User.Identity?.IsAuthenticated == true) context.User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(context.User.Claims.Append(new("pidock_remote", session.ToString())), context.User.Identity.AuthenticationType));
+    }
+    await next(context);
+});
+app.UseAuthorization(); app.UseRateLimiter(); app.UseAntiforgery();
 app.MapPiDockAuthentication("Appliance");
 app.MapStaticAssets();
 app.MapGet("/health/update", (MonitoringService monitor) => new OsUpdateHealth(installedRelease?.Digest,

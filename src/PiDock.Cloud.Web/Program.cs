@@ -15,12 +15,15 @@ builder.Services.AddScoped<AuthenticationStateProvider, SessionAuthenticationSta
 builder.Services.AddSingleton<FleetStore>();
 builder.Services.AddSingleton<ApplicationCommandStore>();
 builder.Services.AddSingleton<OsUpdateStore>();
+builder.Services.AddSingleton<RemoteAccessService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RemoteAccessService>());
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddSingleton<IDeviceCertificateIssuer, DeviceCertificateIssuer>();
 builder.Services.AddSingleton<EnrollmentStore>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
+    options.AddPolicy("remote-agent", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     options.AddPolicy("enrollment", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
@@ -36,10 +39,12 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error"); app.UseHsts();
     app.UseWhen(context => context.Request.Path != "/health/live", branch => branch.UseHttpsRedirection());
 }
+app.UseWebSockets();
+app.Use(RemoteAccessGateway.Handle);
 app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter(); app.UseAntiforgery();
 app.MapPiDockAuthentication("Cloud"); app.MapStaticAssets();
 app.MapDeviceEnrollment();
-app.MapOsUpdates();
+app.MapOsUpdates(); app.MapRemoteAccess();
 app.MapGet("/api/devices", (System.Security.Claims.ClaimsPrincipal user, FleetStore store) => store.For(user)).RequireAuthorization();
 app.MapGet("/api/devices/{device}/history", (string device, System.Security.Claims.ClaimsPrincipal user, FleetStore store) => store.HistoryFor(user, device)).RequireAuthorization();
 DeviceHistory.MapExport(app);

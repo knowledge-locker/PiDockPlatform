@@ -1,0 +1,28 @@
+@page "/remote-access"
+@attribute [Authorize(Roles = "Owner")]
+@inject RemoteInterfaceAgent Remote
+@inject AuthenticationStateProvider Authentication
+<PageTitle>Remote interface access · PiDockOS</PageTitle>
+<p class="eyebrow">PIDOCKOS / REMOTE ACCESS</p><h1>Remote interface access</h1>
+<p>Allow your registered PiDockCloud to relay this appliance’s web interface over an outbound encrypted connection. No home-router port forwarding is needed. The cloud is a trusted relay and can process interface traffic.</p>
+<section class="card"><h2>Local owner permission</h2>
+<p>This permission is separate from updates and container control. Cloud owners and administrators must confirm fresh MFA for each five-minute session, then sign into PiDockOS. Appliance action confirmations remain required.</p>
+@if (isRemote) { <p>This permission can only be changed through a local connection to the appliance.</p> }
+else { <label class="live-switch"><input type="checkbox" @bind="allowed" disabled="@busy" /> Allow PiDockCloud remote interface access</label><button disabled="@busy" @onclick="Save">Save remote interface permission</button> }
+<p>Current permission: <strong>@(Remote.Allowed ? "Allowed" : "Off")</strong>. Relay: @(Remote.Connected ? "Connected" : "Disconnected"). Turning permission off closes current remote sessions.</p><p role="status">@message</p></section>
+<section class="card"><h2>Recent access events</h2>@foreach(var entry in Remote.Events) { <p><small>@entry.At.UtcDateTime.ToString("u") · @entry.Actor · @entry.Event · @entry.Outcome</small></p> }</section>
+<ReauthenticationDialog @ref="confirmation" />
+@code {
+    private ReauthenticationDialog confirmation = default!; private bool allowed, busy, isRemote; private string message = "";
+    protected override async Task OnInitializedAsync() { allowed = Remote.Allowed; isRemote = (await Authentication.GetAuthenticationStateAsync()).User.HasClaim(c => c.Type == "pidock_remote"); }
+    private async Task Save() {
+        if (busy) return; busy = true; var enabled = allowed;
+        try {
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            if (user.HasClaim(c => c.Type == "pidock_remote")) { message = "Use a local appliance connection to change this permission."; return; }
+            if (!await confirmation.Request("Save remote interface permission", enabled ? "Allow your registered PiDockCloud to relay this appliance’s full web interface. Fresh cloud MFA and appliance sign-in remain required." : "Disable remote interface access and disconnect all remote sessions.")) return;
+            Remote.SetAllowed(enabled, user.Identity!.Name!); message = "Remote interface permission saved.";
+        } catch (IOException) { message = "Permission could not be saved. Check local storage and audit availability."; }
+        finally { busy = false; }
+    }
+}

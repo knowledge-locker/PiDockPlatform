@@ -31,6 +31,7 @@ else {
 @if(operations.Count > 0) { <h3>Recent operations</h3><div class="table-scroll"><table><thead><tr><th>Operation</th><th>Requested</th><th>Result</th></tr></thead><tbody>@foreach(var operation in operations) { <tr><td>@operation.Command.Action</td><td>@Format.Ago(operation.Command.IssuedAt)</td><td>@(operation.Result?.State ?? (operation.Command.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired — verify device state before retrying" : "Queued — waiting for device"))<br/><small>@operation.Result?.Message</small></td></tr> }</tbody></table></div> }
 </details>
 <OsUpdatePanel @key="(typeof(OsUpdatePanel), DeviceId)" Device="device" />
+<RemoteAccessPanel @key="(typeof(RemoteAccessPanel), DeviceId)" Device="device" />
 <ResourceTrends @key="DeviceId" Query="ReadHistory" ExportPath="@($"/api/devices/{Uri.EscapeDataString(DeviceId)}/export")" />
 }
 <ReauthenticationDialog @ref="confirmation" Cloud="true" />

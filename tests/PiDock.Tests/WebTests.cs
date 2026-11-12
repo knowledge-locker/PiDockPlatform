@@ -25,7 +25,7 @@ public sealed class WebTests
         var result = await Login(client, "test-owner", code);
         Assert.Equal(HttpStatusCode.Redirect, result.StatusCode); Assert.Equal("/", result.Headers.Location!.OriginalString);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/status")).StatusCode);
-        foreach (var route in new[] { "/", "/storage", "/gpio", "/interfaces", "/applications", "/cloud", "/updates" })
+        foreach (var route in new[] { "/", "/storage", "/gpio", "/interfaces", "/applications", "/cloud", "/updates", "/remote-access" })
         {
             var page = await client.GetAsync(route); Assert.Equal(HttpStatusCode.OK, page.StatusCode);
             Assert.Contains("PiDock", await page.Content.ReadAsStringAsync());
@@ -35,6 +35,23 @@ public sealed class WebTests
         // Same valid code cannot create a second authenticated session.
         using var other = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         var replay = await Login(other, "test-owner", code); Assert.Contains("failed=1", replay.Headers.Location!.OriginalString);
+    }
+    [Fact]
+    public async Task RemoteApplianceConnectionCannotEnableItsOwnRemotePermission()
+    {
+        using var factory = new PreviewFactory<PiDock.Appliance.Web.ApplianceMarker>();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
+        var secret = Totp.NewSecret(); factory.Services.GetRequiredService<UserStore>().Add("local-owner", "integration-test-password", secret, "local", "Owner", true, -1);
+        await Login(client, "local-owner", Totp.Code(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30));
+        var remote = factory.Services.GetRequiredService<PiDock.Agent.RemoteInterfaceAgent>();
+        client.DefaultRequestHeaders.Add("X-PiDock-Remote-Proof", "invalid");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/remote-access")).StatusCode);
+        client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Proof");
+        remote.SetAllowed(true, "local-owner");
+        client.DefaultRequestHeaders.Add("X-PiDock-Remote-Proof", remote.LocalProof); client.DefaultRequestHeaders.Add("X-PiDock-Remote-Id", Guid.NewGuid().ToString());
+        var html = await client.GetStringAsync("/remote-access"); Assert.Contains("only be changed through a local connection", html); Assert.DoesNotContain("Save remote interface permission", html);
+        client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Proof"); client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Id");
+        Assert.Contains("Save remote interface permission", await client.GetStringAsync("/remote-access"));
     }
     [Fact]
     public async Task EnrollmentRedemptionRequiresHttpsAndIsRateLimitedWhileManagementRequiresLogin()
