@@ -1,15 +1,18 @@
 @inject RemoteAccessService Remote
 @inject AuthenticationStateProvider Authentication
-<section class="card"><h2>Remote PiDockOS interface</h2>
-@if (!Remote.Configured) { <p>The server administrator has not configured isolated remote-access hostnames.</p> }
-else {
-<p>@(connected ? "Connected · locally permitted" : "Unavailable · the Pi must be online and its local owner must enable Remote interface access")</p>
-<p>Open a five-minute session with fresh cloud MFA. Sign into PiDockOS with its appliance account; local action confirmations still apply. The cloud relays interface traffic.</p>
-<button disabled="@(busy || !connected || !canManage)" @onclick="Open">Open PiDockOS</button>
+<div class="remote-interface-summary">
+<div class="device-control-summary"><span>Remote PiDockOS UI</span><RemoteInterfaceStatus Device="Device" />
+<button class="secondary" disabled="@(busy || !Remote.Configured || !connected || !canManage)" @onclick="Open">Open PiDockOS</button></div>
+@if (!Remote.Configured) { <small>Ask the cloud administrator to configure remote interface access.</small> }
+else if (!canManage) { <small>Owner or workspace Administrator access is required to open PiDockOS.</small> }
+else if (!connected) { <small>To connect, bring the Pi online and enable Remote interface access locally on PiDockOS.</small> }
+<details class="remote-access-details"><summary>Remote access details &amp; audit</summary>
+<p>Five-minute sessions require fresh cloud MFA and the PiDockOS appliance account. Local action confirmations still apply.</p>
+@foreach(var entry in audit) { <p><small>@entry.At.UtcDateTime.ToString("u") · @entry.Actor · @entry.Event · @entry.Outcome</small></p> }
+</details>
 @foreach(var session in sessions) { <p>Session for @session.Actor · expires @session.ExpiresAt.UtcDateTime.ToString("HH:mm:ss") UTC @if(session.LaunchPath.Length > 0) { <a href="@session.LaunchPath" target="_blank" rel="noopener noreferrer">Open secure session →</a> } <button class="secondary" @onclick="() => Revoke(session.Id)">End session</button></p> }
-<details><summary>Recent remote-access audit</summary>@foreach(var entry in audit) { <p><small>@entry.At.UtcDateTime.ToString("u") · @entry.Actor · @entry.Event · @entry.Outcome</small></p> }</details>
-}
-<p role="status">@message</p></section>
+@if (message.Length > 0) { <p role="status">@message</p> }
+</div>
 <ReauthenticationDialog @ref="confirmation" Cloud="true" />
 @code {
     [Parameter, EditorRequired] public StoredDevice Device { get; set; } = default!;

@@ -1,0 +1,13 @@
+@inject RemoteAccessService Remote
+<span class="pill @(Status == "Enabled" ? "status-online" : "status-neutral")" title="@Description">@Status</span>
+@code {
+    [Parameter, EditorRequired] public StoredDevice Device { get; set; } = default!;
+    private string Status => Format.RemoteInterface(Device, Remote.Configured, Remote.Connected(Device.TenantId, Device.DeviceId));
+    private string Description => Status switch {
+        "Not configured" => "The cloud administrator must configure remote interface access.",
+        "Unavailable" => "The Pi is disconnected or has not reported its remote interface setting. Enable Remote interface access locally on PiDockOS.",
+        "Enabled" => "Remote interface access is locally enabled. A live connection and fresh cloud MFA are required to open PiDockOS.",
+        "Disabled" => "The local owner has disabled Remote interface access on PiDockOS.",
+        _ => "Last reported local setting; the Pi must reconnect before remote access is available."
+    };
+}

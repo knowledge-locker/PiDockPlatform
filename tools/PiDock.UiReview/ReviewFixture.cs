@@ -34,7 +34,7 @@ public static class ReviewSamples
                 if (item.Item1 == "sample-pi4-workbench") localHistory?.Append(HistoryClass.Telemetry, new TelemetryEnvelope(1, "review", item.Item1, Guid.NewGuid(), envelope.BootId, 121-index, historical));
                 archive.Store(new(1,"review",item.Item1,Guid.NewGuid(),envelope.BootId,121-index,historical,Applications:apps));
             }
-            records.Add(new StoredDevice("review", item.Item1, envelope.MessageId, item.Item2, snapshot, envelope.BootId, 1, Applications:apps, OsUpdates:new(now,true,false,"linux-arm64","0.1.0-dev.10",null,null,null,"Sample updater · cloud updates off")));
+            records.Add(new StoredDevice("review", item.Item1, envelope.MessageId, item.Item2, snapshot, envelope.BootId, 1, Applications:apps, OsUpdates:new(now,true,false,"linux-arm64","0.1.0-dev.10",null,null,null,"Sample updater · cloud updates off"), RemoteInterfaceEnabled:item.Item1 == "sample-pi4-lab"));
         }
         var invitations = records.Select(d => new DeviceInvitation(Guid.NewGuid(), "review", d.DeviceId, d.DeviceId, "review-owner", now.AddMinutes(-1), now.AddMinutes(9), new string('0', 64), "Registered")).ToList();
         invitations.Add(new DeviceInvitation(Guid.NewGuid(), "review", "sample-pending", "Pending connection sample", "review-owner", now, now.AddMinutes(10), new string('0', 64)));
@@ -52,7 +52,7 @@ public sealed class ReviewFleetUpdates(FleetStore fleet, ReviewIdentity identity
         {
             var device = fleet.For(identity.User).First(d => d.DeviceId == "sample-pi4-workbench");
             var sample = device.Snapshot with { ObservedAt = DateTimeOffset.UtcNow, CpuPercent = 18 + 4 * Math.Sin(device.Sequence * .3) };
-            fleet.Ingest(IdentityRules.Topic("review", device.DeviceId), new TelemetryEnvelope(1, "review", device.DeviceId, Guid.NewGuid(), device.BootId, device.Sequence + 1, sample, Applications:device.Applications, OsUpdates:device.OsUpdates is { } updates ? updates with { ObservedAt=DateTimeOffset.UtcNow } : null));
+            fleet.Ingest(IdentityRules.Topic("review", device.DeviceId), new TelemetryEnvelope(1, "review", device.DeviceId, Guid.NewGuid(), device.BootId, device.Sequence + 1, sample, Applications:device.Applications, OsUpdates:device.OsUpdates is { } updates ? updates with { ObservedAt=DateTimeOffset.UtcNow } : null, RemoteInterfaceEnabled:device.RemoteInterfaceEnabled));
         }
     }
 }

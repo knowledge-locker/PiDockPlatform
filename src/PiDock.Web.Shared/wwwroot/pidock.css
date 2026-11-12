@@ -707,3 +707,11 @@ textarea { width:100%; box-sizing:border-box; padding:12px; border:1px solid var
 .workspace > header { min-height: 78px; height: auto; gap: 12px; padding-top: 12px; padding-bottom: 12px; flex-wrap: wrap; }
 .workspace > header > div { flex-wrap: wrap; gap: 14px; }
 @media(max-width:650px) { .workspace-select { flex-wrap: wrap; } .account-page { margin: 20px auto; padding: 18px 0; } }
+
+.device-access-summary { display:flex; flex-wrap:wrap; align-items:flex-start; gap:1rem 2.5rem; margin:0 0 1.5rem; padding:1rem 0; border-block:1px solid var(--line, #e5dfe2); }
+.device-control-summary { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; }
+.remote-interface-summary { flex:1; min-width:min(100%, 20rem); }
+.remote-interface-summary > small { display:block; margin-top:.5rem; }
+.remote-access-details { margin-top:.5rem; font-size:.875rem; }
+.remote-access-details summary { cursor:pointer; }
+.device-access-note { flex-basis:100%; }

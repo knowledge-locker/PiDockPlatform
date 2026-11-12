@@ -9,7 +9,11 @@
     <section class="card empty"><h1>Device unavailable</h1><p>This device is not available in your organization.</p><a href="/">Return to fleet overview →</a></section>
 } else {
 <div class="page-heading"><div><p class="eyebrow"><a href="/">FLEET</a> / DEVICE DASHBOARD</p><h1>@name</h1><p>@device.Snapshot.Hostname · @device.Snapshot.Platform</p></div><span class="pill @(Online ? "status-online" : "status-offline")">@(Online ? "Online" : "Last known readings") · @Format.Ago(device.ReceivedAt)</span></div>
-<p>Cloud container control: <span class="pill @(Format.CloudControl(device) == "Allowed" ? "status-online" : "status-neutral")">@Format.CloudControl(device)</span> <small>Permission is set by the local owner on PiDockOS. Stale reports do not permit operations.</small></p>
+<section class="device-access-summary" aria-label="Device remote access">
+<div class="device-control-summary"><span>Cloud container control</span><span class="pill @(Format.CloudControl(device) == "Allowed" ? "status-online" : "status-neutral")">@Format.CloudControl(device)</span></div>
+<RemoteAccessPanel @key="(typeof(RemoteAccessPanel), DeviceId)" Device="device" />
+<small class="device-access-note">Permissions are set by the local owner on PiDockOS. A live connection is required for remote operations.</small>
+</section>
 <div class="metrics device-kpis">
 <section class="card"><span>Device uptime</span><strong>@(device.Snapshot.Channels?.Uptime == false ? "Not shared" : Format.Uptime(device.Snapshot.UptimeSeconds))</strong></section>
 <section class="card"><span>CPU utilization</span><strong>@Format.Percent(device.Snapshot.CpuPercent)</strong></section>
@@ -31,7 +35,6 @@ else {
 @if(operations.Count > 0) { <h3>Recent operations</h3><div class="table-scroll"><table><thead><tr><th>Operation</th><th>Requested</th><th>Result</th></tr></thead><tbody>@foreach(var operation in operations) { <tr><td>@operation.Command.Action</td><td>@Format.Ago(operation.Command.IssuedAt)</td><td>@(operation.Result?.State ?? (operation.Command.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired — verify device state before retrying" : "Queued — waiting for device"))<br/><small>@operation.Result?.Message</small></td></tr> }</tbody></table></div> }
 </details>
 <OsUpdatePanel @key="(typeof(OsUpdatePanel), DeviceId)" Device="device" />
-<RemoteAccessPanel @key="(typeof(RemoteAccessPanel), DeviceId)" Device="device" />
 <ResourceTrends @key="DeviceId" Query="ReadHistory" ExportPath="@($"/api/devices/{Uri.EscapeDataString(DeviceId)}/export")" />
 }
 <ReauthenticationDialog @ref="confirmation" Cloud="true" />
