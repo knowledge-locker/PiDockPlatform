@@ -21,12 +21,12 @@ public sealed class OsUpdateStore
         trust = settings["Updates:TrustDirectory"] ?? "/etc/pidock/update-trust";
         state = File.Exists(path) ? JsonSerializer.Deserialize<OsCloudState>(File.ReadAllText(path), StateFiles.Json) ?? throw new IOException("Invalid update catalog.") : new([], []);
     }
-    public PublishedOsRelease[] Releases(ClaimsPrincipal user) { lock (gate) return user.Identity?.IsAuthenticated == true ? state.Releases.Where(r => r.TenantId == user.FindFirstValue("tenant")).OrderByDescending(r => r.PublishedAt).ToArray() : []; }
-    public CloudOsUpdate[] Operations(ClaimsPrincipal user, string device) { lock (gate) return user.Identity?.IsAuthenticated == true ? state.Commands.Where(c => c.Command.TenantId == user.FindFirstValue("tenant") && c.Command.DeviceId == device).TakeLast(20).Reverse().ToArray() : []; }
+    public PublishedOsRelease[] Releases(ClaimsPrincipal user) { lock (gate) return fleet.HasAccess(user) ? state.Releases.Where(r => r.TenantId == user.FindFirstValue("tenant")).OrderByDescending(r => r.PublishedAt).ToArray() : []; }
+    public CloudOsUpdate[] Operations(ClaimsPrincipal user, string device) { lock (gate) return fleet.HasAccess(user) ? state.Commands.Where(c => c.Command.TenantId == user.FindFirstValue("tenant") && c.Command.DeviceId == device).TakeLast(20).Reverse().ToArray() : []; }
     private void Save(OsCloudState next) { StateFiles.WriteAtomic(path, JsonSerializer.Serialize(next, StateFiles.Json)); state = next; }
     public async Task<PublishedOsRelease> Publish(ClaimsPrincipal user, Stream input, CancellationToken ct = default)
     {
-        if (!EnrollmentStore.CanManage(user) || !IdentityRules.IsId(user.FindFirstValue("tenant"))) throw new UnauthorizedAccessException();
+        if (!fleet.HasAccess(user) || !EnrollmentStore.CanManage(user) || !IdentityRules.IsId(user.FindFirstValue("tenant"))) throw new UnauthorizedAccessException();
         if (!await uploads.WaitAsync(0, ct)) throw new InvalidOperationException("Another release upload is in progress.");
         string incoming = Path.Combine(root, "incoming.zip");
         try
@@ -37,6 +37,7 @@ public sealed class OsUpdateStore
             var release = OsUpdatePackage.Verify(incoming, trust).Info;
             lock (gate)
             {
+                if (!fleet.HasAccess(user)) throw new UnauthorizedAccessException();
                 var existing = Releases(user).FirstOrDefault(r => r.Release.Version == release.Version && r.Release.Runtime == release.Runtime);
                 if (existing is not null) return existing.Release.Digest == release.Digest ? existing : throw new InvalidOperationException("Release versions are immutable for each runtime.");
                 string destination = Path.Combine(root, release.Digest + ".zip");
@@ -49,7 +50,7 @@ public sealed class OsUpdateStore
     }
     public OsUpdateCommand Queue(ClaimsPrincipal user, string device, string digest)
     {
-        if (!EnrollmentStore.CanManage(user)) throw new UnauthorizedAccessException();
+        if (!fleet.HasAccess(user) || !EnrollmentStore.CanManage(user)) throw new UnauthorizedAccessException();
         var target = fleet.For(user).SingleOrDefault(d => d.DeviceId == device) ?? throw new UnauthorizedAccessException();
         var now = clock.GetUtcNow();
         if (!target.HasLiveContact || now - target.ReceivedAt > TimeSpan.FromSeconds(90) || target.OsUpdates is not { Available: true, CloudEnabled: true } updates ||

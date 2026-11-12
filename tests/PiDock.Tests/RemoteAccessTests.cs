@@ -162,7 +162,7 @@ public sealed class RemoteAccessTests
             using var caKey=RSA.Create(2048); var caRequest=new CertificateRequest("CN=test-relay-ca",caKey,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1);
             caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true,false,0,true)); caRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign,true));
             using var ca=caRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1),DateTimeOffset.UtcNow.AddDays(30)); File.WriteAllText(Path.Combine(root,"ca.crt"),ca.ExportCertificatePem()); File.WriteAllText(Path.Combine(root,"ca.key"),caKey.ExportPkcs8PrivateKeyPem());
-            using var client=Client(); var secret=Totp.NewSecret(); Users.Add("remote-owner","remote-test-password",secret,"alpha","Owner",true,-1);
+            using var client=Client(); var secret=Totp.NewSecret(); Users.Add("remote-owner","remote-test-password",secret,"alpha","Administrator",false,-1);
             var user=Users.Authenticate("remote-owner","remote-test-password",Totp.Code(secret,DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30),DateTimeOffset.UtcNow)!; var session=Users.CreateSession(user,true,DateTimeOffset.UtcNow);
             Identity.User=new(new ClaimsIdentity([new Claim(ClaimTypes.Name,user.Username),new Claim(ClaimTypes.Role,user.Role),new Claim("tenant",user.TenantId),new Claim("stamp",user.Stamp),new Claim("session",session.Id),new Claim("expires",session.ExpiresAt.ToUnixTimeSeconds().ToString())],"test"));
             var code=Enrollments.Create(Identity.User,"Test Pi");Device=code.DeviceId;

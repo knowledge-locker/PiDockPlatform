@@ -244,13 +244,17 @@ public sealed class OsUpdateTests : IDisposable
         Assert.Equal(System.Net.HttpStatusCode.Redirect, (await client.GetAsync("/os-updates")).StatusCode);
         var store = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<OsUpdateStore>(factory.Services);
         var fleet = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<FleetStore>(factory.Services);
-        PublishedOsRelease published; await using (var input = File.OpenRead(package)) published = await store.Publish(User(), input);
+        var users = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<UserStore>(factory.Services);
+        var secret = Totp.NewSecret();
+        users.Add("update-admin", "integration-test-password", secret, "alpha", "Administrator", false, -1);
+        var admin = users.Principal(users.Authenticate("update-admin", "integration-test-password", Totp.Code(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30), DateTimeOffset.UtcNow)!);
+        PublishedOsRelease published; await using (var input = File.OpenRead(package)) published = await store.Publish(admin, input);
         var now = DateTimeOffset.UtcNow;
         var sample = new HostSnapshot(now, "pi", "Linux", 10, 100, 50, 40, 10, DataPolicyCalculator.Evaluate(new(), new(32L << 30, 16L << 30, 0)), [], "test");
         var frame = new TelemetryEnvelope(1, "alpha", "pi", Guid.NewGuid(), Guid.NewGuid(), 1, sample,
             OsUpdates: new(now, true, true, "linux-arm64", null, null, null, null, "Ready"));
         fleet.Accept(IdentityRules.Topic("alpha", "pi"), frame);
-        var command = store.Queue(User(), "pi", published.Release.Digest);
+        var command = store.Queue(admin, "pi", published.Release.Digest);
         string endpoint = "/api/os-updates/download/" + command.Id;
         Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.GetAsync(endpoint)).StatusCode);
         client.DefaultRequestHeaders.Authorization = new("Bearer", new string('0', 64));
@@ -260,9 +264,9 @@ public sealed class OsUpdateTests : IDisposable
         Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode); Assert.True(response.Headers.CacheControl!.NoStore);
         Assert.Equal(published.Release.Digest, Convert.ToHexStringLower(SHA256.HashData(await response.Content.ReadAsByteArrayAsync())));
         Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.GetAsync("/api/os-updates/download/" + Guid.NewGuid())).StatusCode);
-        await using (var input = File.OpenRead(package)) Assert.Equal(published.Release.Digest, (await store.Publish(User(), input)).Release.Digest);
+        await using (var input = File.OpenRead(package)) Assert.Equal(published.Release.Digest, (await store.Publish(admin, input)).Release.Digest);
         string changed = Package(name: "changed.zip");
-        await using (var input = File.OpenRead(changed)) await Assert.ThrowsAsync<InvalidOperationException>(() => store.Publish(User(), input));
+        await using (var input = File.OpenRead(changed)) await Assert.ThrowsAsync<InvalidOperationException>(() => store.Publish(admin, input));
     }
     private sealed class CloudFactory(string directory, string trust) : Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<CloudMarker>
     {
