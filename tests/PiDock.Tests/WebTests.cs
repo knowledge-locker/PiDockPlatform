@@ -124,12 +124,37 @@ public sealed class WebTests
             "/api/telemetry/export?format=csv&from=" + Uri.EscapeDataString(now.AddDays(-32).ToString("O")) + "&to=" + Uri.EscapeDataString(now.ToString("O"))
         }) Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(invalid)).StatusCode);
     }
-    private static async Task<HttpResponseMessage> Login(HttpClient client, string username, string code)
+    [Fact]
+    public Task CloudRememberedSessionIsPersistentAndSignOutRejectsCookieReplay() => VerifySessionCookie<PiDock.Cloud.Web.CloudMarker>(true, "/api/devices");
+    [Fact]
+    public Task ApplianceSessionWithoutRememberIsNotSavedAcrossBrowserRestarts() => VerifySessionCookie<PiDock.Appliance.Web.ApplianceMarker>(false, "/api/status");
+    private static async Task VerifySessionCookie<T>(bool remember, string protectedRoute) where T : class
+    {
+        using var factory = new PreviewFactory<T>();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
+        var secret = Totp.NewSecret(); factory.Services.GetRequiredService<UserStore>().Add("session-owner", "integration-test-password", secret, "local", "Owner", true, -1);
+        var login = await Login(client, "session-owner", Totp.Code(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30), remember);
+        Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
+        var header = login.Headers.GetValues("Set-Cookie").Single(h => h.StartsWith("PiDock.", StringComparison.Ordinal));
+        Assert.Equal(remember, header.Contains("expires=", StringComparison.OrdinalIgnoreCase));
+        if (remember) Assert.InRange(Microsoft.Net.Http.Headers.SetCookieHeaderValue.Parse(header).Expires!.Value - DateTimeOffset.UtcNow, TimeSpan.FromDays(7).Subtract(TimeSpan.FromMinutes(1)), TimeSpan.FromDays(7));
+        Assert.Contains("httponly", header.ToLowerInvariant()); Assert.Contains("samesite=strict", header.ToLowerInvariant());
+        var cookie = header.Split(';')[0];
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(protectedRoute)).StatusCode);
+        var html = await client.GetStringAsync("/auth/login");
+        var token = WebUtility.HtmlDecode(Regex.Match(html, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value);
+        var logout = await client.PostAsync("/auth/logout", new FormUrlEncodedContent(new Dictionary<string,string> { ["__RequestVerificationToken"] = token }));
+        Assert.Equal(HttpStatusCode.Redirect, logout.StatusCode);
+        using var replay = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri("https://localhost") });
+        replay.DefaultRequestHeaders.Add("Cookie", cookie);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await replay.GetAsync(protectedRoute)).StatusCode);
+    }
+    private static async Task<HttpResponseMessage> Login(HttpClient client, string username, string code, bool remember = false)
     {
         var html = await client.GetStringAsync("/auth/login");
         var token = WebUtility.HtmlDecode(Regex.Match(html, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value);
         Assert.NotEmpty(token);
-        return await client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string> { ["username"] = username, ["password"] = "integration-test-password", ["code"] = code, ["__RequestVerificationToken"] = token }));
+        return await client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string> { ["username"] = username, ["password"] = "integration-test-password", ["code"] = code, ["remember"] = remember ? "true" : "false", ["__RequestVerificationToken"] = token }));
     }
     [Fact]
     public async Task ProductionHttpOnlyServesLivenessAndDoesNotTrustSpoofedProxyHeaders()

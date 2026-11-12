@@ -1,5 +1,6 @@
 using PiDock.Core;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -7,6 +8,7 @@ namespace PiDock.Web.Shared;
 
 public sealed record LoginUser(string Username, string PasswordHash, string Secret, string TenantId, string Role,
     string Stamp, long LastStep = -1, int Failures = 0, DateTimeOffset? LockedUntil = null);
+public sealed record BrowserSession(string Id, string Username, string Stamp, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt);
 public sealed class UserStore
 {
     private readonly object gate = new();
@@ -14,10 +16,16 @@ public sealed class UserStore
     private readonly IDataProtector protector;
     private readonly PasswordHasher<string> hasher = new();
     private readonly List<LoginUser> users;
+    private readonly string sessionPath;
+    private readonly IDataProtector sessionProtector;
+    private BrowserSession[] sessions;
     public UserStore(IDataProtectionProvider provider, string directory)
     {
         path = Path.Combine(StateFiles.PrepareDirectory(directory), "accounts.protected");
         protector = provider.CreateProtector("PiDock.Accounts.v1");
+        sessionPath = Path.Combine(directory, "sessions.protected");
+        sessionProtector = provider.CreateProtector("PiDock.Sessions.v1");
+        sessions = File.Exists(sessionPath) ? JsonSerializer.Deserialize<BrowserSession[]>(sessionProtector.Unprotect(File.ReadAllText(sessionPath)), StateFiles.Json) ?? throw new IOException("Invalid browser session state.") : [];
         users = File.Exists(path) ? JsonSerializer.Deserialize<List<LoginUser>>(protector.Unprotect(File.ReadAllText(path)), StateFiles.Json)! : [];
     }
     private void Save() => StateFiles.WriteAtomic(path, protector.Protect(JsonSerializer.Serialize(users, StateFiles.Json)));
@@ -51,8 +59,43 @@ public sealed class UserStore
             users[i] = user with { LastStep = step.Value, Failures = 0, LockedUntil = null }; Save(); return users[i];
         }
     }
-    public bool IsCurrent(ClaimsPrincipal principal)
+    public BrowserSession CreateSession(LoginUser user, bool remember, DateTimeOffset now)
     {
-        lock (gate) return long.TryParse(principal.FindFirstValue("expires"), out var expiry) && expiry > DateTimeOffset.UtcNow.ToUnixTimeSeconds() && users.Any(x => x.Username == principal.Identity?.Name && x.Stamp == principal.FindFirstValue("stamp") && x.TenantId == principal.FindFirstValue("tenant"));
+        lock (gate)
+        {
+            if (!users.Any(u => u.Username == user.Username && u.Stamp == user.Stamp)) throw new InvalidOperationException("Account is no longer current.");
+            var session = new BrowserSession(Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), user.Username, user.Stamp, now,
+                now.Add(remember ? TimeSpan.FromDays(7) : TimeSpan.FromHours(12)));
+            var active = sessions.Where(s => s.ExpiresAt > now).ToArray();
+            var keep = active.Where(s => s.Username != user.Username)
+                .Concat(active.Where(s => s.Username == user.Username).OrderByDescending(s => s.CreatedAt).Take(19));
+            SaveSessions(keep.Append(session).ToArray());
+            return session;
+        }
+    }
+    private void SaveSessions(BrowserSession[] next)
+    {
+        StateFiles.WriteAtomic(sessionPath, sessionProtector.Protect(JsonSerializer.Serialize(next, StateFiles.Json)));
+        sessions = next;
+    }
+    public void RevokeSession(ClaimsPrincipal principal)
+    {
+        lock (gate)
+        {
+            var id = principal.FindFirstValue("session");
+            if (id is not null) SaveSessions(sessions.Where(s => s.Id != id || s.Username != principal.Identity?.Name).ToArray());
+        }
+    }
+    public bool IsCurrent(ClaimsPrincipal principal) => IsCurrent(principal, DateTimeOffset.UtcNow);
+    internal bool IsCurrent(ClaimsPrincipal principal, DateTimeOffset now)
+    {
+        lock (gate)
+        {
+            if (principal.Identity?.IsAuthenticated != true || !long.TryParse(principal.FindFirstValue("expires"), out var expiry) || expiry <= now.ToUnixTimeSeconds() ||
+                !users.Any(x => x.Username == principal.Identity?.Name && x.Stamp == principal.FindFirstValue("stamp") && x.TenantId == principal.FindFirstValue("tenant") && principal.IsInRole(x.Role))) return false;
+            var id = principal.FindFirstValue("session");
+            // Existing short-lived cookies finish their original lifetime during migration.
+            return id is null || sessions.Any(s => s.Id == id && s.Username == principal.Identity?.Name && s.Stamp == principal.FindFirstValue("stamp") && s.ExpiresAt > now && expiry == s.ExpiresAt.ToUnixTimeSeconds());
+        }
     }
 }

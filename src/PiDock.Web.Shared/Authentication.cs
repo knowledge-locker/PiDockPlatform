@@ -26,7 +26,7 @@ public static class Authentication
         {
             o.Cookie.Name = "PiDock." + product; o.Cookie.HttpOnly = true; o.Cookie.SameSite = SameSiteMode.Strict;
             o.Cookie.SecurePolicy = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
-            o.LoginPath = "/auth/login"; o.ExpireTimeSpan = TimeSpan.FromMinutes(15); o.SlidingExpiration = false;
+            o.LoginPath = "/auth/login"; o.ExpireTimeSpan = TimeSpan.FromDays(7); o.SlidingExpiration = false;
             o.Events.OnValidatePrincipal = context =>
             {
                 if (!context.HttpContext.RequestServices.GetRequiredService<UserStore>().IsCurrent(context.Principal!)) context.RejectPrincipal();
@@ -44,6 +44,7 @@ public static class Authentication
         var appName = product == "Cloud" ? "PiDockCloud" : "PiDockOS";
         app.MapGet("/auth/login", (HttpContext context, IAntiforgery antiforgery, UserStore users) =>
         {
+            context.Response.Headers.CacheControl = "no-store";
             var tokens = antiforgery.GetAndStoreTokens(context);
             var token = WebUtility.HtmlEncode(tokens.RequestToken);
             var message = users.HasUsers ? "Use your password and external authenticator." : "No account provisioned. Run this service with --commission from a trusted local console.";
@@ -53,6 +54,7 @@ public static class Authentication
                 <body><main class="login"><div class="brand">◈ {appName} <span>PiDockPlatform</span></div><h1>Sign in to {appName}</h1><p>{message}</p>{error}<form method="post" action="/auth/login">
                 <input type="hidden" name="{tokens.FormFieldName}" value="{token}"><label>Username<input name="username" autocomplete="username" required maxlength="64"></label>
                 <label>Password<input type="password" name="password" autocomplete="current-password" required maxlength="256"></label><label>Authenticator code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]+" minlength="6" maxlength="6" required></label>
+                <label class="live-switch"><input type="checkbox" name="remember" value="true" checked> Keep me signed in on this browser for 7 days</label><p><small>Uncheck on a shared browser. Protected actions still require your password and a fresh authenticator code.</small></p>
                 <button type="submit">Sign in securely →</button></form><small>External authenticator required · No network account reset</small></main></body></html>
                 """, "text/html");
         }).AllowAnonymous();
@@ -63,13 +65,16 @@ public static class Authentication
             if (form["username"].ToString().Length > 64 || form["password"].ToString().Length > 256 || form["code"].ToString().Length != 6) return Results.Redirect("/auth/login?failed=1");
             var user = store.Authenticate(form["username"].ToString(), form["password"].ToString(), form["code"].ToString(), DateTimeOffset.UtcNow);
             if (user is null) return Results.Redirect("/auth/login?failed=1");
-            var claims = new[] { new Claim(ClaimTypes.Name, user.Username), new Claim(ClaimTypes.Role, user.Role), new Claim("tenant", user.TenantId), new Claim("stamp", user.Stamp), new Claim("expires", DateTimeOffset.UtcNow.AddMinutes(15).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)) };
-            await context.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme)), new AuthenticationProperties { IsPersistent = false });
+            bool remember = form["remember"] == "true";
+            var session = store.CreateSession(user, remember, DateTimeOffset.UtcNow);
+            var claims = new[] { new Claim(ClaimTypes.Name, user.Username), new Claim(ClaimTypes.Role, user.Role), new Claim("tenant", user.TenantId), new Claim("stamp", user.Stamp), new Claim("session", session.Id), new Claim("expires", session.ExpiresAt.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)) };
+            await context.SignInAsync(new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme)), new AuthenticationProperties { IsPersistent = remember, ExpiresUtc = session.ExpiresAt, AllowRefresh = false });
             return Results.Redirect("/");
         }).RequireRateLimiting("login").AllowAnonymous();
-        app.MapPost("/auth/logout", async (HttpContext context, IAntiforgery antiforgery) =>
+        app.MapPost("/auth/logout", async (HttpContext context, IAntiforgery antiforgery, UserStore store) =>
         {
             try { await antiforgery.ValidateRequestAsync(context); } catch (AntiforgeryValidationException) { return Results.BadRequest(); }
+            store.RevokeSession(context.User);
             await context.SignOutAsync(); return Results.Redirect("/auth/login");
         }).RequireAuthorization();
         app.MapGet("/health/live", () => Results.Ok(new { status = "alive", stage = "engineering-preview" })).AllowAnonymous();
