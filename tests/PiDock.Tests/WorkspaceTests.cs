@@ -297,6 +297,26 @@ public sealed class WorkspaceTests : IDisposable
         users.RevokeSession(switched);
         Assert.False(Store().IsCurrent(switched));
     }
+    [Fact]
+    public async Task WorkspaceActionsDoNotExhaustSharedIpSignInBudgetAndRemainBoundedPerUser()
+    {
+        using var factory = new WorkspaceFactory(); using var admin = factory.Client(); using var newcomer = factory.Client();
+        var users = factory.Services.GetRequiredService<UserStore>(); Bootstrap(users);
+        var secret = Totp.NewSecret(); users.Add("rate-admin", Password, secret, "alpha", "Administrator", false, -1);
+        var login = await admin.GetStringAsync("/auth/login");
+        var signedIn = await admin.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string,string> {
+            ["username"]="rate-admin", ["password"]=Password, ["code"]=Code(secret), ["__RequestVerificationToken"]=Field(login,"__RequestVerificationToken") }));
+        Assert.Equal(HttpStatusCode.Redirect,signedIn.StatusCode);
+        var csrf = Field(await admin.GetStringAsync("/workspaces"),"__RequestVerificationToken");
+        for(int i=0;i<60;i++)
+        {
+            var response = await admin.PostAsync("/workspaces/signup-settings",new FormUrlEncodedContent(new Dictionary<string,string> { ["enabled"]="true", ["__RequestVerificationToken"]=csrf }));
+            Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode); // Real role checks still apply to every action.
+        }
+        var throttled = await admin.PostAsync("/workspaces/signup-settings",new FormUrlEncodedContent(new Dictionary<string,string> { ["enabled"]="true", ["__RequestVerificationToken"]=csrf }));
+        Assert.Equal(HttpStatusCode.TooManyRequests,throttled.StatusCode);
+        Assert.Equal(HttpStatusCode.OK,(await newcomer.GetAsync("/auth/signup")).StatusCode);
+    }
     private static string Field(string html, string name) => WebUtility.HtmlDecode(Regex.Match(html, "name=[\"']" + name + "[\"'] value=[\"']([^\"']*)").Groups[1].Value);
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
     private sealed class WorkspaceFactory : WebApplicationFactory<CloudMarker>
