@@ -21,7 +21,11 @@ public static class Authentication
         var directory = StateFiles.PrepareDirectory(builder.Configuration["PiDock:StateDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, "data"));
         builder.Services.AddSingleton(new StateDirectory(directory));
         builder.Services.AddDataProtection().SetApplicationName("PiDock." + product).PersistKeysToFileSystem(new DirectoryInfo(StateFiles.PrepareDirectory(Path.Combine(directory, "keys"))));
-        builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<IDataProtectionProvider>(), directory, cloud: product == "Cloud"));
+        var clockSetting=builder.Configuration["PiDock:RequireTrustedClock"];
+        if(clockSetting is not null&&!bool.TryParse(clockSetting,out _))throw new InvalidOperationException("PiDock:RequireTrustedClock must be true or false.");
+        bool image=product=="Appliance"&&File.Exists("/etc/pidock/image-profile.json");
+        builder.Services.AddSingleton(new ClockTrust(product == "Appliance" && (image || bool.TryParse(clockSetting,out var enforceClock)&&enforceClock)));
+        builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<IDataProtectionProvider>(), directory, cloud: product == "Cloud", clockAllowed: () => sp.GetRequiredService<ClockTrust>().Allowed));
         builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(o =>
         {
             o.Cookie.Name = "PiDock." + product; o.Cookie.HttpOnly = true; o.Cookie.SameSite = SameSiteMode.Strict;
@@ -42,12 +46,13 @@ public static class Authentication
     public static void MapPiDockAuthentication(this WebApplication app, string product)
     {
         var appName = product == "Cloud" ? "PiDockCloud" : "PiDockOS";
-        app.MapGet("/auth/login", (HttpContext context, IAntiforgery antiforgery, UserStore users) =>
+        app.MapGet("/auth/login", (HttpContext context, IAntiforgery antiforgery, UserStore users, ClockTrust clock) =>
         {
             context.Response.Headers.CacheControl = "no-store";
             var tokens = antiforgery.GetAndStoreTokens(context);
             var token = WebUtility.HtmlEncode(tokens.RequestToken);
             var message = users.HasUsers ? "Use your password and external authenticator." : "No account provisioned. Run this service with --commission from a trusted local console.";
+            if (!clock.Allowed) message = "Sign-in is paused until this appliance verifies authenticated network time. Check its internet connection or use the attached keyboard and display to repair its clock. No password or authenticator reset is available over the network.";
             var signup = product == "Cloud" ? users.HasOwner
                 ? users.MultiTenantSignupEnabled
                 ? $"<p>New to PiDockCloud? <a href='/auth/signup{(context.Request.Query.ContainsKey("invite") ? "?invite=" + Uri.EscapeDataString(context.Request.Query["invite"].ToString()) : "")}'>Create your account and workspace</a>.</p>"
@@ -91,12 +96,24 @@ public static class Authentication
     }
     public static bool Commission(this WebApplication app, string[] args, bool singleOwner)
     {
-        if (!args.Contains("--commission")) return false;
+        bool recovery=args.Contains("--recover-owner");
+        if (!args.Contains("--commission") && !recovery) return false;
+        PhysicalPresence? presence=null;
+        if(singleOwner&&File.Exists("/etc/pidock/image-profile.json"))PhysicalConsole.RequireAttached();
+        if (recovery)
+        {
+            if (!singleOwner) throw new InvalidOperationException("Cloud account recovery is a separate operation.");
+            presence=PhysicalConsole.RequireRecovery();
+            Console.WriteLine("This replaces the appliance owner password and authenticator and revokes all sessions. Application data is preserved.");
+            Console.Write("Type RESET OWNER to continue: ");
+            if (Console.ReadLine() != "RESET OWNER") { Console.WriteLine("Recovery cancelled."); return true; }
+        }
+        if (presence is null && !app.Services.GetRequiredService<ClockTrust>().Allowed) throw new InvalidOperationException("Authenticated time is required before commissioning. Repair the clock at the physical console if network TLS cannot start.");
         if (Console.IsInputRedirected || Console.IsOutputRedirected) throw new InvalidOperationException("Commissioning requires an interactive trusted local terminal.");
-        if (singleOwner && app.Services.GetRequiredService<UserStore>().HasUsers) throw new InvalidOperationException("This appliance already has an owner. Credential recovery is not implemented in the preview.");
+        if (!recovery && singleOwner && app.Services.GetRequiredService<UserStore>().HasUsers) throw new InvalidOperationException("This appliance already has an owner. Use physical recovery to replace its credentials.");
         if (!singleOwner && app.Services.GetRequiredService<UserStore>().HasOwner)
             throw new InvalidOperationException("The platform Owner is already established. Create tenant accounts through workspace signup and invitations.");
-        Console.WriteLine("PiDock engineering preview — local account provisioning. No reset operation is exposed over HTTP.");
+        Console.WriteLine("PiDock local account provisioning. No reset operation is exposed over HTTP.");
         Console.Write("Username: "); var name = Console.ReadLine() ?? "";
         Console.Write("Password (14+ characters): "); var password = ReadSecret();
         Console.Write("Confirm password: "); if (ReadSecret() != password) throw new InvalidOperationException("Passwords do not match.");
@@ -114,8 +131,10 @@ public static class Authentication
             Environment.ExitCode = 1;
             return true;
         }
-        app.Services.GetRequiredService<UserStore>().Add(name, password, secret, tenant, role, singleOwner, second.Value);
-        Console.WriteLine("Account provisioned. Restart normally to serve the UI. Physical-presence enforcement on Pi is a later hardware gate."); return true;
+        var users=app.Services.GetRequiredService<UserStore>();
+        if (presence is not null) users.RecoverLocalOwner(presence,name,password,secret,second.Value);
+        else users.Add(name, password, secret, tenant, role, singleOwner, second.Value);
+        Console.WriteLine("Account provisioned. Wait for a new authenticator code before signing in. Restart normally to serve the UI."); return true;
     }
     internal static long? ReadCommissioningCode(string secret, string prompt, long lastAccepted,
         Func<string> readCode, Func<DateTimeOffset> utcNow, Action<string> write)

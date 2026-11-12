@@ -1,0 +1,14 @@
+import {readFileSync} from 'node:fs';
+import {webcrypto} from 'node:crypto';
+import assert from 'node:assert/strict';
+globalThis.crypto=webcrypto;
+const source=readFileSync(new URL('../../src/PiDock.Cloud.Web/wwwroot/provisioning.js',import.meta.url));
+const {totp,passwordHash,patchStream,base32}=await import('data:text/javascript;base64,'+source.toString('base64'));
+assert.equal(await totp(new TextEncoder().encode('12345678901234567890'),1),'287082');
+assert.equal(base32(new TextEncoder().encode('12345678901234567890')),'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ');
+const hash=Buffer.from(await passwordHash('a long private password',new Uint8Array(16)),'base64');assert.equal(hash.length,61);assert.equal(hash.readUInt32BE(5),210000);
+const size=1049600,input=new Uint8Array(size).fill(77),payload=new TextEncoder().encode('{"schema":1}');
+const output=new Uint8Array(await new Response(new Blob([input]).stream().pipeThrough(patchStream([{offset:128,length:1048576}],payload,size))).arrayBuffer());
+assert.deepEqual(output.subarray(0,128),input.subarray(0,128));assert.deepEqual(output.subarray(128,128+payload.length),payload);assert.equal(output[128+payload.length],32);assert.equal(output.at(-1),77);
+assert.throws(()=>patchStream([{offset:10,length:1048576},{offset:1,length:10}],payload,size));
+console.log('Browser password, authenticator and bounded streaming personalization checks passed.');

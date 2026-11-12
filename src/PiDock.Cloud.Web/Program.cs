@@ -20,6 +20,7 @@ builder.Services.AddScoped<AuthenticationStateProvider, SessionAuthenticationSta
 builder.Services.AddSingleton<FleetStore>();
 builder.Services.AddSingleton<ApplicationCommandStore>();
 builder.Services.AddSingleton<OsUpdateStore>();
+builder.Services.AddSingleton<FactoryImageStore>();
 builder.Services.AddSingleton<RemoteAccessService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RemoteAccessService>());
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
@@ -51,7 +52,7 @@ app.Use(RemoteAccessGateway.Handle);
 app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter(); app.UseAntiforgery();
 app.MapPiDockAuthentication("Cloud"); app.MapStaticAssets();
 app.MapDeviceEnrollment();
-app.MapOsUpdates(); app.MapRemoteAccess();
+app.MapOsUpdates(); app.MapFactoryImages(); app.MapRemoteAccess();
 app.MapGet("/api/devices", (System.Security.Claims.ClaimsPrincipal user, FleetStore store) => store.For(user)).RequireAuthorization();
 app.MapGet("/api/devices/{device}/history", (string device, System.Security.Claims.ClaimsPrincipal user, FleetStore store) => store.HistoryFor(user, device)).RequireAuthorization();
 DeviceHistory.MapExport(app);

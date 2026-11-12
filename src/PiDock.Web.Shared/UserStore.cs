@@ -27,13 +27,15 @@ public sealed class UserStore
     private readonly IDataProtector protector;
     private readonly PasswordHasher<string> hasher = new();
     private readonly bool cloud;
+    private readonly Func<bool> clockAllowed;
     private readonly string sessionPath;
     private readonly IDataProtector sessionProtector;
     private BrowserSession[] sessions;
     private AccountState state = new([], [], [], [], []);
-    public UserStore(IDataProtectionProvider provider, string directory, bool cloud = false)
+    public UserStore(IDataProtectionProvider provider, string directory, bool cloud = false, Func<bool>? clockAllowed = null)
     {
         this.cloud = cloud;
+        this.clockAllowed = clockAllowed ?? (() => true);
         path = Path.Combine(StateFiles.PrepareDirectory(directory), "accounts.protected");
         protector = provider.CreateProtector("PiDock.Accounts.v1");
         sessionPath = Path.Combine(directory, "sessions.protected");
@@ -107,11 +109,38 @@ public sealed class UserStore
                 Memberships = role == "Owner" ? state.Memberships : [.. state.Memberships, new(name, tenant, role)] });
         }
     }
+    internal void ImportInitialMediaOwner(MediaSetup setup)
+    {
+        MediaProvisioning.Validate(setup);
+        lock(gate) {
+            if(cloud||HasUsers)throw new InvalidOperationException("Initial media setup cannot replace an owner.");
+            Save(state with { Users=[new(setup.Username,setup.PasswordHash,setup.Secret,"local","Owner",Guid.NewGuid().ToString(),setup.LastStep)] });
+        }
+    }
     private static void ValidateAccount(string name, string password)
     {
         if (!IdentityRules.IsId(name) || name.Length > 64 || password.Length is < 14 or > 256)
             throw new ArgumentException("Use a username with ASCII letters, digits or hyphens (up to 64 characters), and a 14–256 character password.");
     }
+    internal void RecoverLocalOwner(PhysicalPresence presence, string name, string password, string secret, long lastStep)
+    {
+        ArgumentNullException.ThrowIfNull(presence);
+        if (cloud) throw new InvalidOperationException("Physical appliance recovery cannot change cloud accounts.");
+        ValidateAccount(name,password);
+        lock (gate)
+        {
+            // Revoke every remembered session before replacing credentials. A crash leaves old credentials
+            // usable only with their old MFA, never partially publishes a new owner's password or secret.
+            SaveSessions([]);
+            var owner=new LoginUser(name,hasher.HashPassword(name,password),secret,"local","Owner",Guid.NewGuid().ToString(),lastStep);
+            Save(state with { Users=[owner], Memberships=[], Invitations=[] });
+            string auditPath=Path.Combine(Path.GetDirectoryName(path)!,"physical-recovery-audit.json");
+            if(File.Exists(auditPath)&&new FileInfo(auditPath).Length>65536)throw new IOException("Credentials saved, but physical recovery audit requires local repair.");
+            var events=File.Exists(auditPath)?JsonSerializer.Deserialize<RecoveryAudit[]>(File.ReadAllText(auditPath),StateFiles.Json)??[]:[];
+            StateFiles.WriteAtomic(auditPath,JsonSerializer.Serialize(events.Append(new RecoveryAudit(Guid.NewGuid(),DateTimeOffset.UtcNow,"OwnerCredentialsReplaced",name)).TakeLast(128).ToArray(),StateFiles.Json));
+        }
+    }
+    private sealed record RecoveryAudit(Guid Id,DateTimeOffset At,string Action,string Username);
     private static string WorkspaceName(string name)
     {
         name = name.Trim();
@@ -137,6 +166,7 @@ public sealed class UserStore
     }
     public LoginUser? Authenticate(string username, string password, string code, DateTimeOffset now)
     {
+        if (!clockAllowed()) return null;
         lock (gate)
         {
             int i = Array.FindIndex(state.Users, x => Same(x.Username, username));
@@ -202,6 +232,7 @@ public sealed class UserStore
     public bool IsCurrent(ClaimsPrincipal principal) => IsCurrent(principal, DateTimeOffset.UtcNow);
     internal bool IsCurrent(ClaimsPrincipal principal, DateTimeOffset now)
     {
+        if (!clockAllowed()) return false;
         lock (gate)
         {
             if (principal.Identity?.IsAuthenticated != true || !long.TryParse(principal.FindFirstValue("expires"), out var expiry) || expiry <= now.ToUnixTimeSeconds()) return false;

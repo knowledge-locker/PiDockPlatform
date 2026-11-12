@@ -28,6 +28,7 @@ builder.Services.AddSingleton<IOsUpdater, OsUpdaterClient>();
 builder.Services.AddSingleton(sp => new OsUpdateAgent(sp.GetRequiredService<IOsUpdater>(), sp.GetRequiredService<CloudEnrollmentClient>(), sp.GetRequiredService<MqttConnection>(), state));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<OsUpdateAgent>());
 builder.Services.AddSingleton<OsUpdateStore>();
+builder.Services.AddSingleton<FactoryImageStore>();
 builder.Services.AddSingleton<RemoteAccessService>();
 builder.Services.AddSingleton(sp => new RemoteInterfaceAgent(sp.GetRequiredService<CloudEnrollmentClient>(), state, sp.GetRequiredService<ILogger<RemoteInterfaceAgent>>()));
 builder.Services.AddSingleton<HostMonitor>(); builder.Services.AddSingleton<BrokerClient>();

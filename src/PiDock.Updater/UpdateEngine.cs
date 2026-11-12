@@ -12,7 +12,17 @@ public interface IUpdateHost
 public sealed record UpdateState(bool CloudEnabled = false, OsRelease? Installed = null, OsRelease? Staged = null,
     IReadOnlyList<OsUpdateOperation>? Operations = null);
 
-public sealed class UpdateEngine
+public interface IOsUpdateEngine
+{
+    OsUpdateSnapshot Snapshot { get; }
+    Task SetCloudEnabled(bool enabled,CancellationToken ct=default);
+    Task<OsRelease> Stage(Stream input,CancellationToken ct=default);
+    Task<OsUpdateOperation> Install(OsUpdateRequest request,CancellationToken ct=default);
+    Task Recover(CancellationToken ct=default);
+    Task RunPending(CancellationToken ct=default);
+}
+
+public sealed class UpdateEngine : IOsUpdateEngine
 {
     private readonly string root, installRoot, trust, runtime, statePath;
     private readonly IUpdateHost host;
@@ -51,6 +61,7 @@ public sealed class UpdateEngine
             RequireSpace(OsUpdateRules.MaximumPackageBytes);
             await using (var output = new FileStream(incoming, FileMode.Create, FileAccess.Write, FileShare.None)) { await OsUpdatePackage.CopyBounded(input, output, ct); output.Flush(true); }
             var release = OsUpdatePackage.Verify(incoming, trust, runtime);
+            if (release.Manifest.SchemaVersion != 1) throw new InvalidDataException("Full system images require the verified A/B image updater.");
             File.Move(incoming, Path.Combine(root, "package.zip"), true);
             Change(s => s with { Staged = release }); return release;
         }
@@ -98,6 +109,7 @@ public sealed class UpdateEngine
             {
                 Transition(op, "Preparing", "Verifying and staging signed program files");
                 var release = OsUpdatePackage.Verify(Path.Combine(root, "package.zip"), trust, runtime);
+                if (release.Manifest.SchemaVersion != 1) throw new InvalidDataException("Full system images require the verified A/B image updater.");
                 if (release.Digest != op.Digest) throw new InvalidDataException("The staged package changed.");
                 RequireSpace(release.Manifest.Files.Sum(f => f.Length) * 2);
                 foreach (string part in Parts) CheckDirectory(Path.Combine(installRoot, part));

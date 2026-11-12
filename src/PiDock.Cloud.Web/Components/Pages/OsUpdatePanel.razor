@@ -5,9 +5,9 @@
 else {
 <dl><dt>Installed version</dt><dd>@(status.InstalledVersion ?? "Development / legacy installation")</dd><dt>Cloud update permission</dt><dd>@(status.CloudEnabled ? "Allowed" : "Off")</dd><dt>Updater</dt><dd>@status.Status · @Format.Ago(status.ObservedAt)</dd></dl>
 @if (status.Operation is { } op) { <p><strong>@op.State</strong> · @op.Version · @op.Message</p> }
-<p>The local owner controls PiDockOS update permission separately from container control. Installation restarts management services and checks their health before promotion.</p>
+<p>The local owner controls PiDockOS update permission separately from container control. @(status.UpdateKind == "image" ? "A system image update restarts the appliance into a trial slot and promotes it after verified-root and service health checks." : "A service update restarts management services and checks their health before promotion.")</p>
 @if (canManage) {
-<label>Signed release<select class="os-update-select" @bind="digest"><option value="">Choose a compatible version</option>@foreach (var release in releases.Where(r => r.Release.Runtime == status.Runtime)) { <option value="@release.Release.Digest">@release.Release.Version · @release.Release.Runtime · @release.Release.Digest[..12]</option> }</select></label>
+<label>Signed release<select class="os-update-select" @bind="digest"><option value="">Choose a compatible version</option>@foreach (var release in releases.Where(r => r.Release.Runtime == status.Runtime && r.Release.Kind == status.UpdateKind)) { <option value="@release.Release.Digest">@release.Release.Version · @release.Release.Runtime · @release.Release.Digest[..12]</option> }</select></label>
 @if (digest.Length > 0) { <p><small>Approved SHA-256: @digest</small></p> }
 <button disabled="@(busy || digest.Length == 0 || !Ready)" @onclick="Install">Install selected PiDockOS release</button>
 @if (!Ready) { <p>The device must be online, report a ready updater, and allow cloud-managed PiDockOS updates locally.</p> }
@@ -31,7 +31,7 @@ else {
         var selectedDigest = digest; var deviceId = Device.DeviceId;
         try {
             var user = (await Authentication.GetAuthenticationStateAsync()).User;
-            if (!await confirmation.Request("Install PiDockOS release", $"Install the selected signed release on {Device.Snapshot.Hostname}. Approved SHA-256: {selectedDigest}. Management services will restart.")) return;
+            if (!await confirmation.Request("Install PiDockOS release", $"Install the selected signed release on {Device.Snapshot.Hostname}. Approved SHA-256: {selectedDigest}. {(Device.OsUpdates?.UpdateKind == "image" ? "The appliance will restart into an image trial; applications will be interrupted." : "Management services will restart.")}")) return;
             user = (await Authentication.GetAuthenticationStateAsync()).User;
             Store.Queue(user, deviceId, selectedDigest); operations = Store.Operations(user, Device.DeviceId); message = "Update approved for this exact release. The device has ten minutes to download and accept it; follow its reported result here.";
         }

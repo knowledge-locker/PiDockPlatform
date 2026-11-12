@@ -23,6 +23,12 @@ public sealed class BrokerClient(IConfiguration configuration) : IDisposable, IA
         if (http is null) throw new InvalidOperationException("Host broker is not configured.");
         using var response = await http.PostAsJsonAsync("/gpio/leases", request); response.EnsureSuccessStatusCode();
     }
+    public async Task ConfigureDigital(DigitalPinPermission permission)
+    {
+        if(!DigitalIoRules.Assignable(permission.Gpio))throw new ArgumentException("Reserved or invalid GPIO.");
+        if(http is null)throw new InvalidOperationException("Host broker is not configured.");
+        using var response=await http.PostAsJsonAsync("/gpio/policy",permission);response.EnsureSuccessStatusCode();
+    }
     public async Task ReleaseDigital(Guid session)
     {
         if (http is null) return;

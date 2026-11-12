@@ -6,16 +6,18 @@ using System.Text.Json;
 namespace PiDock.Core;
 
 public sealed record OsUpdateFile(string Path, long Length, string Sha256);
-public sealed record OsUpdateManifest(int SchemaVersion, string Version, string Runtime, string KeyId, IReadOnlyList<OsUpdateFile> Files);
+public sealed record OsUpdateManifest(int SchemaVersion, string Version, string Runtime, string KeyId, IReadOnlyList<OsUpdateFile> Files,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] long? ImageSequence = null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] long? MinimumImageSequence = null);
 public sealed record OsRelease(string Digest, OsUpdateManifest Manifest)
 {
-    [System.Text.Json.Serialization.JsonIgnore] public OsReleaseInfo Info => new(Digest, Manifest.Version, Manifest.Runtime, Manifest.KeyId);
+    [System.Text.Json.Serialization.JsonIgnore] public OsReleaseInfo Info => new(Digest, Manifest.Version, Manifest.Runtime, Manifest.KeyId, Manifest.SchemaVersion == 2 ? "image" : "services");
 }
-public sealed record OsReleaseInfo(string Digest, string Version, string Runtime, string KeyId);
+public sealed record OsReleaseInfo(string Digest, string Version, string Runtime, string KeyId, string Kind = "services");
 public sealed record OsUpdateRequest(Guid Id, string Digest, string Source, string RequestedBy);
 public sealed record OsUpdateOperation(Guid Id, string Digest, string Version, string State, string Message, DateTimeOffset ChangedAt, string Source = "local", string RequestedBy = "");
 public sealed record OsUpdateSnapshot(DateTimeOffset ObservedAt, bool Available, bool CloudEnabled, string Runtime,
-    string? InstalledVersion, string? InstalledDigest, OsReleaseInfo? Staged, OsUpdateOperation? Operation, string Status);
+    string? InstalledVersion, string? InstalledDigest, OsReleaseInfo? Staged, OsUpdateOperation? Operation, string Status, string UpdateKind = "services");
 public sealed record OsUpdateCommand(Guid Id, string TenantId, string DeviceId, string Digest, string DownloadToken,
     DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt, string RequestedBy);
 public sealed record OsUpdatePolicy(bool Enabled);
@@ -42,7 +44,8 @@ public static class OsUpdateRules
 // Package paths are confined to program directories; packages cannot address external trust, service definitions or persistent data.
 public static class OsUpdatePackage
 {
-    private static bool PayloadPath(string path) => path.Length <= 240 && !path.Contains('\\') &&
+    public static readonly IReadOnlyList<string> ImageFiles = Array.AsReadOnly(new[] { "system/rootfs.verity", "system/boot-A.vfat", "system/boot-B.vfat" });
+    private static bool PayloadPath(string path, bool image) => image ? ImageFiles.Contains(path) : path.Length <= 240 && !path.Contains('\\') &&
         path.Split('/') is { Length: >= 2 } parts && parts[0] is "appliance" or "broker" &&
         parts.All(p => p.Length > 0 && p is not "." and not ".." && p.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_')) &&
         !path.EndsWith("/pidock-release.json", StringComparison.Ordinal);
@@ -66,22 +69,27 @@ public static class OsUpdatePackage
             throw new InvalidDataException("Invalid or duplicate package entries.");
         var manifestBytes = ReadSmall(zip.GetEntry("manifest.json"), 1 << 20);
         var manifest = JsonSerializer.Deserialize<OsUpdateManifest>(manifestBytes, StateFiles.Json) ?? throw new InvalidDataException("Missing manifest.");
-        if (manifest.SchemaVersion != 1 || !IdentityRules.IsId(manifest.KeyId) || manifest.Version is not { Length: > 0 and <= 64 } ||
+        bool image = manifest.SchemaVersion == 2;
+        if (manifest.SchemaVersion is not (1 or 2) || !IdentityRules.IsId(manifest.KeyId) || manifest.Version is not { Length: > 0 and <= 64 } ||
             !manifest.Version.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+') || manifest.Runtime is not ("linux-arm64" or "linux-x64") ||
             (runtime is not null && manifest.Runtime != runtime) || manifest.Files is not { Count: >= 2 and <= 20000 }) throw new InvalidDataException("Unsupported release or target runtime.");
+        if (image ? manifest.Runtime != "linux-arm64" || manifest.ImageSequence is not > 0 || manifest.MinimumImageSequence is not >= 0 || manifest.MinimumImageSequence > manifest.ImageSequence
+            : manifest.ImageSequence is not null || manifest.MinimumImageSequence is not null) throw new InvalidDataException("Invalid image version policy.");
         var keyPath = Path.Combine(trustDirectory, manifest.KeyId + ".pem");
         if (!File.Exists(keyPath)) throw new InvalidDataException("The release signer is not trusted on this system.");
         using var key = ECDsa.Create(); key.ImportFromPem(File.ReadAllText(keyPath));
         if (key.KeySize != 256 || key.ExportParameters(false).Curve.Oid.Value != "1.2.840.10045.3.1.7" || !key.VerifyData(manifestBytes, ReadSmall(zip.GetEntry("signature.bin"), 256), HashAlgorithmName.SHA256)) throw new InvalidDataException("Release signature verification failed.");
-        if (manifest.Files.Any(f => f is null || f.Path is not { Length: > 0 } || !PayloadPath(f.Path) || !OsUpdateRules.Digest(f.Sha256))) throw new InvalidDataException("Invalid package file metadata.");
+        if (manifest.Files.Any(f => f is null || f.Path is not { Length: > 0 } || !PayloadPath(f.Path,image) || !OsUpdateRules.Digest(f.Sha256))) throw new InvalidDataException("Invalid package file metadata.");
         if (manifest.Files.Select(f => f.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != manifest.Files.Count ||
-            !manifest.Files.Any(f => f.Path == "appliance/PiDock.Appliance.Web.dll") || !manifest.Files.Any(f => f.Path == "broker/PiDock.Appliance.Broker.dll")) throw new InvalidDataException("Both PiDockOS services are required.");
+            (image ? manifest.Files.Count != ImageFiles.Count || ImageFiles.Any(path => !manifest.Files.Any(f => f.Path == path))
+                : !manifest.Files.Any(f => f.Path == "appliance/PiDock.Appliance.Web.dll") || !manifest.Files.Any(f => f.Path == "broker/PiDock.Appliance.Broker.dll"))) throw new InvalidDataException("Required release components are missing.");
         if (zip.Entries.Count != manifest.Files.Count + 2) throw new InvalidDataException("Unexpected package content.");
         long total = 0;
+        long maximumExpanded = image ? 2L << 30 : OsUpdateRules.MaximumPackageBytes;
         foreach (var file in manifest.Files)
         {
-            if (!PayloadPath(file.Path) || !OsUpdateRules.Digest(file.Sha256) || file.Length is < 0 or > OsUpdateRules.MaximumPackageBytes ||
-                file.Length > OsUpdateRules.MaximumPackageBytes - total) throw new InvalidDataException("Invalid package file.");
+            if (!PayloadPath(file.Path,image) || !OsUpdateRules.Digest(file.Sha256) || file.Length < 0 || file.Length > maximumExpanded ||
+                file.Length > maximumExpanded - total) throw new InvalidDataException("Invalid package file.");
             total += file.Length;
             var entry = zip.GetEntry(file.Path) ?? throw new InvalidDataException("A signed file is missing.");
             if (entry.Length != file.Length || ((entry.ExternalAttributes >> 16) & 0xf000) is not (0 or 0x8000)) throw new InvalidDataException("Links and special files are not supported.");
@@ -133,5 +141,29 @@ public static class OsUpdatePackage
         }
         using var package = File.OpenRead(output);
         return new(Convert.ToHexStringLower(SHA256.HashData(package)), JsonSerializer.Deserialize<OsUpdateManifest>(bytes, StateFiles.Json)!);
+    }
+    public static OsRelease CreateImage(string directory, string output, string version, long sequence, long minimum, string keyId, string privateKeyPem)
+    {
+        if (sequence <= 0 || minimum < 0 || minimum > sequence) throw new ArgumentException("Invalid signed image version policy.");
+        var files = ImageFiles.Select(path => {
+            var info = new FileInfo(Path.Combine(directory,path));
+            if (!info.Exists || info.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new InvalidDataException("Image inputs must be regular files.");
+            using var input = info.OpenRead();
+            return new OsUpdateFile(path,input.Length,Convert.ToHexStringLower(SHA256.HashData(input)));
+        }).ToArray();
+        if (files.Sum(f => f.Length) > 2L << 30) throw new InvalidDataException("Expanded image update exceeds 2 GiB.");
+        var manifest = new OsUpdateManifest(2,version,"linux-arm64",keyId,files,sequence,minimum);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(manifest,StateFiles.Json);
+        using var key = ECDsa.Create(); key.ImportFromPem(privateKeyPem);
+        if (key.KeySize != 256 || key.ExportParameters(false).Curve.Oid.Value != "1.2.840.10045.3.1.7") throw new InvalidDataException("A P-256 signing key is required.");
+        using (var zip = ZipFile.Open(output,ZipArchiveMode.Create))
+        {
+            using (var entry=zip.CreateEntry("manifest.json").Open()) entry.Write(bytes);
+            using (var entry=zip.CreateEntry("signature.bin").Open()) entry.Write(key.SignData(bytes,HashAlgorithmName.SHA256));
+            foreach (var file in files) zip.CreateEntryFromFile(Path.Combine(directory,file.Path),file.Path,CompressionLevel.SmallestSize);
+        }
+        using var package=File.OpenRead(output);
+        if (package.Length > OsUpdateRules.MaximumPackageBytes) throw new InvalidDataException("Compressed image update exceeds 512 MiB.");
+        return new(Convert.ToHexStringLower(SHA256.HashData(package)),manifest);
     }
 }

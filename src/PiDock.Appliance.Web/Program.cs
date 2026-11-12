@@ -34,6 +34,7 @@ builder.Services.AddSingleton<MonitoringService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringService>());
 var installedRelease = OsUpdateRules.Installed(AppContext.BaseDirectory);
 var app = builder.Build();
+if (MediaProvisioning.Import(app,args)) return;
 if (app.Commission(args, singleOwner: true)) return;
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error"); app.UseHsts(); app.UseHttpsRedirection(); }
 app.UseAuthentication();

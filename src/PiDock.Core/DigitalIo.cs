@@ -1,7 +1,16 @@
 namespace PiDock.Core;
 
-public sealed record DigitalLine(int Gpio, string Name, string Consumer, bool Used, string Direction, string Bias, bool ActiveLow, bool CanInput = false, bool CanOutput = false);
-public sealed record DigitalIoStatus(bool Available, string Status, string? Chip, IReadOnlyList<DigitalLine> Lines, IReadOnlyList<DigitalLeaseView> Leases);
+public sealed record DigitalLine(int Gpio, string Name, string Consumer, bool Used, string Direction, string Bias, bool ActiveLow, bool CanInput = false, bool CanOutput = false, bool? OutputFallback = null);
+public sealed record DigitalIoStatus(bool Available, string Status, string? Chip, IReadOnlyList<DigitalLine> Lines, IReadOnlyList<DigitalLeaseView> Leases, bool Configurable = false);
+public sealed record DigitalIoPolicy(int[] Inputs, Dictionary<int,bool> Outputs)
+{
+    public void Validate()
+    {
+        if(Inputs is null||Outputs is null||Inputs.Length>26||Outputs.Count>26||Inputs.Distinct().Count()!=Inputs.Length||Inputs.Any(pin=>!DigitalIoRules.Assignable(pin))||Outputs.Keys.Any(pin=>!DigitalIoRules.Assignable(pin)))
+            throw new ArgumentException("GPIO policy may contain only non-reserved header pins and explicit output fallback levels.");
+    }
+}
+public sealed record DigitalPinPermission(int Gpio,bool Input,bool Output,bool FallbackHigh);
 public sealed record DigitalLeaseRequest(Guid SessionId, int Gpio, string Mode, bool High = false, int Seconds = 30);
 public sealed record DigitalLeaseView(Guid SessionId, int Gpio, string Mode, bool? High, int RemainingSeconds);
 public static class DigitalIoRules

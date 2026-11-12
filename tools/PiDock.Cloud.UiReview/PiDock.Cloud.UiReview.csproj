@@ -10,6 +10,7 @@
     <Compile Include="../../src/PiDock.Cloud.Web/DeviceHistory.cs" Link="Services/DeviceHistory.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/RemoteAccessService.cs" Link="Services/RemoteAccessService.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/OsUpdateStore.cs" Link="Services/OsUpdateStore.cs" />
+    <Compile Include="../../src/PiDock.Cloud.Web/FactoryImageStore.cs" Link="Services/FactoryImageStore.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/ApplicationCommandStore.cs" Link="Services/ApplicationCommandStore.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/FleetStore.cs" Link="Services/FleetStore.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/IngestionService.cs" Link="Services/IngestionService.cs" />
@@ -20,5 +21,5 @@
     <Content Include="../PiDock.UiReview/ReviewApp.razor" Link="ReviewApp.razor" />
     <Content Include="../PiDock.UiReview/ReviewRoutes.razor" Link="ReviewRoutes.razor" />
     <Content Include="../PiDock.UiReview/_Imports.razor" Link="_Imports.razor" />
-  </ItemGroup>
+    </ItemGroup>
 </Project>

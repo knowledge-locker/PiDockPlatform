@@ -29,6 +29,16 @@
     <button disabled="@(!CanClaim(pin, true))" @onclick="() => Claim(pin.Gpio, true, false)">Force LOW</button>
     <button class="secondary" disabled="@(busy || (!Pins.Enabled && !status.Leases.Any(p => p.SessionId == session)))" @onclick="Release">Release my sessions</button>
     </div>
+    @if (!Pins.Enabled && !remote && status.Configurable && pin.Gpio is {} configurable && DigitalIoRules.Assignable(configurable))
+    {
+        <h3>Local pin permission</h3>
+        <label><input type="checkbox" @bind="approveInput" /> Allow input reading</label>
+        <label><input type="checkbox" @bind="approveOutput" /> Allow timed output overrides</label>
+        <label>Normal-release output fallback<select @bind="fallbackHigh"><option value="false">LOW</option><option value="true">HIGH</option></select></label>
+        <p>Outputs are disabled until explicitly approved here. Saving permission does not drive the pin. Review wiring and external protection before allowing output overrides.</p>
+        <button class="secondary" disabled="@(busy || status.Leases.Count != 0)" @onclick="() => Configure(configurable)">Save pin permission</button>
+        @if (status.Leases.Count != 0) { <small>Release active maintenance sessions before changing pin permissions.</small> }
+    }
 }
 else { <p>Select a pin to inspect it.</p> }
 <p role="status">@message</p>
@@ -41,7 +51,7 @@ else { <p>Select a pin to inspect it.</p> }
     private readonly Guid session = Guid.NewGuid();
     private DigitalIoStatus status = new(false, "Checking the host GPIO interface…", null, [], []);
     private int? selected;
-    private bool remote, busy;
+    private bool remote, busy, approveInput, approveOutput, fallbackHigh;
     private string? message;
     private readonly CancellationTokenSource stop = new();
     private Task? refresh;
@@ -50,7 +60,29 @@ else { <p>Select a pin to inspect it.</p> }
         remote = (await Authentication.GetAuthenticationStateAsync()).User.HasClaim(c => c.Type == "pidock_remote");
         await Load(); refresh = Refresh();
     }
-    private async Task Select(int physical) { selected = physical; await inspector.FocusAsync(); }
+    private async Task Select(int physical)
+    {
+        selected=physical;var pin=ReadPins().Single(x=>x.Physical==physical);var line=status.Lines.FirstOrDefault(x=>x.Gpio==pin.Gpio);
+        approveInput=line?.CanInput==true;approveOutput=line?.CanOutput==true;fallbackHigh=line?.OutputFallback==true;
+        await inspector.FocusAsync();
+    }
+    private async Task Configure(int gpio)
+    {
+        if(busy||remote||!status.Configurable)return;
+        busy=true;
+        try
+        {
+            if(!await LocalOwner())return;
+            bool input=approveInput,output=approveOutput,fallback=fallbackHigh;
+            if(!await confirmation.Request("Change GPIO permission",$"GPIO{gpio}: input reading {(input?"allowed":"off")}; output overrides {(output?"allowed":"off")}; normal-release fallback {(fallback?"HIGH":"LOW")}. Confirm that you have reviewed the wiring. No pin is driven by saving this setting."))return;
+            if(!await LocalOwner())return;
+            await Broker.ConfigureDigital(new(gpio,input,output,fallback));
+            History.Append(HistoryClass.Audit,new {action="gpio.policy",gpio,input,output,fallback,at=DateTimeOffset.UtcNow});
+            await Load();message="Pin permission saved. No maintenance session was started.";
+        }
+        catch(Exception ex)when(ex is HttpRequestException or InvalidOperationException or ArgumentException){message="Permission could not be saved. Release active sessions and check the local host policy.";}
+        finally{busy=false;}
+    }
     private IReadOnlyList<PinState> ReadPins() => Pins.Enabled ? Pins.Read() : Pins.Read().Select(p => {
         var lease = status.Leases.FirstOrDefault(x => x.Gpio == p.Gpio);
         return p with { High = lease?.High, Forced = lease is not null, RemainingSeconds = lease?.RemainingSeconds ?? 0 };

@@ -65,12 +65,44 @@ public sealed class DigitalIoTests
     [Fact]
     public void ReservedPinsInvalidDurationsAndKernelConflictsAreRejected()
     {
-        var driver = new Driver { InUse = true }; using var service = Service(driver, new(), ("Gpio:Inputs:0","17"), ("Gpio:Outputs:2","false"));
+        var driver = new Driver { InUse = true }; using var service = Service(driver, new(), ("Gpio:Inputs:0","17"));
         Assert.Throws<ArgumentException>(() => service.Claim(new(Guid.NewGuid(),2,"output")));
         Assert.Throws<ArgumentException>(() => service.Claim(new(Guid.NewGuid(),17,"input",false,61)));
         Assert.Throws<ArgumentException>(() => service.Claim(new(Guid.Empty,17,"input")));
         Assert.Throws<IOException>(() => service.Claim(new(Guid.NewGuid(),17,"input")));
         Assert.Empty(service.Status().Leases); Assert.Empty(driver.Opened);
+    }
+    [Fact]
+    public void PinPolicyPersistsWithoutDrivingOutputsAndPatchesOnlyTheApprovedPin()
+    {
+        string directory=Path.Combine(OperatingSystem.IsMacOS()?"/private/tmp":Path.GetTempPath(),"pidock-gpio-"+Guid.NewGuid());
+        string path=Path.Combine(directory,"gpio.json");var driver=new Driver();
+        try
+        {
+            using(var service=Service(driver,new(),("Gpio:PolicyPath",path)))
+            {
+                service.ConfigurePin(new(17,true,false,false));
+                Assert.Empty(driver.Opened);Assert.True(service.Status().Lines.Single().CanInput);Assert.False(service.Status().Lines.Single().CanOutput);
+                service.Claim(new(Guid.NewGuid(),17,"input"));
+                Assert.Throws<InvalidOperationException>(()=>service.ConfigurePin(new(18,false,true,false)));
+            }
+            using var restored=Service(driver,new(),("Gpio:PolicyPath",path));
+            restored.ConfigurePin(new(18,false,true,false));
+            Assert.True(restored.Status().Lines.Single().CanInput);
+            restored.ConfigurePin(new(17,false,false,false));
+            Assert.False(restored.Status().Lines.Single().CanInput);
+            restored.Claim(new(Guid.NewGuid(),18,"output",true));Assert.True(driver.Opened.Last().High);
+        }
+        finally{if(Directory.Exists(directory))Directory.Delete(directory,true);}
+    }
+    [Fact]
+    public void InvalidSavedPolicyIsNeverCachedAndCannotPartiallyEnableValidPins()
+    {
+        var driver=new Driver();using var service=Service(driver,new(),("Gpio:Inputs:0","17"),("Gpio:Outputs:2","false"));
+        Assert.Throws<ArgumentException>(()=>service.Status());
+        Assert.Throws<ArgumentException>(()=>service.Claim(new(Guid.NewGuid(),17,"input")));
+        Assert.Throws<ArgumentException>(()=>service.Claim(new(Guid.NewGuid(),17,"input")));
+        Assert.Empty(driver.Opened);
     }
     [Fact]
     public async Task NormalServiceShutdownAppliesOutputFallbackAndClosesClaim()

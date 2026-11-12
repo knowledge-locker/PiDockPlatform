@@ -26,6 +26,7 @@ app.MapGet("/health/update", () => new OsUpdateHealth(installedRelease?.Digest, 
 app.MapGet("/applications", (DockerOperations docker, CancellationToken ct) => docker.List(ct));
 app.MapGet("/gpio", (DigitalIoService gpio) => gpio.Status());
 app.MapPost("/gpio/leases", (DigitalLeaseRequest request, DigitalIoService gpio) => { gpio.Claim(request); return Results.Ok(); });
+app.MapPost("/gpio/policy", (DigitalPinPermission permission,DigitalIoService gpio)=>{gpio.ConfigurePin(permission);return Results.Ok();});
 app.MapDelete("/gpio/leases/{session:guid}", (Guid session, DigitalIoService gpio) => { gpio.Release(session); return Results.Ok(); });
 if (builder.Configuration.GetValue<bool>("Broker:EnableDeployments"))
 {
