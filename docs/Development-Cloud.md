@@ -4,7 +4,7 @@ The development portal is https://pidock-dev.knowledgelocker.ai, hosted on `know
 
 ## Deployed services
 
-- Cloud: `prox3mus-pidockplatform-eca278f0`, image `ghcr.io/knowledge-locker/pidockplatform@sha256:dd4ffa88e7425a22bec4a4fc993005964509109a3616fbe6cc125f7eead8dfea` (`0.1.0-dev.19`, source `f3032e7b8be50fa3188408245b513b9714a16edc`). [Publication and provenance](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43279038522).
+- Cloud: `prox3mus-pidockplatform-eca278f0`, image `ghcr.io/knowledge-locker/pidockplatform@sha256:b103a15eef5fbcc3bc8777d11790b1ffeec37c19eedfdf933bf0d4a5b34a3b46` (`0.1.0-dev.20`, source `8b993620bcce92b9aa93992c1f6a041ddb359edd`). [Publication and provenance](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43281750170).
 - HTTPS: existing Caddy reverse proxy, publicly trusted certificate with automatic renewal. Its exact trusted proxy address is `172.18.0.2`; revalidate this configuration if the Caddy container/network changes. No trust-all forwarded-header setting is used.
 - MQTT: `pidock-development-broker`, a constrained non-root Mosquitto container managed by `/opt/pidock/deploy/compose.development-broker.yaml`. It uses the existing proxy Docker network, with TLS hostname `pidock-development-broker` for the cloud worker and `pidock-dev.knowledgelocker.ai:8883` for devices. Shared-network membership grants no MQTT permissions without a valid certificate.
 - State: the separately labelled development external cloud/broker volumes described in [Persistent storage](Persistent-Storage.md).
@@ -125,3 +125,11 @@ Two issues were found and fixed in **0.1.0-dev.19**. Authenticated workspace act
 The existing Owner's original `local` workspace context and enabled signup setting were restored. Controlled cleanup removed only manifest-listed temporary accounts, memberships, invitations, browser sessions, workspaces and synthetic fleet records; audit history was retained. The cleanup compared retained credential/key fingerprints and real device identities against the pre-test baseline. All four removed account sessions now receive HTTP 401 from device APIs. Health is HTTP 200, signup remains available, and the one real Pi continues reporting through the running broker. Production and installed Pi software were not changed.
 
 Pre-test encrypted snapshot `8361f78f8bf9579847ee673d915b1cd476d115d8e31fec9f5ce6bdea7a69cef3` passed encrypted-data and **2,743-file** restore checks, with an off-host encrypted recovery copy retained. The test cleanup was targeted and did not restore an older snapshot over live state.
+
+## Compact remote interface summary (dev.20)
+
+Development cloud `0.1.0-dev.20` adds Remote UI status to the fleet inventory and groups remote interface status, launch and session management beside cloud container control in the device header. The audit is collapsed by default. All 153 tests passed locally and in publication CI; Release build had no warnings/errors. Browser review verified the fleet statuses, disabled launch action and expandable details using isolated sample data.
+
+Encrypted snapshot `2a6e78a4ff1722a0fbd055b47e8f1b16dd644702ed6924e5ffb59bac2d98d90e` passed full encrypted data checking and a 2,797-file restore check before deployment. Post-deployment public health passed, account and sign-in key hashes matched, and the single existing Pi registration remained intact with one-second-old telemetry and the MQTT broker running.
+
+The source also adds optional local-permission telemetry for future PiDockOS service builds. The existing physical Pi was not updated in this cloud rollout: a connected relay confirms Enabled, while a disconnected older appliance shows Unavailable rather than an unverified Disabled claim. See [remote interface status semantics](Remote-Interface-Access.md#fleet-and-device-summary).
