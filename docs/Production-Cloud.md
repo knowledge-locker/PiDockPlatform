@@ -31,8 +31,10 @@ The production signed-release trust key is `pidock-prod-20261112`, public materi
 No development account, MFA secret, session or device identity was copied into production. Run personally in a private Mac Terminal:
 
 ```sh
-ssh -t knowledgelocker-prod /opt/pidock/commission-production-cloud.sh
+ssh -t -o ServerAliveInterval=30 -o ServerAliveCountMax=3 knowledgelocker-prod "tmux new-session -A -s pidock-production-owner /opt/pidock/commission-production-cloud.sh"
 ```
+
+If already at the production root shell, run `tmux new-session -A -s pidock-production-owner /opt/pidock/commission-production-cloud.sh` directly. If SSH disconnects, reconnect and run `tmux attach-session -t pidock-production-owner` to resume the same private terminal; do not start a second setup process.
 
 Choose a production username and password, tenant `local`, role `Owner`. Add the displayed setup secret to an external authenticator and provide two consecutive codes. Do not send passwords, setup secrets or codes through chat. The helper uses the maintenance lock and a temporary network-isolated setup container with Docker logging disabled, then restarts the serving cloud. Sign in at the production portal afterward.
 
@@ -45,3 +47,5 @@ Before provisioning, baseline snapshot `b4006570346173c24a9f8498032649d885b42974
 Verified: public trusted HTTPS liveness and login; unauthenticated device API 401; unknown remote hostname authorization 404; private broker TLS and successful certificate-authenticated MQTT CONNECT; signer readiness; no signer network; no cloud CA-key mount; constrained read-only cloud container. The owner authorized the provider firewall change: production firewall `2d2e5a24-8c78-4985-b766-ee21bac2d721` now allows inbound TCP 8883 from All IPv4, preserving the previous nine rules. External testing from the operator Mac verifies the production broker certificate and hostname and confirms an unauthenticated client is rejected. Private owner commissioning and production physical-device remote acceptance remain pending.
 
 After commissioning and enrollment, take another coordinated offline encrypted backup and retain its verified off-host copy. Back up cloud/broker state, secrets and settings together. There is no automatic off-site schedule or pruning policy yet. See [Persistent storage](Persistent-Storage.md).
+
+An initial private commissioning attempt was interrupted by an SSH disconnect. Read-only recovery confirmed no account file had been saved. The abandoned temporary setup container was stopped, its helper cleanup restarted cloud, and the maintenance lock was verified free. Public liveness passed afterward. Subsequent commissioning should use the persistent private tmux session above. No password, authenticator setup secret or setup terminal contents were inspected during recovery.
