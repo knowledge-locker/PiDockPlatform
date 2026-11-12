@@ -4,11 +4,11 @@ The development portal is https://pidock-dev.knowledgelocker.ai, hosted on `know
 
 ## Deployed services
 
-- Cloud: `prox3mus-pidockplatform-eca278f0`, image `ghcr.io/knowledge-locker/pidockplatform@sha256:366a02db81f33fbef06af2b2122e527285917cbe626cb499b7e0870284210295` (`0.1.0-dev.10`, source `a69bf34d26e771a12c5a8b5ccf9f723b35c90d65`). [Publication and provenance](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43119838632).
+- Cloud: `prox3mus-pidockplatform-eca278f0`, image `ghcr.io/knowledge-locker/pidockplatform@sha256:caaad6d2a4629e5327e15eb1c645bf34ae3b4f11f8518a4af4341f7016053e20` (`0.1.0-dev.11`, source `e7c6310760d699bb11c43d5bb7a5ca7ebe403e22`). [Publication and provenance](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43135613086).
 - HTTPS: existing Caddy reverse proxy, publicly trusted certificate with automatic renewal. Its exact trusted proxy address is `172.18.0.2`; revalidate this configuration if the Caddy container/network changes. No trust-all forwarded-header setting is used.
 - MQTT: `pidock-development-broker`, a constrained non-root Mosquitto container managed by `/opt/pidock/deploy/compose.development-broker.yaml`. It uses the existing proxy Docker network, with TLS hostname `pidock-development-broker` for the cloud worker and `pidock-dev.knowledgelocker.ai:8883` for devices. Shared-network membership grants no MQTT permissions without a valid certificate.
 - State: the separately labelled development external cloud/broker volumes described in [Persistent storage](Persistent-Storage.md).
-- Runtime configuration: `/etc/pidock/development/configuration/prx-runtime.env`, root-owned and readable by the privileged host-agent group. Five specific protected files mount into the cloud read-only. The broker receives its own three certificate files.
+- Runtime configuration: `/etc/pidock/development/configuration/prx-runtime.env`, root-owned and readable by the privileged host-agent group. Six specific protected files mount into the cloud read-only, including the public development release-signing key. The broker receives its own three certificate files.
 
 The development DNS A record points to `161.35.51.247`; no production record was added. Port 8080 is private to Docker and loopback. The development provider firewall now allows IPv4 TCP 8883. External testing verified the broker certificate and rejection of unauthenticated clients. Unencrypted port 1883 is not published.
 
@@ -57,3 +57,14 @@ Device-specific resource KPIs, relative contact ages, selectable resource trends
 The physical Pi dashboard update is installed and verified against its package hashes. Both Pi services are active, the cloud receives fresh container inventory, and the current inventory contains zero managed containers. The owner has now enabled cloud-control permission; its live report was verified. Release dev.10 makes this status visible in the fleet inventory and device dashboard. The telemetry-channel update is installed: appliance and agent hashes match the staged package, both Pi services are active, and the cloud receives fresh reports with all seven channel defaults enabled and cloud control allowed.
 
 Before dev.10 deployment, development backup `d6692829076fce289568067abd868cf81c6c75fc0caeaca9d9de28d4ae6b4df3` passed encrypted data checking and a 478-file restore check. The encrypted repository and recovery password were also copied to the private off-host recovery directory.
+
+
+## Signed service update rollout
+
+Development release `0.1.0-dev.11` adds the signed PiDockOS service-release catalog and device update controls, together with local telemetry historian parity. It was published from the isolated `codex/pidockos-updates-dev11` source branch, preserving unrelated unfinished application-platform and commissioning-diagnostic work. All 118 tests in the release source passed before publication and in GitHub CI.
+
+Before deployment, encrypted snapshot `93ad3cb9a07f26a96dd610f7941d7051e78684263ce9211126c849c3f0dae7ff` passed full encrypted data checking and a 759-file restore check. A protected off-host recovery copy was retained. The replacement preserved the protected account file, Data Protection key ring and physical Pi registration. Public HTTPS liveness, anonymous access restrictions, the read-only signer mount and fresh Pi telemetry passed afterward.
+
+The dedicated development signer is `pidock-dev-20261111`. Its canonical public-key DER SHA-256 is `a958dffa03293a804f53011071d3b73d9d020f9bf4cff7e4b2223b95812365b7`. The private key remains in protected operator-Mac state and is not stored in the cloud or appliance. PRX3MUS maps the public key from `os-updates/pidock-dev-20261111.pem` to `/certs/pidock-dev-20261111.pem`; `Updates__TrustDirectory=/certs` follows its validated dedicated-certificate mount policy.
+
+The signed ARM64 PiDockOS package is version `0.1.0-dev.11`, SHA-256 `b230fb8977cd48fc88739e4e7a19f2564d5ca8aee6dc7bf7f7591168cf5e4cfd`. Its signature and every payload file digest were independently checked before preparing the one-time Pi bootstrap bundle. At this deployment checkpoint, Pi bootstrap, owner-controlled update permission and fresh-MFA cloud publication/installation still require the operator steps; a successful hardware installation has not yet been recorded. See [PiDockOS updates](PiDockOS-Updates.md).
