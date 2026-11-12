@@ -10,7 +10,7 @@ The specification remains the production target. This increment establishes runn
 | Appliance UI | Overview, storage policy, applications, live pin map, network counters | Files, network changes/rollback, raw diagnostics, complete error/status handling |
 | Containers | Separate Unix broker, constrained digest-pinned ARM64 deployment, start/stop, resource limits | Archive import, signature policy, persistence, secrets, Compose subset, hardware grants and update rollback |
 | Storage | Percentage budget, protected reserve, per-class oldest-first cleanup, policy preview/save and persistent unsent-loss counters | Allocated-block accounting, application quotas, class/age editing, long-run SD testing |
-| I/O | Correct header map, unknown physical values, opt-in timed simulation | Pi 5 driver, exclusive app handoff, PWM, input simulation API, physical fallback and raw capture |
+| I/O | Pi 5 RP1 GPIO v2 discovery, line direction/bias/consumer reporting, default-deny pin policy, exclusive timed maintenance claims, local owner/fresh MFA, per-page release and normal-release fallback; development simulation | Physical driver acceptance on Pi 5, electrical fallback/power-loss validation, exclusive application handoff, PWM, input simulation API and raw capture |
 | Telemetry | Independent sampling/delivery, mTLS, bounded durable queue, cloud persistence receipts, deduplicated replay, local resource alarms and bounded cloud archive | Remote audit/log sync, cloud incident workflow, notification delivery and PostgreSQL history |
 | Cloud users | Multiple console-provisioned users, tenant claim enforcement, Owner/Administrator-only enrollment with fresh MFA | Online user administration, fleet/device grant scopes, other privileged action policies, account recovery |
 | Enrollment | Single-use expiring codes, CSR validation, device-specific certificates, key-bound response recovery, local key generation and automatic MQTT activation | Isolated signing service, renewal, revocation, migration and production provisioning |
@@ -29,6 +29,14 @@ The specification remains the production target. This increment establishes runn
 6. Build and fault-test the signed image/update pipeline, complete independent security review, and validate PROX3MUS deployment.
 
 No DNS, public service, production credentials, firmware fuses or Raspberry Pi hardware were changed by this increment.
+
+## November 12 V1 hardware clarification and GPIO increment
+
+The opening baseline above describes the original preview; subsequent deployment records below contain later delivered capabilities. A new V1 acceptance pass must reconcile each requirement against those records and hardware evidence, rather than removing preview labels as a substitute for acceptance.
+
+The owner confirmed that the current test device is a wall-powered Pi 5 with **no RTC backup battery and no connected GPIO hardware**. Its empty GPIO policy must remain in place. GPIO maintenance implementation and its physical acceptance procedure are documented in [GPIO maintenance](GPIO-Maintenance.md). Automated tests establish software policy and lifetime behavior; they do not establish electrical correctness on the physical board.
+
+No battery-backed offline clock holdover can be claimed for this configuration. Authenticated network time, trusted-clock gating and physical recovery still require implementation and real-device acceptance. The full original appliance specification also requires a reproducible boot image, verified root, signed boot and A/B recovery; the existing signed service-update packages do not satisfy those requirements. No OTP provisioning, physical output writes or changes to the running appliance were performed for this increment.
 
 ## Verified in this workspace
 

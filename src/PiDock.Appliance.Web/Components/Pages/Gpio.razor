@@ -1,27 +1,111 @@
 @page "/gpio"
 @implements IAsyncDisposable
 @inject GpioSimulator Pins
+@inject BrokerClient Broker
 @inject HistoryStore History
 @inject AuthenticationStateProvider Authentication
 @inject UserStore Users
 <PageTitle>Live I/O · PiDockOS</PageTitle>
-<div class="page-heading"><div><p class="eyebrow">APPLIANCE / LIVE I/O</p><h1>GPIO and interfaces</h1><p>40-pin header map, logical states, and timed maintenance controls.</p></div><span class="pill">@(Pins.Enabled ? "SIMULATION · no hardware writes" : "Physical driver not connected")</span></div>
-<div class="notice">@(Pins.Enabled ? "All values and overrides on this page are simulated. Overrides expire after 60 seconds and release when you leave this page." : "Physical states are unknown. To explore controls locally, enable PiDock:SimulateGpio in Development. No physical GPIO access is performed.")</div>
-<div class="columns gpio-layout"><section class="card"><h2>40-pin header</h2><div class="pin-header"><span>Label</span><span>Physical pins</span><span>Label</span></div><div class="pinout">@foreach (var pin in Pins.Read()) { <button class="pin @(pin.Gpio.HasValue ? "signal" : "fixed") @(pin.Forced ? "forced" : "") @(selected?.Physical == pin.Physical ? "selected" : "")" aria-pressed="@(selected?.Physical == pin.Physical)" aria-label="@($"Pin {pin.Physical}: {pin.Label}")" @onclick="() => Select(pin)"><span>@pin.Label</span><b>@pin.Physical</b><small>@(pin.High.HasValue ? pin.High.Value ? "HIGH" : "LOW" : "—")</small></button> }</div></section>
-<section class="card pin-inspector" tabindex="-1" @ref="inspector"><h2>Pin inspector</h2>@if (selected is { } chosen) { var live = Pins.Read().Single(p => p.Physical == chosen.Physical); <dl><dt>Physical pin</dt><dd>@live.Physical</dd><dt>Signal</dt><dd>@live.Label</dd><dt>State</dt><dd>@(live.High.HasValue ? live.High.Value ? "HIGH · simulated" : "LOW · simulated" : "Unknown / fixed supply")</dd><dt>Override</dt><dd>@(live.Forced ? $"{live.RemainingSeconds}s remaining" : "None")</dd></dl>@if (live.Gpio is { } gpio && !GpioSimulator.IsAssignable(gpio)) { <p class="notice">Reserved bus pin. Manual output control is unavailable.</p> }<div class="actions"><button disabled="@(!Pins.CanForce(live.Gpio))" @onclick="() => Force(live.Gpio, true)">Force HIGH</button><button disabled="@(!Pins.CanForce(live.Gpio))" @onclick="() => Force(live.Gpio, false)">Force LOW</button><button class="secondary" disabled="@(!Pins.Read().Any(p => p.Forced))" @onclick="Release">Release overrides</button></div> } else { <p>Select a pin to inspect it.</p> }<p role="status">@message</p><small>Bus pins are reserved. Production handoff, hardware fallback, PWM and simulated application inputs are not implemented in this preview.</small></section></div>
+<div class="page-heading"><div><p class="eyebrow">APPLIANCE / LIVE I/O</p><h1>GPIO and interfaces</h1><p>40-pin header map and timed local maintenance sessions.</p></div><span class="pill">@(Pins.Enabled ? "SIMULATION · no hardware writes" : status.Available ? "Physical header detected" : "Physical header unavailable")</span></div>
+<div class="notice">@(Pins.Enabled ? "Values and overrides are simulated. No hardware writes occur." : status.Status)</div>
+@if (remote) { <p class="notice">Physical maintenance controls require a local owner session.</p> }
+<div class="columns gpio-layout">
+<section class="card"><h2>40-pin header</h2><div class="pin-header"><span>Label</span><span>Physical pins</span><span>Label</span></div><div class="pinout">
+@foreach (var pin in ReadPins())
+{
+    <button class="pin @(pin.Gpio.HasValue ? "signal" : "fixed") @(pin.Forced ? "forced" : "") @(selected == pin.Physical ? "selected" : "")" aria-pressed="@(selected == pin.Physical)" aria-label="@($"Pin {pin.Physical}: {pin.Label}")" @onclick="() => Select(pin.Physical)"><span>@pin.Label</span><b>@pin.Physical</b><small>@(pin.High.HasValue ? pin.High.Value ? "HIGH" : "LOW" : "—")</small></button>
+}
+</div></section>
+<section class="card pin-inspector" tabindex="-1" @ref="inspector"><h2>Pin inspector</h2>
+@if (selected is { } physical)
+{
+    var pin = ReadPins().Single(p => p.Physical == physical);
+    var line = status.Lines.FirstOrDefault(p => p.Gpio == pin.Gpio);
+    <dl><dt>Physical pin</dt><dd>@pin.Physical</dd><dt>Signal</dt><dd>@pin.Label</dd><dt>Level</dt><dd>@(pin.High.HasValue ? (pin.High.Value ? "HIGH" : "LOW") + (Pins.Enabled ? " · simulated" : " · maintenance session") : "Not measured")</dd><dt>Direction</dt><dd>@(line?.Direction ?? "Unknown / fixed supply")</dd><dt>Bias</dt><dd>@(line?.Bias ?? "Unknown")</dd><dt>Consumer</dt><dd>@(line?.Used == true ? line.Consumer : "None reported")</dd><dt>Maintenance session</dt><dd>@(pin.Forced ? $"{pin.RemainingSeconds}s remaining" : "None")</dd></dl>
+    @if (pin.Gpio is { } gpio && !DigitalIoRules.Assignable(gpio)) { <p class="notice">Reserved bus pin. Manual control is unavailable.</p> }
+    <div class="actions">
+    <button disabled="@(!CanClaim(pin, false))" @onclick="() => Claim(pin.Gpio, false, false)">Read input</button>
+    <button disabled="@(!CanClaim(pin, true))" @onclick="() => Claim(pin.Gpio, true, true)">Force HIGH</button>
+    <button disabled="@(!CanClaim(pin, true))" @onclick="() => Claim(pin.Gpio, true, false)">Force LOW</button>
+    <button class="secondary" disabled="@(busy || (!Pins.Enabled && !status.Leases.Any(p => p.SessionId == session)))" @onclick="Release">Release my sessions</button>
+    </div>
+}
+else { <p>Select a pin to inspect it.</p> }
+<p role="status">@message</p>
+<small>Maintenance sessions expire after 60 seconds and release when you leave this page. Only pins and directions approved in the local host policy can be claimed. In-use lines are never taken from another consumer. Output fallback is applied before normal release; external pull resistors and hardware protection are required for crashes or power loss. PWM and bus transactions are unavailable here.</small>
+</section></div>
+<ReauthenticationDialog @ref="confirmation" />
 @code {
+    private ReauthenticationDialog confirmation = default!;
     private ElementReference inspector;
-    private async Task Select(PinState pin) { selected = pin; await inspector.FocusAsync(); }
-    private PinState? selected; private string? message; private readonly CancellationTokenSource stop = new(); private Task? refresh;
-    protected override void OnInitialized() => refresh = Refresh();
-    private async Task Force(int? gpio, bool high)
+    private readonly Guid session = Guid.NewGuid();
+    private DigitalIoStatus status = new(false, "Checking the host GPIO interface…", null, [], []);
+    private int? selected;
+    private bool remote, busy;
+    private string? message;
+    private readonly CancellationTokenSource stop = new();
+    private Task? refresh;
+    protected override async Task OnInitializedAsync()
+    {
+        remote = (await Authentication.GetAuthenticationStateAsync()).User.HasClaim(c => c.Type == "pidock_remote");
+        await Load(); refresh = Refresh();
+    }
+    private async Task Select(int physical) { selected = physical; await inspector.FocusAsync(); }
+    private IReadOnlyList<PinState> ReadPins() => Pins.Enabled ? Pins.Read() : Pins.Read().Select(p => {
+        var lease = status.Leases.FirstOrDefault(x => x.Gpio == p.Gpio);
+        return p with { High = lease?.High, Forced = lease is not null, RemainingSeconds = lease?.RemainingSeconds ?? 0 };
+    }).ToArray();
+    private bool CanClaim(PinState pin, bool output)
+    {
+        if (busy || remote || pin.Gpio is not { } gpio || !DigitalIoRules.Assignable(gpio)) return false;
+        if (Pins.Enabled) return output;
+        var line = status.Lines.FirstOrDefault(x => x.Gpio == gpio);
+        return line is not null && !line.Used && (output ? line.CanOutput : line.CanInput);
+    }
+    private async Task Claim(int? gpio, bool output, bool high)
+    {
+        if (busy || gpio is null) return;
+        busy = true;
+        try
+        {
+            if (!await LocalOwner()) return;
+            if (!await confirmation.Request(output ? "Set GPIO output" : "Read GPIO input", $"Claim GPIO{gpio} as {(output ? high ? "a HIGH output" : "a LOW output" : "an input")} for at most 60 seconds{(Pins.Enabled ? " in simulation" : " on this appliance")}.")) return;
+            if (!await LocalOwner()) return;
+            if (Pins.Enabled) Pins.Force(gpio.Value, high);
+            else await Broker.ClaimDigital(new(session, gpio.Value, output ? "output" : "input", high, 60));
+            History.Append(HistoryClass.Audit, new { action = Pins.Enabled ? "simulation.override" : "gpio.claim", session, gpio, output, high, at = DateTimeOffset.UtcNow });
+            message = "Maintenance session active for at most 60 seconds."; await Load();
+        }
+        catch (Exception e) when (e is ArgumentException or HttpRequestException or InvalidOperationException) { message = "Pin could not be claimed. Check local policy and whether another consumer is using it."; }
+        finally { busy = false; }
+    }
+    private async Task<bool> LocalOwner()
     {
         var user = (await Authentication.GetAuthenticationStateAsync()).User;
-        if (!Users.IsCurrent(user) || !user.IsInRole("Owner")) { message = "Owner sign-in required."; return; }
-        try { if (gpio is null) return; Pins.Force(gpio.Value, high); History.Append(HistoryClass.Audit, new { action = "simulation.override", gpio, high, at = DateTimeOffset.UtcNow }); message = "Simulated override active for 60 seconds."; }
-        catch (ArgumentException e) { message = e.Message; }
+        if (Users.IsCurrent(user) && user.IsInRole("Owner") && !user.HasClaim(c => c.Type == "pidock_remote")) return true;
+        message = "A current local owner session is required."; return false;
     }
-    private void Release() { Pins.ReleaseAll(); message = "Simulation overrides released."; }
-    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1)); while (await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(StateHasChanged); } catch (OperationCanceledException) { } }
-    public async ValueTask DisposeAsync() { Pins.ReleaseAll(); await stop.CancelAsync(); if (refresh is not null) await refresh; stop.Dispose(); }
+    private async Task Release()
+    {
+        try { Pins.ReleaseAll(); await Broker.ReleaseDigital(session); await Load(); message = "Your maintenance sessions released."; }
+        catch (HttpRequestException) { message = "Broker unavailable. Sessions still expire automatically."; }
+    }
+    private async Task Load()
+    {
+        if (Pins.Enabled) return;
+        try { status = await Broker.DigitalStatus(stop.Token); }
+        catch (HttpRequestException) { status = new(false, "GPIO broker unavailable. Refresh after checking the host service.", null, [], []); }
+    }
+    private async Task Refresh()
+    {
+        try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1)); while (await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(async () => { await Load(); StateHasChanged(); }); }
+        catch (OperationCanceledException) { }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        await stop.CancelAsync(); if (refresh is not null) await refresh;
+        Pins.ReleaseAll();
+        try { await Broker.ReleaseDigital(session); } catch (HttpRequestException) { }
+        stop.Dispose();
+    }
 }
