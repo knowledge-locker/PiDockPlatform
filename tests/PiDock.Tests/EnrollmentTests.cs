@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -143,7 +144,12 @@ public sealed class EnrollmentTests : IDisposable
     {
         await ExerciseClient(lostResponse: false, failedLocalWrite: true);
     }
-    private async Task ExerciseClient(bool lostResponse, bool failedLocalWrite = false)
+    [Fact]
+    public async Task LocallyApprovedMovePreservesFailedRegistrationAndChangesDeliveryScopeOnlyAfterPermissionReset()
+    {
+        await ExerciseClient(lostResponse: false, moving: true);
+    }
+    private async Task ExerciseClient(bool lostResponse, bool failedLocalWrite = false, bool moving = false)
     {
         using var serverKey = RSA.Create(2048);
         var request = new CertificateRequest("CN=localhost", serverKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -157,6 +163,7 @@ public sealed class EnrollmentTests : IDisposable
         app.MapPost("/api/enrollment/redeem", (EnrollmentRequest r) =>
         {
             var reply = store.Redeem(r);
+            if (reply is null) return Results.BadRequest();
             return lostResponse && ++attempts == 1 ? Results.StatusCode(503) : Results.Ok(reply);
         });
         await app.StartAsync();
@@ -179,6 +186,23 @@ public sealed class EnrollmentTests : IDisposable
             Assert.DoesNotContain("PRIVATE KEY", File.ReadAllText(Path.Combine(root, "cloud/enrollments.json")));
             Assert.DoesNotContain(code.Code.Replace("-", ""), File.ReadAllText(Path.Combine(state, "cloud-connection.json")));
             Assert.Single(store.For(User()));
+            if (moving) {
+                var original = client.Connection!; var oldProfile = mqtt.Current; string originalScope = oldProfile.RouteScope;
+                var oldFiles = Directory.GetFiles(Path.Combine(state, "cloud-mqtt"), "*", SearchOption.AllDirectories).ToDictionary(p => p, File.ReadAllText);
+                var next = store.Create(User("beta"), "Production Pi"); bool revoked = false;
+                await Assert.ThrowsAsync<InvalidOperationException>(() => client.ConnectAsync(url, next.Code, ca.ExportCertificatePem()));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => client.MoveAsync(url, new string('F',32), () => { revoked = true; return Task.CompletedTask; }, ca.ExportCertificatePem()));
+                Assert.False(revoked); Assert.Equal(original, client.Connection); Assert.Same(oldProfile, mqtt.Current);
+                await Assert.ThrowsAsync<IOException>(() => client.MoveAsync(url, next.Code, () => throw new IOException("Permission reset unavailable"), ca.ExportCertificatePem()));
+                Assert.Equal(original, client.Connection); Assert.Equal(originalScope, mqtt.Current.RouteScope);
+                foreach (var file in oldFiles) Assert.Equal(file.Value, File.ReadAllText(file.Key));
+                var changed = await client.MoveAsync(url, next.Code, () => { revoked = true; Assert.Equal(original, client.Connection); return Task.CompletedTask; }, ca.ExportCertificatePem());
+                Assert.True(revoked); Assert.Equal("beta", changed.TenantId); Assert.NotEqual(originalScope, mqtt.Current.RouteScope);
+                Assert.Equal(original, JsonSerializer.Deserialize<CloudConnection>(File.ReadAllText(Path.Combine(state,"cloud-connection.previous.json")), StateFiles.Json));
+                Assert.False(File.Exists(Path.Combine(state,"cloud-move-pending.json")));
+                using var rebooted = new MqttConnection(config,state); Assert.Equal(mqtt.Current.RouteScope,rebooted.Current.RouteScope);
+                foreach (var file in oldFiles) Assert.Equal(file.Value, File.ReadAllText(file.Key));
+            }
         }
         finally { await app.StopAsync(); }
     }

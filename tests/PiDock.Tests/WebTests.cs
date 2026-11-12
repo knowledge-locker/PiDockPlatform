@@ -50,6 +50,7 @@ public sealed class WebTests
         remote.SetAllowed(true, "local-owner");
         client.DefaultRequestHeaders.Add("X-PiDock-Remote-Proof", remote.LocalProof); client.DefaultRequestHeaders.Add("X-PiDock-Remote-Id", Guid.NewGuid().ToString());
         var html = await client.GetStringAsync("/remote-access"); Assert.Contains("only be changed through a local connection", html); Assert.DoesNotContain("Save remote interface permission", html);
+        var cloud = await client.GetStringAsync("/cloud"); Assert.DoesNotContain("Connect this appliance", cloud); Assert.DoesNotContain("Move to this cloud", cloud);
         client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Proof"); client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Id");
         Assert.Contains("Save remote interface permission", await client.GetStringAsync("/remote-access"));
     }
