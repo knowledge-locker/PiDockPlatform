@@ -682,3 +682,21 @@ textarea { width:100%; box-sizing:border-box; padding:12px; border:1px solid var
 .telemetry-help::backdrop { background:#28242955; }
 .telemetry-help .section-heading { gap:16px; align-items:center; }
 .telemetry-help h2 { margin:0; }
+
+.os-update-select { display:block; width:100%; font:inherit; background:var(--input); color:var(--text); border:1px solid var(--input-border); border-radius:7px; padding:11px; margin-top:8px; }
+.os-update-select:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+
+/* Account setup and team management share the platform's visual language. */
+.account-page { width: min(880px, calc(100% - 40px)); margin: 48px auto; }
+.account-page > .brand { margin-bottom: 28px; }
+.account-page .card { margin: 24px 0; }
+.account-page form { max-width: 560px; margin: 16px 0; }
+.account-page label { display: grid; gap: 6px; margin: 16px 0; }
+.account-page input, .account-page select { width: 100%; }
+.setup-key { overflow-wrap: anywhere; user-select: all; }
+.workspace-select { display: flex; align-items: center; gap: 8px; margin: 0; }
+.workspace-select select { max-width: 220px; }
+.account-page select, .workspace-select select { font: inherit; background: var(--input); color: var(--text); border: 1px solid var(--input-border); border-radius: 7px; padding: 10px; }
+.workspace > header { min-height: 78px; height: auto; gap: 12px; padding-top: 12px; padding-bottom: 12px; flex-wrap: wrap; }
+.workspace > header > div { flex-wrap: wrap; gap: 14px; }
+@media(max-width:650px) { .workspace-select { flex-wrap: wrap; } .account-page { margin: 20px auto; padding: 18px 0; } }

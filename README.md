@@ -54,13 +54,13 @@ For the new **Add device → Cloud connection** workflow, see [device enrollment
 ```sh
 ./deploy/prepare-preview.sh
 docker compose --env-file .env -f deploy/compose.yaml up --build -d
-# Stop the web process before creating accounts, then restart to load them.
+# Stop the web process to establish the single platform Owner, then restart.
 docker compose --env-file .env -f deploy/compose.yaml stop cloud
 docker compose --env-file .env -f deploy/compose.yaml run --rm cloud --commission
 docker compose --env-file .env -f deploy/compose.yaml up -d cloud
 ```
 
-Open [the local cloud portal](https://localhost:8443). Provision a cloud user in tenant `local` to see the preview device. Different users can be provisioned into different tenants; role labels exist, but fine-grained grants and online user management are not implemented yet. Do not commission users concurrently or run multiple processes against the same state directory.
+Open [the local cloud portal](https://localhost:8443). Establish the single platform Owner with `--commission` before tenant signup is available. Public workspace signup is enabled by default; the Owner can disable it under **Workspaces & team → Workspace signup settings**. When enabled, users can create an account and workspace from the sign-in page and complete authenticator setup. Team invitations continue to work with public signup disabled: new invited users create an account directly in the invited workspace without creating another tenant. Each workspace owns its PiDockOS registrations. The header switches between memberships and applies that workspace’s role; the Owner explicitly selects a workspace for audited support access. See [workspaces and teams](docs/Cloud-Workspaces.md) for roles, invitations and migration. Do not run multiple processes against the same state directory.
 
 The PKI script creates a private preview CA and 14-day leaf certificates under `.state/pki`; it does not change your OS trust store or replace existing identity material. Use `.state/pki/ca.crt` explicitly when validating endpoints. Both HTTPS and MQTT publish to **127.0.0.1 only**. These are development certificates and deployment settings, not public hosting instructions. Keep `.state` and `.env` private and out of source control.
 
@@ -71,6 +71,10 @@ Stop the preview services without erasing state:
 ```sh
 docker compose --env-file .env -f deploy/compose.yaml down
 ```
+
+## Application platform discovery
+
+Versioned platform discovery and an agent MCP stdio bridge are available. Use **Agent access** in PiDockOS to register third-party applications, generate encrypted/retrievable tokens, copy connection prompts and revoke access. See [agent access](docs/Agent-Access.md). Agents can inspect contract schemas, capability status and the saved registered PiDockCloud URL using a separate expiring discovery credential. Scoped shared logs, measurements and app alarms, plus tenant-scoped registry-reference cloud publishing, are now available in engineering preview. Hardware and package installation remain planned. See [shared services and cloud publishing](docs/Cloud-Publishing-and-App-Services.md). See [application platform setup and limits](docs/Application-Platform.md).
 
 ## Container applications
 
@@ -90,3 +94,5 @@ This preview supports registry pulls of immutable ARM64 images and basic lifecyc
 - Container services are non-root with read-only roots and dropped capabilities. Replace preview PKI, pin approved image digests and complete the release security gates before external deployment. The development cloud is deployed through PRX3MUS; [hosted development setup](docs/Development-Cloud.md) tracks connectivity and owner commissioning. Production is not deployed.
 
 See [implementation status](docs/Implementation-Status.md) for the current verification and next milestones.
+
+PiDockOS supports signed service updates through PiDockCloud with separate local owner permission, plus local package uploads for cloud-free operation. An independent updater stages, checks and rolls back the appliance/broker programs. A one-time local bootstrap and verified public signing keys are required. See [PiDockOS updates](docs/PiDockOS-Updates.md).

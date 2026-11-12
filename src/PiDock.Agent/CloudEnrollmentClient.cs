@@ -60,7 +60,7 @@ public sealed class CloudEnrollmentClient
             if (length > 32768) throw new InvalidOperationException("Invalid cloud enrollment response.");
             var reply = JsonSerializer.Deserialize<EnrollmentReply>(buffer.AsSpan(0, length), StateFiles.Json) ?? throw new InvalidOperationException("Invalid cloud enrollment response.");
             ValidateReply(reply, key);
-            var connection = new CloudConnection(origin, reply.TenantId, reply.DeviceId, reply.CertificatePem, pending!.PrivateKeyPem, reply.CaPem, reply.MqttHost, reply.MqttPort, reply.ExpiresAt);
+            var connection = new CloudConnection(origin, reply.TenantId, reply.DeviceId, reply.CertificatePem, pending!.PrivateKeyPem, reply.CaPem, reply.MqttHost, reply.MqttPort, reply.ExpiresAt, serverCaPem);
             // Stage runtime files first; commit the record before making the profile active.
             var prepared = mqtt.PrepareEnrollment(connection);
             try { StateFiles.WriteAtomic(Path.Combine(directory, "cloud-connection.json"), JsonSerializer.Serialize(connection, StateFiles.Json)); }
@@ -71,7 +71,7 @@ public sealed class CloudEnrollmentClient
         }
         finally { gate.Release(); }
     }
-    public static HttpClientHandler CreateHandler(string? caPem)
+    public static HttpClientHandler CreateHandler(string? caPem, bool allowSystemTrust = false)
     {
         var handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false };
         if (!string.IsNullOrWhiteSpace(caPem))
@@ -81,6 +81,7 @@ public sealed class CloudEnrollmentClient
             byte[] publicCa = ca.RawData;
             handler.ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
             {
+                if (allowSystemTrust && errors == SslPolicyErrors.None) return true;
                 if (certificate is null || (errors & (SslPolicyErrors.RemoteCertificateNameMismatch | SslPolicyErrors.RemoteCertificateNotAvailable)) != 0) return false;
                 using var root = X509CertificateLoader.LoadCertificate(publicCa); using var chain = new X509Chain();
                 chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust; chain.ChainPolicy.CustomTrustStore.Add(root);

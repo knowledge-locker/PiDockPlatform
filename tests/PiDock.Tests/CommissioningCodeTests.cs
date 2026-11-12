@@ -19,6 +19,25 @@ public sealed class CommissioningCodeTests
     }
 
     [Fact]
+    public void DebugUsesTheSamePostInputTimestampAsValidation()
+    {
+        var output = new StringBuilder();
+        var clock = Now;
+        var code = Totp.Code(Secret, Step + 2);
+        var result = Authentication.ReadCommissioningCode(Secret, "Code: ", Step + 1,
+            () => { clock = Now.AddSeconds(60); return code; }, () => clock, text => output.Append(text), debugCodes: true);
+        Assert.Equal(Step + 2, result);
+        var text = output.ToString();
+        Assert.Contains($"submission UTC: {clock:O}", text);
+        Assert.Contains($"Unix seconds: {clock.ToUnixTimeSeconds()}", text);
+        Assert.Contains($"submitted code: \"{code}\"; characters: 6", text);
+        foreach (long counter in new[] { Step + 1, Step + 2, Step + 3 })
+            Assert.Contains($"expected code: {Totp.Code(Secret, counter)}", text);
+        Assert.Contains($"second step requires counter {Step + 2}", text);
+        Assert.DoesNotContain(Secret, text);
+    }
+
+    [Fact]
     public void AcceptsValidCodeOnThirdAttemptWithoutChangingSecret()
     {
         var codes = new Queue<string>(["invalid", "123", Totp.Code(Secret, Step)]);

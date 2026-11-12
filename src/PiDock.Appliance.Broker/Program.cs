@@ -9,6 +9,7 @@ if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(socketDirectory, UnixFile
 if (File.Exists(socket)) throw new InvalidOperationException("Broker socket already exists; stop the other broker or remove a verified stale socket locally.");
 builder.WebHost.ConfigureKestrel(k => { k.Limits.MaxRequestBodySize = 65536; k.ListenUnixSocket(socket); });
 builder.Services.AddSingleton(_ => new DockerOperations(UnixHttp.Connect(builder.Configuration["Broker:DockerSocket"] ?? "/var/run/docker.sock", TimeSpan.FromMinutes(3))));
+var installedRelease = OsUpdateRules.Installed(AppContext.BaseDirectory);
 var app = builder.Build();
 app.Use(async (context, next) =>
 {
@@ -17,6 +18,7 @@ app.Use(async (context, next) =>
     catch (Exception e) when (e is HttpRequestException or InvalidOperationException or TaskCanceledException)
     { app.Logger.LogWarning("Broker operation failed: {Type}", e.GetType().Name); context.Response.StatusCode = 503; await context.Response.WriteAsJsonAsync(new { error = "Container operation unavailable; check the runtime and broker logs." }); }
 });
+app.MapGet("/health/update", () => new OsUpdateHealth(installedRelease?.Digest, true));
 app.MapGet("/applications", (DockerOperations docker, CancellationToken ct) => docker.List(ct));
 if (builder.Configuration.GetValue<bool>("Broker:EnableDeployments"))
 {
