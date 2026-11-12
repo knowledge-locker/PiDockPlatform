@@ -682,3 +682,6 @@ textarea { width:100%; box-sizing:border-box; padding:12px; border:1px solid var
 .telemetry-help::backdrop { background:#28242955; }
 .telemetry-help .section-heading { gap:16px; align-items:center; }
 .telemetry-help h2 { margin:0; }
+
+.os-update-select { display:block; width:100%; font:inherit; background:var(--input); color:var(--text); border:1px solid var(--input-border); border-radius:7px; padding:11px; margin-top:8px; }
+.os-update-select:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }

@@ -16,3 +16,5 @@ Before selecting the production defconfig:
 - Validate power loss, full volume, application storage abuse, invalid updates and recovery without internet.
 
 The systemd units are integration templates. They do not create users/groups, install .NET, set trusted HTTPS certificates, provision secrets, configure the firewall or implement secure boot. Do not enable them on an unattended device without completing those steps. Production RTC/NTS gating and physical recovery are required before release.
+
+Signed updates for the current Linux-hosted appliance and broker services are implemented through a separate updater. Local uploads and cloud-approved releases share signature verification, service health checks and journaled rollback. See [PiDockOS updates](../docs/PiDockOS-Updates.md) for the one-time bootstrap and limits. These service packages do not implement the planned production A/B boot-image update system.

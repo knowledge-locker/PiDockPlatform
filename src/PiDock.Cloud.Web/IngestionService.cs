@@ -7,7 +7,7 @@ using PiDock.Agent;
 using PiDock.Core;
 namespace PiDock.Cloud.Web;
 
-public sealed class IngestionService(MqttConnection mqtt, FleetStore fleet, ILogger<IngestionService> logger, ApplicationCommandStore? commands = null) : BackgroundService
+public sealed class IngestionService(MqttConnection mqtt, FleetStore fleet, ILogger<IngestionService> logger, ApplicationCommandStore? commands = null, OsUpdateStore? updates = null) : BackgroundService
 {
     public string Status { get; private set; } = "Not configured";
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -26,7 +26,8 @@ public sealed class IngestionService(MqttConnection mqtt, FleetStore fleet, ILog
                     if (message is not null && fleet.Accept(e.ApplicationMessage.Topic, message).Stored)
                     {
                         commands?.AcceptResults(message);
-                        await receipts.Writer.WriteAsync(new(1, message.TenantId, message.DeviceId, message.MessageId, commands?.ForReceipt(message)), stoppingToken);
+                        updates?.AcceptStatus(message);
+                        await receipts.Writer.WriteAsync(new(1, message.TenantId, message.DeviceId, message.MessageId, commands?.ForReceipt(message), updates?.ForReceipt(message)), stoppingToken);
                     }
                     else logger.LogDebug("Rejected invalid telemetry message");
                 }

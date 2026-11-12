@@ -90,3 +90,5 @@ This preview supports registry pulls of immutable ARM64 images and basic lifecyc
 - Container services are non-root with read-only roots and dropped capabilities. Replace preview PKI, pin approved image digests and complete the release security gates before external deployment. The development cloud is deployed through PRX3MUS; [hosted development setup](docs/Development-Cloud.md) tracks connectivity and owner commissioning. Production is not deployed.
 
 See [implementation status](docs/Implementation-Status.md) for the current verification and next milestones.
+
+PiDockOS supports local telemetry trends and downloads plus signed service updates through PiDockCloud with separate local owner permission and cloud-free package uploads. An independent updater stages, checks and rolls back the appliance/broker programs. A one-time local bootstrap and verified public signing keys are required. See [PiDockOS updates](docs/PiDockOS-Updates.md).

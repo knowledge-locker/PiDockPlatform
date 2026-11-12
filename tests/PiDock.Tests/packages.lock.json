@@ -441,6 +441,12 @@
       "pidock.core": {
         "type": "Project"
       },
+      "pidock.updater": {
+        "type": "Project",
+        "dependencies": {
+          "PiDock.Core": "[1.0.0, )"
+        }
+      },
       "pidock.web.shared": {
         "type": "Project",
         "dependencies": {

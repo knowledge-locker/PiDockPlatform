@@ -6,7 +6,7 @@ public sealed record EnrollmentRequest(string Code, string CsrPem);
 public sealed record EnrollmentReply(string TenantId, string DeviceId, string CertificatePem, string CaPem,
     string MqttHost, int MqttPort, DateTimeOffset ExpiresAt);
 public sealed record CloudConnection(string CloudUrl, string TenantId, string DeviceId, string CertificatePem,
-    string PrivateKeyPem, string CaPem, string MqttHost, int MqttPort, DateTimeOffset ExpiresAt);
+    string PrivateKeyPem, string CaPem, string MqttHost, int MqttPort, DateTimeOffset ExpiresAt, [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? ServerCaPem = null);
 public static class EnrollmentIdentity
 {
     public static string CommonName(string tenant, string device)

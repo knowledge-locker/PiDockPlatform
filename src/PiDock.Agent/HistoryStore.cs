@@ -15,7 +15,8 @@ public sealed class DriveCapacityProbe : ICapacityProbe
 }
 public sealed record HistoryStatus(DataPolicy Policy, PolicyBudget Budget, long DeletedSegments, DateTimeOffset? LastPurge,
     IReadOnlyDictionary<HistoryClass, long> ClassUsage, int PendingSegments = 0, long UnsentDropped = 0, long RejectedQueued = 0);
-public sealed record PendingTelemetry(string RouteScope, TelemetryEnvelope Envelope, bool Pending = true);
+public sealed record PendingTelemetry(string RouteScope, TelemetryEnvelope Envelope, bool Pending = true,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] HostSnapshot? LocalSnapshot = null);
 internal sealed record HistoryMetadata(long Sequence = 0, long Deleted = 0, long UnsentDropped = 0,
     long RejectedQueued = 0, DateTimeOffset? LastPurge = null);
 
@@ -25,6 +26,7 @@ public sealed class HistoryStore
     private readonly string root, policyPath, metadataPath;
     private readonly ICapacityProbe probe;
     private readonly Dictionary<Guid, (string Path, PendingTelemetry Record)> pending = [];
+    private readonly Dictionary<string, DateTimeOffset> observations = new(StringComparer.Ordinal);
     private DataPolicy policy;
     private HistoryMetadata metadata;
     public HistoryStore(string directory, ICapacityProbe capacityProbe)
@@ -41,7 +43,9 @@ public sealed class HistoryStore
         {
             try
             {
-                var record = JsonSerializer.Deserialize<PendingTelemetry>(File.ReadAllText(file.FullName), StateFiles.Json);
+                var json = File.ReadAllText(file.FullName);
+                IndexTelemetry(file.FullName, json);
+                var record = JsonSerializer.Deserialize<PendingTelemetry>(json, StateFiles.Json);
                 if (record is { Pending: true, Envelope: not null } && !string.IsNullOrEmpty(record.RouteScope))
                     pending[record.Envelope.MessageId] = (file.FullName, record);
             }
@@ -82,12 +86,12 @@ public sealed class HistoryStore
     {
         lock (gate) return AppendJson(kind, JsonSerializer.Serialize(value, StateFiles.Json)) is not null;
     }
-    public bool Enqueue(string routeScope, TelemetryEnvelope envelope)
+    public bool Enqueue(string routeScope, TelemetryEnvelope envelope, HostSnapshot? localSnapshot = null)
     {
         if (string.IsNullOrEmpty(routeScope) || routeScope.Length > 256) throw new ArgumentException("Invalid delivery scope.");
         lock (gate)
         {
-            var record = new PendingTelemetry(routeScope, envelope);
+            var record = new PendingTelemetry(routeScope, envelope, LocalSnapshot: localSnapshot);
             var path = AppendJson(HistoryClass.Telemetry, JsonSerializer.Serialize(record, StateFiles.Json));
             if (path is null) { metadata = metadata with { RejectedQueued = metadata.RejectedQueued + 1 }; SaveMetadata(); return false; }
             pending[envelope.MessageId] = (path, record); return true;
@@ -102,7 +106,45 @@ public sealed class HistoryStore
             bytes > status.Budget.ClassLimits[kind] - status.ClassUsage[kind] || bytes > status.Budget.FreeBytes - status.Budget.ReserveBytes) return null;
         metadata = metadata with { Sequence = checked(metadata.Sequence + 1) }; SaveMetadata();
         var path = Path.Combine(StateFiles.PrepareDirectory(Path.Combine(root, kind.ToString())), $"{metadata.Sequence:D20}.json");
-        StateFiles.WriteAtomic(path, json); return path;
+        StateFiles.WriteAtomic(path, json);
+        if (kind == HistoryClass.Telemetry) IndexTelemetry(path, json);
+        return path;
+    }
+    private static TelemetryEnvelope? ReadTelemetry(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
+            if (!document.RootElement.TryGetProperty("envelope", out _))
+                return document.RootElement.Deserialize<TelemetryEnvelope>(StateFiles.Json);
+            var record = document.RootElement.Deserialize<PendingTelemetry>(StateFiles.Json);
+            return record?.Envelope is { } frame && record.LocalSnapshot is { } local
+                ? frame with { Snapshot = local } : record?.Envelope;
+        }
+        catch (JsonException) { return null; } // Legacy or malformed segments remain subject to retention.
+    }
+    private void IndexTelemetry(string path, string json)
+    {
+        if (ReadTelemetry(json)?.Snapshot is { } snapshot) observations[path] = snapshot.ObservedAt;
+    }
+    // Read both standalone local samples and cloud queue records, including acknowledged records.
+    // Index observation times so live views read only the files in the selected window.
+    public IReadOnlyList<TelemetryEnvelope> Range(DateTimeOffset from, DateTimeOffset to)
+    {
+        if (to <= from || to - from > TimeSpan.FromDays(31)) throw new ArgumentException("Choose an increasing time window of at most 31 days.");
+        lock (gate)
+        {
+            var frames = new List<TelemetryEnvelope>();
+            foreach (var entry in observations.Where(f => f.Value >= from && f.Value <= to).OrderBy(f => f.Value))
+            {
+                var file = new FileInfo(entry.Key);
+                if (!file.Exists || file.Attributes.HasFlag(FileAttributes.ReparsePoint) || file.Length > 65536) continue;
+                var frame = ReadTelemetry(File.ReadAllText(file.FullName));
+                if (frame?.Snapshot is { } snapshot && snapshot.ObservedAt >= from && snapshot.ObservedAt <= to) frames.Add(frame);
+            }
+            return frames.OrderBy(f => f.Snapshot.ObservedAt).ToArray();
+        }
     }
     public IReadOnlyList<PendingTelemetry> PendingBatch(string routeScope, int limit = 16)
     {
@@ -141,7 +183,7 @@ public sealed class HistoryStore
                 {
                     pressure = probe.Read(root, retained).FreeBytes < status.Budget.ReserveBytes;
                     if (used <= target && !pressure) break;
-                    long length = file.Length; file.Delete(); used -= length; retained -= length; count++;
+                    long length = file.Length; file.Delete(); observations.Remove(file.FullName); used -= length; retained -= length; count++;
                     long lost = 0;
                     if (pendingPaths.TryGetValue(file.FullName, out var id)) { pending.Remove(id); lost = 1; }
                     metadata = metadata with { Deleted = metadata.Deleted + 1, UnsentDropped = metadata.UnsentDropped + lost };

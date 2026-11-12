@@ -31,51 +31,23 @@ else {
 <p role="status">@message</p>
 @if(operations.Count > 0) { <h3>Recent operations</h3><div class="table-scroll"><table><thead><tr><th>Operation</th><th>Requested</th><th>Result</th></tr></thead><tbody>@foreach(var operation in operations) { <tr><td>@operation.Command.Action</td><td>@Format.Ago(operation.Command.IssuedAt)</td><td>@(operation.Result?.State ?? (operation.Command.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired — verify device state before retrying" : "Queued — waiting for device"))<br/><small>@operation.Result?.Message</small></td></tr> }</tbody></table></div> }
 </details>
-<section class="card historian"><div class="section-heading"><div><h2>Resource trends</h2><p>Explore retained measurements and download the selected time window.</p></div><label class="live-switch"><input type="checkbox" @bind="live" /> Live window</label></div>
-<div class="trend-toolbar"><div class="button-row">@foreach(var hours in new[] { 1, 6, 24, 168, 720 }) { <button class="@(rangeHours == hours ? "" : "secondary")" @onclick="() => Preset(hours)">@(hours < 24 ? $"{hours}h" : $"{hours / 24}d")</button> }</div><div class="button-row"><button class="secondary" @onclick="() => Shift(-1)">← Earlier</button><button class="secondary" @onclick="() => Shift(1)">Later →</button><button class="secondary" @onclick="Zoom">Zoom in</button></div></div>
-<div class="trend-range"><label>From (UTC)<input type="datetime-local" @bind="fromInput" @oninput="() => live = false" /></label><label>To (UTC)<input type="datetime-local" @bind="toInput" @oninput="() => live = false" /></label><button class="secondary" @onclick="ApplyRange">Apply range</button></div>
-<div class="signal-picker">@foreach(var metric in DeviceHistory.Metrics) { <label><input type="checkbox" checked="@selected.Contains(metric)" @onchange="e => Toggle(metric, e.Value is true)" />@DeviceHistory.Label(metric) <small>(@DeviceHistory.Unit(metric))</small></label> }</div>
-<p role="status">@rangeMessage</p>
-<div class="trend-summary"><span>@history.Count retained samples · @history.Count(f => f.IsReplay) replayed · @from.ToString("MMM dd HH:mm")–@to.ToString("MMM dd HH:mm") UTC</span><div class="button-row">@if(selected.Count > 0) { <a class="download-link" href="@Export("csv")">↓ CSV</a><a class="download-link" href="@Export("json")">↓ JSON</a> } else { <small>Select a signal to download.</small> }</div></div>
-@if(history.Count == 0) { <div class="empty"><h3>No retained samples in this window</h3><p>Choose another time range. New samples arrive approximately every 30 seconds; data outside the retention budget is purged.</p></div> }
-else if(selected.Count == 0) { <p>Select a signal to display a trend.</p> }
-else { @foreach(var metric in DeviceHistory.Metrics.Where(selected.Contains)) {
-    var values = history.Select(f => DeviceHistory.Value(f.Snapshot, metric)).Where(v => v.HasValue).Select(v => v!.Value).ToArray();
-    double maximum = metric is "cpu" or "memory" or "storage" ? 100 : Math.Max(1, values.DefaultIfEmpty(0).Max() * 1.1);
-    <article class="trend-track"><div class="section-heading"><h3>@DeviceHistory.Label(metric) <small>@DeviceHistory.Unit(metric)</small></h3><span>@(values.Length == 0 ? "Unavailable" : $"Latest {values[^1]:0.#} · Min {values.Min():0.#} · Max {values.Max():0.#}")</span></div>
-    @if(values.Length == 0) { <p>No measurements available for this signal.</p> } else {
-    <div class="trend-axis"><span>@maximum.ToString("0.#")</span><span>0</span></div>
-    <output class="trend-cursor-label">Move over the chart to inspect a sample; exact values are in the table.</output>
-    <svg data-pidock-trend data-from="@from.ToUnixTimeMilliseconds()" data-to="@to.ToUnixTimeMilliseconds()" data-max="@maximum.ToString(System.Globalization.CultureInfo.InvariantCulture)" data-unit="@DeviceHistory.Unit(metric)" class="trend-svg" viewBox="0 0 1000 185" role="img" aria-label="@($"{DeviceHistory.Label(metric)} trend, {from:u} to {to:u}, {DeviceHistory.Unit(metric)}")"><line class="trend-cursor" x1="48" x2="48" y1="20" y2="160" style="display:none"/><path d="M48 20H952M48 90H952M48 160H952" class="trend-grid"/><path d="M48 20V160H952" class="trend-axis-line"/>@foreach(var path in DeviceHistory.Paths(history, metric, from, to, maximum)) { <polyline points="@path" fill="none" class="trend-line"/> }</svg>
-    <div class="trend-time"><span>@from.ToString("HH:mm")</span><span>@to.ToString("HH:mm") UTC</span></div>
-    }
-    </article>
-} }
-<small>Gaps longer than two minutes remain disconnected. Unknown measurements are blank. Downloads include all retained samples in this range, including replayed history.</small>
-<details class="sample-table"><summary>Inspect sample values</summary><div class="table-scroll"><table><thead><tr><th>Observed (UTC)</th>@foreach(var m in DeviceHistory.Metrics.Where(selected.Contains)) { <th>@DeviceHistory.Label(m) (@DeviceHistory.Unit(m))</th> }<th>Replay</th></tr></thead><tbody>@foreach(var f in history.TakeLast(50).Reverse()) { <tr><td>@f.Snapshot.ObservedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>@foreach(var m in DeviceHistory.Metrics.Where(selected.Contains)) { <td>@(DeviceHistory.Value(f.Snapshot,m)?.ToString("0.##") ?? "—")</td> }<td>@(f.IsReplay ? "Yes" : "No")</td></tr> }</tbody></table></div><small>Latest 50 samples shown here. Downloads contain the complete retained selection.</small></details>
-</section>
+<OsUpdatePanel @key="(typeof(OsUpdatePanel), DeviceId)" Device="device" />
+<ResourceTrends @key="DeviceId" Query="ReadHistory" ExportPath="@($"/api/devices/{Uri.EscapeDataString(DeviceId)}/export")" />
 }
 @code {
     [Parameter] public string DeviceId { get; set; } = "";
-    private StoredDevice? device; private string name = "Device", password = "", otp = "", message = "", rangeMessage = "";
-    private bool busy, canControl, live = true; private int rangeHours = 1;
-    private IReadOnlyList<TelemetryEnvelope> history = []; private IReadOnlyList<CloudApplicationCommand> operations = [];
-    private HashSet<string> selected = ["cpu", "memory", "temperature"];
-    private DateTimeOffset from = DateTimeOffset.UtcNow.AddHours(-1), to = DateTimeOffset.UtcNow;
-    private DateTime fromInput, toInput; private readonly CancellationTokenSource stop = new(); private Task? refresh;
+    private StoredDevice? device; private string name = "Device", password = "", otp = "", message = "";
+    private bool busy, canControl;
+    private IReadOnlyList<CloudApplicationCommand> operations = [];
+    private System.Security.Claims.ClaimsPrincipal user = new();
+    private IReadOnlyList<TelemetryEnvelope> ReadHistory(DateTimeOffset from, DateTimeOffset to) => Fleet.RangeFor(user, DeviceId, from, to);
+    private readonly CancellationTokenSource stop = new(); private Task? refresh;
     private bool Online => device is { HasLiveContact: true } && DateTimeOffset.UtcNow - device.ReceivedAt < TimeSpan.FromSeconds(90);
     private bool CanOperate => Online && device?.Applications is { ControlEnabled: true } a && DateTimeOffset.UtcNow - a.ObservedAt < TimeSpan.FromSeconds(90);
-    protected override async Task OnInitializedAsync() { SetInputs(); await Load(); refresh = Refresh(); }
-    private void SetInputs() { fromInput = from.UtcDateTime; toInput = to.UtcDateTime; }
-    private async Task Load() { var user = (await Authentication.GetAuthenticationStateAsync()).User; device = Fleet.For(user).SingleOrDefault(d => d.DeviceId == DeviceId); name = Invitations.For(user).FirstOrDefault(e => e.DeviceId == DeviceId)?.Name ?? device?.Snapshot.Hostname ?? DeviceId; canControl = ApplicationCommandStore.CanControl(user); operations = Commands.For(user, DeviceId); history = Fleet.RangeFor(user, DeviceId, from, to); }
-    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5)); while(await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(async () => { if(live) { var width = to-from; to = DateTimeOffset.UtcNow; from = to-width; SetInputs(); } await Load(); StateHasChanged(); }); } catch(OperationCanceledException) { } }
+    protected override async Task OnInitializedAsync() { await Load(); refresh = Refresh(); }
+    private async Task Load() { user = (await Authentication.GetAuthenticationStateAsync()).User; device = Fleet.For(user).SingleOrDefault(d => d.DeviceId == DeviceId); name = Invitations.For(user).FirstOrDefault(e => e.DeviceId == DeviceId)?.Name ?? device?.Snapshot.Hostname ?? DeviceId; canControl = ApplicationCommandStore.CanControl(user); operations = Commands.For(user, DeviceId); }
+    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5)); while(await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(async () => { await Load(); StateHasChanged(); }); } catch(OperationCanceledException) { } }
     public async ValueTask DisposeAsync() { await stop.CancelAsync(); if(refresh is not null) await refresh; stop.Dispose(); }
-    private async Task Preset(int hours) { rangeHours = hours; live = true; to = DateTimeOffset.UtcNow; from = to.AddHours(-hours); rangeMessage = ""; SetInputs(); await Load(); }
-    private async Task Shift(int direction) { live = false; var width = to-from; from += direction*width; to += direction*width; rangeHours = 0; SetInputs(); await Load(); }
-    private async Task Zoom() { live = false; var middle = from + (to-from)/2; var quarter = (to-from)/4; from = middle-quarter; to = middle+quarter; rangeHours = 0; SetInputs(); await Load(); }
-    private async Task ApplyRange() { var a = new DateTimeOffset(DateTime.SpecifyKind(fromInput, DateTimeKind.Utc)); var b = new DateTimeOffset(DateTime.SpecifyKind(toInput, DateTimeKind.Utc)); if(b <= a || b-a > TimeSpan.FromDays(31)) { rangeMessage = "Choose an increasing time window of at most 31 days."; return; } from = a; to = b; live = false; rangeHours = 0; rangeMessage = ""; await Load(); }
-    private void Toggle(string metric, bool enabled) { if(enabled) selected.Add(metric); else selected.Remove(metric); }
-    private string Export(string format) => $"/api/devices/{Uri.EscapeDataString(DeviceId)}/export?from={Uri.EscapeDataString(from.ToString("O"))}&to={Uri.EscapeDataString(to.ToString("O"))}&format={format}&signals={string.Join(',', DeviceHistory.Metrics.Where(selected.Contains))}";
     private Task ControlState(ApplicationSummary app) => Control(app.Id, app.State == "running" ? "stop" : "start");
     private Task Restart(ApplicationSummary app) => Control(app.Id, "restart");
     private async Task Control(string container, string action)
