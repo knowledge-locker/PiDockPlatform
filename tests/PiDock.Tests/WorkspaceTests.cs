@@ -136,6 +136,26 @@ public sealed class WorkspaceTests : IDisposable
         Assert.Throws<ArgumentException>(() => Store().Accept(users.Principal(bob), invitation.Token));
     }
     [Fact]
+    public async Task CloudFormsRetainTheirOriginWithoutDisclosingInvitationPaths()
+    {
+        using var factory = new WorkspaceFactory(); using var client = factory.Client();
+        var users = factory.Services.GetRequiredService<UserStore>();
+        var secret = Totp.NewSecret(); users.Add("owner", Password, secret, "local", "Owner", false, -1);
+        using var page = await client.GetAsync("/auth/login?invite=" + new string('A', 64));
+        Assert.Equal("strict-origin", page.Headers.GetValues("Referrer-Policy").Single());
+        Assert.True(page.Headers.CacheControl!.NoStore);
+        string html = await page.Content.ReadAsStringAsync();
+        var form = new Dictionary<string, string> { ["username"] = "owner", ["password"] = Password,
+            ["code"] = Code(secret), ["__RequestVerificationToken"] = Field(html, "__RequestVerificationToken") };
+        client.DefaultRequestHeaders.Add("Origin", "null");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/auth/login", new FormUrlEncodedContent(form))).StatusCode);
+        client.DefaultRequestHeaders.Remove("Origin"); client.DefaultRequestHeaders.Add("Origin", "https://localhost");
+        Assert.Equal(HttpStatusCode.Redirect, (await client.PostAsync("/auth/login", new FormUrlEncodedContent(form))).StatusCode);
+        using var team = await client.GetAsync("/workspaces");
+        Assert.Equal(HttpStatusCode.OK, team.StatusCode);
+        Assert.Equal("strict-origin", team.Headers.GetValues("Referrer-Policy").Single());
+    }
+    [Fact]
     public async Task HttpSignupGateMfaCsrfAndTeamAuthorizationWorkTogether()
     {
         using var factory = new WorkspaceFactory(); using var client = factory.Client();
@@ -302,7 +322,8 @@ public sealed class WorkspaceTests : IDisposable
     private sealed class WorkspaceFactory : WebApplicationFactory<CloudMarker>
     {
         private readonly string directory = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pidock-workspace-http-" + Guid.NewGuid());
-        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Development").UseSetting("PiDock:StateDirectory", directory).UseSetting("Mqtt:Enabled", "false").UseSetting("Logging:LogLevel:Default", "Warning");
+        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Development").UseSetting("PiDock:StateDirectory", directory).UseSetting("Mqtt:Enabled", "false").UseSetting("Logging:LogLevel:Default", "Warning")
+            .UseSetting("RemoteAccess:CloudOrigin", "https://localhost").UseSetting("RemoteAccess:Domain", "access.example.test");
         public HttpClient Client() => CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         protected override void Dispose(bool disposing) { base.Dispose(disposing); if (disposing && Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
