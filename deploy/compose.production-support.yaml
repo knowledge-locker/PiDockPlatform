@@ -1,0 +1,114 @@
+# Dedicated production stack. Do not also deploy this cloud through PRX3MUS.
+name: pidock-production
+services:
+  cloud:
+    image: ${PIDOCK_CLOUD_IMAGE:?Use a verified image digest}
+    container_name: pidock-production-cloud
+    user: "1654:1654"
+    ports: ["127.0.0.1:18080:8080"]
+    env_file: /etc/pidock/production/configuration/cloud.env
+    volumes:
+      - cloud-state:/var/lib/pidock
+      - signer-socket:/run/pidock-signer:ro
+      - /etc/pidock/production/secrets/mqtt/ca.crt:/certs/ca.crt:ro
+      - /etc/pidock/production/secrets/mqtt/worker.crt:/certs/worker.crt:ro
+      - /etc/pidock/production/secrets/mqtt/worker.key:/certs/worker.key:ro
+      - /etc/pidock/production/secrets/updates/pidock-prod-20261112.pub:/certs/pidock-prod-20261112.pem:ro
+    networks: [proxy]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 512m
+    restart: unless-stopped
+    labels:
+      io.pidock.managed: "true"
+      io.pidock.environment: production
+    depends_on: [broker, signer]
+  broker:
+    image: eclipse-mosquitto:2.0.22@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c
+    container_name: pidock-production-broker
+    user: "1883:1883"
+    ports: ["159.223.104.44:8883:8883"]
+    volumes:
+      - type: volume
+        source: broker-state
+        target: /mosquitto/data
+        volume: {nocopy: true}
+      - type: bind
+        source: ./mosquitto/mosquitto.conf
+        target: /mosquitto/config/mosquitto.conf
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./mosquitto/acl.development
+        target: /mosquitto/config/acl
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: /etc/pidock/production/secrets/mqtt/ca.crt
+        target: /certs/ca.crt
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: /etc/pidock/production/secrets/mqtt/broker.crt
+        target: /certs/broker.crt
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: /etc/pidock/production/secrets/mqtt/broker.key
+        target: /certs/broker.key
+        read_only: true
+        bind: {create_host_path: false}
+    networks:
+      proxy:
+        aliases: [pidock-production-broker]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 128m
+    restart: unless-stopped
+    labels:
+      io.pidock.managed: "true"
+      io.pidock.environment: production
+  signer:
+    image: ${PIDOCK_CLOUD_IMAGE:?Use a verified image digest}
+    container_name: pidock-production-signer
+    user: "1655:1654"
+    network_mode: none
+    entrypoint: ["/bin/sh", "-c", "rm -f /run/pidock-signer/sign.sock && exec dotnet PiDock.Cloud.Web.dll --certificate-signer"]
+    environment:
+      Enrollment__SignerSocket: /run/pidock-signer/sign.sock
+      Enrollment__IssuerCertificatePath: /signer/issuer.crt
+      Enrollment__IssuerKeyPath: /signer/issuer.key
+      Enrollment__BrokerCaPath: /signer/issuer.crt
+      Enrollment__MqttHost: pidock.knowledgelocker.ai
+      Enrollment__MqttPort: 8883
+      Logging__LogLevel__Microsoft.AspNetCore: Warning
+    volumes:
+      - /etc/pidock/production/secrets/enrollment/issuer.crt:/signer/issuer.crt:ro
+      - /etc/pidock/production/secrets/enrollment/issuer.key:/signer/issuer.key:ro
+      - signer-socket:/run/pidock-signer
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 256m
+    restart: unless-stopped
+networks:
+  proxy:
+    name: pidock-production-support
+volumes:
+  broker-state:
+    external: true
+    name: pidock-production-broker
+  signer-socket:
+    external: true
+    name: pidock-production-signer-socket
+  cloud-state:
+    external: true
+    name: pidock-production-cloud

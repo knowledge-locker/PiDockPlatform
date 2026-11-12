@@ -8,6 +8,11 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+if (args.Contains("--certificate-signer")) {
+    await using var signer = IsolatedCertificateSigner.Build(builder);
+    await signer.RunAsync();
+    return;
+}
 builder.AddPiDockAuthentication("Cloud");
 builder.Services.AddHttpsRedirection(options => options.HttpsPort = 443);
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
@@ -18,7 +23,9 @@ builder.Services.AddSingleton<OsUpdateStore>();
 builder.Services.AddSingleton<RemoteAccessService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RemoteAccessService>());
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
-builder.Services.AddSingleton<IDeviceCertificateIssuer, DeviceCertificateIssuer>();
+builder.Services.AddSingleton<IDeviceCertificateIssuer>(sp => builder.Configuration["Enrollment:SignerSocket"] is { Length: > 0 } socket
+    ? new SocketCertificateIssuer(socket)
+    : new DeviceCertificateIssuer(builder.Configuration, sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton<EnrollmentStore>();
 builder.Services.AddRateLimiter(options =>
 {

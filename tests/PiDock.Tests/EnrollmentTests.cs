@@ -44,6 +44,29 @@ public sealed class EnrollmentTests : IDisposable
         return request.CreateSigningRequestPem();
     }
     [Fact]
+    public async Task IsolatedUnixSignerPreservesClientOnlyPolicyAndFailsClosedWhenStopped()
+    {
+        string socket = Path.Combine(root, "signer.sock");
+        var builder = WebApplication.CreateBuilder();
+        builder.Configuration.AddInMemoryCollection(configuration.AsEnumerable());
+        builder.Configuration["Enrollment:SignerSocket"] = socket;
+        await using var app = IsolatedCertificateSigner.Build(builder);
+        await app.StartAsync();
+        using var client = new SocketCertificateIssuer(socket);
+        Assert.True(client.Ready);
+        using var key = RSA.Create(2048);
+        var reply = client.Issue("alpha", "pi-test", Csr(key, hostile: true));
+        CloudEnrollmentClient.ValidateReply(reply, key);
+        using var cert = X509Certificate2.CreateFromPem(reply.CertificatePem);
+        Assert.False(cert.Extensions.OfType<X509BasicConstraintsExtension>().Single().CertificateAuthority);
+        Assert.Equal("alpha/devices/pi-test", cert.GetNameInfo(X509NameType.SimpleName, false));
+        Assert.Equal("1.3.6.1.5.5.7.3.2", cert.Extensions.OfType<X509EnhancedKeyUsageExtension>().Single().EnhancedKeyUsages[0].Value);
+        Assert.Throws<ArgumentException>(() => client.Issue("../foreign", "pi-test", Csr(key)));
+        await app.StopAsync();
+        Assert.False(client.Ready);
+        Assert.Throws<HttpRequestException>(() => client.Issue("alpha", "pi-test", Csr(key)));
+    }
+    [Fact]
     public void InvitationHashesSecretsAndEnforcesRolesAndTenants()
     {
         var store = Store(); Assert.Throws<UnauthorizedAccessException>(() => store.Create(User(role: "Viewer"), "Pi"));
