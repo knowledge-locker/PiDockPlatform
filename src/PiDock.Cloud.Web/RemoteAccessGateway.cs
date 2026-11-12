@@ -22,7 +22,9 @@ public static class RemoteAccessGateway
         app.MapGet("/remote-access/launch/{id:guid}", (HttpContext context, Guid id, RemoteAccessService service) => {
             var grant = service.Launch(id, context.User);
             if (grant is null) return (IResult)Results.NotFound();
-            context.Response.Headers.CacheControl = "no-store"; context.Response.Headers["Referrer-Policy"] = "no-referrer";
+            // A no-referrer form navigation sends Origin: null. Retain only the public
+            // cloud origin so the bootstrap can validate it without revealing the launch path.
+            context.Response.Headers.CacheControl = "no-store"; context.Response.Headers["Referrer-Policy"] = "strict-origin";
             string nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
             context.Response.Headers.ContentSecurityPolicy = $"default-src 'none'; form-action https://{grant.Host}; script-src 'nonce-{nonce}'; base-uri 'none'; frame-ancestors 'none'";
             var action = HtmlEncoder.Default.Encode("https://" + grant.Host + "/_pidock/session");

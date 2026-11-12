@@ -11,27 +11,30 @@ public sealed class FleetStore
     private readonly string path;
     private readonly List<StoredDevice> devices;
     private readonly TelemetryArchive archive;
-    public FleetStore(StateDirectory state)
+    private readonly UserStore? users;
+    public bool HasAccess(ClaimsPrincipal user) => user.Identity?.IsAuthenticated == true && (users is null || users.IsCurrent(user));
+    public FleetStore(StateDirectory state, UserStore? users = null)
     {
+        this.users = users;
         path = Path.Combine(state.Path, "fleet.json"); archive = new(state.Path);
         devices = File.Exists(path) ? JsonSerializer.Deserialize<List<StoredDevice>>(File.ReadAllText(path), StateFiles.Json)! : [];
     }
     public IReadOnlyList<StoredDevice> For(ClaimsPrincipal user)
     {
         var tenant = user.FindFirstValue("tenant");
-        if (user.Identity?.IsAuthenticated != true || !IdentityRules.IsId(tenant)) return [];
+        if (!HasAccess(user) || !IdentityRules.IsId(tenant)) return [];
         lock (gate) return devices.Where(d => d.TenantId == tenant).OrderBy(d => d.DeviceId).ToArray();
     }
     public IReadOnlyList<TelemetryEnvelope> HistoryFor(ClaimsPrincipal user, string device, int limit = 100)
     {
         var tenant = user.FindFirstValue("tenant");
-        if (user.Identity?.IsAuthenticated != true || !IdentityRules.IsId(tenant) || !IdentityRules.IsId(device)) return [];
+        if (!HasAccess(user) || !IdentityRules.IsId(tenant) || !IdentityRules.IsId(device)) return [];
         return archive.Read(tenant!, device, limit);
     }
     public IReadOnlyList<TelemetryEnvelope> RangeFor(ClaimsPrincipal user, string device, DateTimeOffset from, DateTimeOffset to)
     {
         var tenant = user.FindFirstValue("tenant");
-        if (user.Identity?.IsAuthenticated != true || !IdentityRules.IsId(tenant) || !IdentityRules.IsId(device) || to < from || to - from > TimeSpan.FromDays(31)) return [];
+        if (!HasAccess(user) || !IdentityRules.IsId(tenant) || !IdentityRules.IsId(device) || to < from || to - from > TimeSpan.FromDays(31)) return [];
         return archive.Range(tenant!, device, from, to);
     }
     public bool Ingest(string topic, TelemetryEnvelope envelope) => Accept(topic, envelope).UpdatedCurrent;

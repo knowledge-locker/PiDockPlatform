@@ -26,6 +26,29 @@ namespace PiDock.Tests;
 public sealed class RemoteAccessTests
 {
     [Fact]
+    public async Task LaunchRetainsOriginForBrowserFormAndRejectsOpaqueOrForeignOriginsWithoutConsumingGrant()
+    {
+        await using var f = new Fixture(); await f.Connect();
+        var grant = f.Remote.Begin(f.Identity.User, f.Device);
+        var launch = f.Remote.Launch(grant.Id, f.Identity.User)!;
+        using var client = f.Client();
+        using var page = await client.GetAsync(grant.LaunchPath);
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        Assert.Equal("strict-origin", page.Headers.GetValues("Referrer-Policy").Single());
+        foreach (var origin in new[] { "null", "https://attacker.example.test" }) {
+            using var denied = new HttpRequestMessage(HttpMethod.Post, "https://" + launch.Host + "/_pidock/session") {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["code"] = launch.LaunchCode })
+            };
+            denied.Headers.Add("Origin", origin);
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(denied)).StatusCode);
+        }
+        using var approved = new HttpRequestMessage(HttpMethod.Post, "https://" + launch.Host + "/_pidock/session") {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["code"] = launch.LaunchCode })
+        };
+        approved.Headers.Add("Origin", "https://cloud.example.test");
+        Assert.Equal(HttpStatusCode.Redirect, (await client.SendAsync(approved)).StatusCode);
+    }
+    [Fact]
     public async Task RelayProvesDeviceIdentityScopesBrowserGrantFiltersCookiesAndCarriesHttpAndWebSockets()
     {
         await using var f = new Fixture(); await f.Connect();
@@ -162,7 +185,7 @@ public sealed class RemoteAccessTests
             using var caKey=RSA.Create(2048); var caRequest=new CertificateRequest("CN=test-relay-ca",caKey,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1);
             caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true,false,0,true)); caRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign,true));
             using var ca=caRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1),DateTimeOffset.UtcNow.AddDays(30)); File.WriteAllText(Path.Combine(root,"ca.crt"),ca.ExportCertificatePem()); File.WriteAllText(Path.Combine(root,"ca.key"),caKey.ExportPkcs8PrivateKeyPem());
-            using var client=Client(); var secret=Totp.NewSecret(); Users.Add("remote-owner","remote-test-password",secret,"alpha","Owner",true,-1);
+            using var client=Client(); var secret=Totp.NewSecret(); Users.Add("remote-owner","remote-test-password",secret,"alpha","Administrator",false,-1);
             var user=Users.Authenticate("remote-owner","remote-test-password",Totp.Code(secret,DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30),DateTimeOffset.UtcNow)!; var session=Users.CreateSession(user,true,DateTimeOffset.UtcNow);
             Identity.User=new(new ClaimsIdentity([new Claim(ClaimTypes.Name,user.Username),new Claim(ClaimTypes.Role,user.Role),new Claim("tenant",user.TenantId),new Claim("stamp",user.Stamp),new Claim("session",session.Id),new Claim("expires",session.ExpiresAt.ToUnixTimeSeconds().ToString())],"test"));
             var code=Enrollments.Create(Identity.User,"Test Pi");Device=code.DeviceId;

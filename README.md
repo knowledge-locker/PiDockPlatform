@@ -60,7 +60,7 @@ docker compose --env-file .env -f deploy/compose.yaml run --rm cloud --commissio
 docker compose --env-file .env -f deploy/compose.yaml up -d cloud
 ```
 
-Open [the local cloud portal](https://localhost:8443). Provision a cloud user in tenant `local` to see the preview device. Different users can be provisioned into different tenants; role labels exist, but fine-grained grants and online user management are not implemented yet. Do not commission users concurrently or run multiple processes against the same state directory.
+Open [the local cloud portal](https://localhost:8443). Establish the single platform Owner with `--commission` before tenant signup is available. Public workspace signup defaults to enabled; the Owner can disable it under **Workspaces & team → Workspace signup settings**. Team invitations remain available with public signup disabled, and new invited users join their assigned workspace without creating another tenant. Users can belong to multiple workspaces with independent roles and switch from the header. The Owner explicitly selects workspaces for audited support access. See [workspaces and teams](docs/Cloud-Workspaces.md). Do not run multiple processes against the same state directory.
 
 The PKI script creates a private preview CA and 14-day leaf certificates under `.state/pki`; it does not change your OS trust store or replace existing identity material. Use `.state/pki/ca.crt` explicitly when validating endpoints. Both HTTPS and MQTT publish to **127.0.0.1 only**. These are development certificates and deployment settings, not public hosting instructions. Keep `.state` and `.env` private and out of source control.
 
