@@ -317,12 +317,35 @@ public sealed class WorkspaceTests : IDisposable
         Assert.Equal(HttpStatusCode.TooManyRequests,throttled.StatusCode);
         Assert.Equal(HttpStatusCode.OK,(await newcomer.GetAsync("/auth/signup")).StatusCode);
     }
+    [Fact]
+    public async Task BrowserFormsPreserveTheirOriginAndOpaqueOrForeignOriginsRemainBlocked()
+    {
+        using var factory = new WorkspaceFactory(); using var client = factory.Client();
+        Bootstrap(factory.Services.GetRequiredService<UserStore>());
+        var response = await client.GetAsync("/auth/signup");
+        Assert.Equal("strict-origin",response.Headers.GetValues("Referrer-Policy").Single());
+        var signup=await response.Content.ReadAsStringAsync();
+        var secret=Regex.Match(signup,"class=\"setup-key\">([^<]+)").Groups[1].Value;
+        var fields=new Dictionary<string,string> { ["username"]="browser-user", ["password"]=Password,["confirmPassword"]=Password,["workspace"]="Browser team",["code"]=Code(secret),["setup"]=Field(signup,"setup"),["__RequestVerificationToken"]=Field(signup,"__RequestVerificationToken") };
+        foreach(var rejected in new[]{"null","https://foreign.example.test"})
+        {
+            client.DefaultRequestHeaders.Remove("Origin");client.DefaultRequestHeaders.Add("Origin",rejected);
+            Assert.Equal(HttpStatusCode.Forbidden,(await client.PostAsync("/auth/signup",new FormUrlEncodedContent(fields))).StatusCode);
+        }
+        client.DefaultRequestHeaders.Remove("Origin");client.DefaultRequestHeaders.Add("Origin","https://localhost");
+        Assert.Equal(HttpStatusCode.Redirect,(await client.PostAsync("/auth/signup",new FormUrlEncodedContent(fields))).StatusCode);
+        var workspace=await client.GetAsync("/workspaces");
+        Assert.Equal("strict-origin",workspace.Headers.GetValues("Referrer-Policy").Single());
+        var html=await workspace.Content.ReadAsStringAsync();
+        var action=await client.PostAsync("/workspaces/role",new FormUrlEncodedContent(new Dictionary<string,string>{["username"]="browser-user",["role"]="Viewer",["__RequestVerificationToken"]=Field(html,"__RequestVerificationToken")}));
+        Assert.Equal(HttpStatusCode.BadRequest,action.StatusCode); // Reaches the last-Administrator guard, rather than origin rejection.
+    }
     private static string Field(string html, string name) => WebUtility.HtmlDecode(Regex.Match(html, "name=[\"']" + name + "[\"'] value=[\"']([^\"']*)").Groups[1].Value);
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
     private sealed class WorkspaceFactory : WebApplicationFactory<CloudMarker>
     {
         private readonly string directory = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pidock-workspace-http-" + Guid.NewGuid());
-        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Development").UseSetting("PiDock:StateDirectory", directory).UseSetting("Mqtt:Enabled", "false").UseSetting("Logging:LogLevel:Default", "Warning");
+        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Development").UseSetting("PiDock:StateDirectory", directory).UseSetting("Mqtt:Enabled", "false").UseSetting("RemoteAccess:CloudOrigin", "https://localhost").UseSetting("RemoteAccess:Domain", "access.example.test").UseSetting("Logging:LogLevel:Default", "Warning");
         public HttpClient Client() => CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         protected override void Dispose(bool disposing) { base.Dispose(disposing); if (disposing && Directory.Exists(directory)) Directory.Delete(directory, true); }
     }

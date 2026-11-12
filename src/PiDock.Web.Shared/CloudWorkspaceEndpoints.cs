@@ -29,13 +29,13 @@ public static class CloudWorkspaceEndpoints
     private static bool Token(string value) => value.Length == 64 && value.All(char.IsAsciiHexDigit);
     public static void MapCloudWorkspaces(this WebApplication app)
     {
-        // Setup secrets and invitation responses must never enter browser/shared caches or referrer headers.
+        // Keep setup and invitation paths out of caches/referrers while preserving the origin needed by browser POST validation.
         app.Use(async (context, next) =>
         {
             if (context.Request.Path.StartsWithSegments("/auth") || context.Request.Path.StartsWithSegments("/workspaces"))
             {
                 context.Response.Headers.CacheControl = "no-store";
-                context.Response.Headers["Referrer-Policy"] = "no-referrer";
+                context.Response.Headers["Referrer-Policy"] = "strict-origin";
                 context.Response.Headers["X-Content-Type-Options"] = "nosniff";
             }
             await next(context);
