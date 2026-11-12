@@ -1,6 +1,5 @@
 @inject OsUpdateStore Store
 @inject AuthenticationStateProvider Authentication
-@inject UserStore Users
 <section class="card"><div class="section-heading"><h2>PiDockOS updates</h2><a href="/os-updates">Release catalog →</a></div>
 @if (Device.OsUpdates is not { } status) { <p>The device has not reported an updater. Install the independent updater locally once to enable signed service updates.</p> }
 else {
@@ -10,8 +9,6 @@ else {
 @if (canManage) {
 <label>Signed release<select class="os-update-select" @bind="digest"><option value="">Choose a compatible version</option>@foreach (var release in releases.Where(r => r.Release.Runtime == status.Runtime)) { <option value="@release.Release.Digest">@release.Release.Version · @release.Release.Runtime · @release.Release.Digest[..12]</option> }</select></label>
 @if (digest.Length > 0) { <p><small>Approved SHA-256: @digest</small></p> }
-<label>Cloud password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
-<label>Fresh authenticator code<input @bind="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" /></label>
 <button disabled="@(busy || digest.Length == 0 || !Ready)" @onclick="Install">Install selected PiDockOS release</button>
 @if (!Ready) { <p>The device must be online, report a ready updater, and allow cloud-managed PiDockOS updates locally.</p> }
 } else { <p>Cloud owner or administrator access is required to install updates.</p> }
@@ -19,22 +16,26 @@ else {
 @if (operations.Length > 0) { <h3>Update requests</h3><div class="table-scroll"><table><thead><tr><th>Requested</th><th>Release</th><th>State</th></tr></thead><tbody>@foreach (var entry in operations) { <tr><td>@Format.Ago(entry.Command.IssuedAt)<br/><small>@entry.Command.RequestedBy</small></td><td><small>@entry.Command.Digest[..12]</small></td><td>@(entry.Operation?.State ?? (entry.Command.ExpiresAt <= DateTimeOffset.UtcNow ? "Approval expired — verify device state" : "Queued — waiting for device"))<br/><small>@entry.Operation?.Message</small></td></tr> }</tbody></table></div> }
 <p role="status">@message</p>
 </section>
+<ReauthenticationDialog @ref="confirmation" Cloud="true" />
 @code {
+    private ReauthenticationDialog confirmation = default!;
     [Parameter, EditorRequired] public StoredDevice Device { get; set; } = default!;
     private PublishedOsRelease[] releases = []; private CloudOsUpdate[] operations = [];
-    private string digest = "", password = "", otp = "", message = ""; private bool busy, canManage;
+    private string digest = "", message = ""; private bool busy, canManage;
     private bool Ready => Device.HasLiveContact && DateTimeOffset.UtcNow - Device.ReceivedAt < TimeSpan.FromSeconds(90) && Device.OsUpdates is { Available: true, CloudEnabled: true } u &&
         DateTimeOffset.UtcNow - u.ObservedAt < TimeSpan.FromSeconds(90) && !OsUpdateRules.Busy(u.Operation?.State) && u.Operation?.State != "RecoveryFailed";
     protected override async Task OnParametersSetAsync() { var user = (await Authentication.GetAuthenticationStateAsync()).User; releases = Store.Releases(user); operations = Store.Operations(user, Device.DeviceId); canManage = EnrollmentStore.CanManage(user); }
     private async Task Install()
     {
-        if (busy) return; busy = true;
+        if (busy || !Ready || digest.Length == 0) return; busy = true;
+        var selectedDigest = digest; var deviceId = Device.DeviceId;
         try {
             var user = (await Authentication.GetAuthenticationStateAsync()).User;
-            if (!Users.IsCurrent(user) || !EnrollmentStore.CanManage(user) || Users.Authenticate(user.Identity!.Name!, password, otp, DateTimeOffset.UtcNow) is null) { message = "Your cloud owner/administrator password and a fresh authenticator code are required."; return; }
-            Store.Queue(user, Device.DeviceId, digest); operations = Store.Operations(user, Device.DeviceId); message = "Update approved for this exact release. The device has ten minutes to download and accept it; follow its reported result here.";
+            if (!await confirmation.Request("Install PiDockOS release", $"Install the selected signed release on {Device.Snapshot.Hostname}. Approved SHA-256: {selectedDigest}. Management services will restart.")) return;
+            user = (await Authentication.GetAuthenticationStateAsync()).User;
+            Store.Queue(user, deviceId, selectedDigest); operations = Store.Operations(user, Device.DeviceId); message = "Update approved for this exact release. The device has ten minutes to download and accept it; follow its reported result here.";
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or ArgumentException or UnauthorizedAccessException) { message = e is InvalidOperationException or ArgumentException ? e.Message : "Update request could not be saved."; }
-        finally { password = ""; otp = ""; busy = false; }
+        finally { busy = false; }
     }
 }

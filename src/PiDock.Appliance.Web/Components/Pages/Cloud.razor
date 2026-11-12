@@ -5,56 +5,47 @@
 @inject TelemetryDeliveryService Delivery
 @inject CloudEnrollmentClient Enrollment
 @inject MonitoringService Monitoring
-@inject AuthenticationStateProvider Authentication
-@inject UserStore Users
 <PageTitle>Cloud connection · PiDockOS</PageTitle>
 <p class="eyebrow">PIDOCKOS / CLOUD CONNECTION</p><h1>Connect to PiDockCloud</h1><p>Use your hosted or self-hosted server to monitor this appliance.</p>
 @if (!Enrollment.Enabled) { <div class="notice">Isolated UI review. Device enrollment is available from a commissioned PiDockOS appliance.</div> }
 @if (connection is not null) {
 <section class="card"><h2>Registered with PiDockCloud</h2><dl><dt>Server</dt><dd>@connection.CloudUrl</dd><dt>Organization</dt><dd>@connection.TenantId</dd><dt>Device</dt><dd>@connection.DeviceId</dd><dt>Certificate expires (UTC)</dt><dd>@connection.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</dd><dt>Telemetry</dt><dd>@Monitoring.TransportStatus</dd></dl><p>Registration is saved. Check the overview for delivery receipts and the cloud fleet for live contact.</p>
 <h3>Retry cloud connection</h3><p>Reset the MQTT connection using this device’s saved identity. Buffered telemetry stays queued.</p>
-<label>Your appliance password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
-<label>Fresh authenticator code<input @bind="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" /></label>
 <button disabled="@(busy || !Enrollment.Enabled)" @onclick="Retry">Retry cloud connection</button>
 <p><a href="/telemetry">Manage telemetry channels →</a></p><h3>Remote container management</h3><p>Allow organization owners and administrators in your connected cloud to start, stop and restart PiDock-managed containers. Changes require fresh cloud authentication. Image deployment, system containers, shell access and device I/O stay unavailable remotely.</p>
 <label><input type="checkbox" style="width:auto" @bind="allowRemoteControl" /> Allow cloud container control</label>
-<button class="secondary" disabled="@(busy || !Enrollment.Enabled)" @onclick="SaveRemotePolicy">Save container access</button><p>Confirm changes with the appliance password and a fresh code above. Current setting: @(Applications.Current.ControlEnabled ? "Allowed" : "Off").</p></section>
+<button class="secondary" disabled="@(busy || !Enrollment.Enabled)" @onclick="SaveRemotePolicy">Save container access</button><p>Current setting: @(Applications.Current.ControlEnabled ? "Allowed" : "Off").</p></section>
 } else {
 <div class="columns"><section class="card"><h2>Enter your invitation</h2><p>In PiDockCloud, open <strong>Add device</strong> to generate a code.</p>
 <label>PiDockCloud server<input type="url" @bind="server" placeholder="https://pidock.knowledgelocker.ai" autocomplete="off" maxlength="512" /></label>
 <label>Single-use enrollment code<input @bind="enrollmentCode" autocomplete="off" spellcheck="false" maxlength="64" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" /></label>
 <details><summary>Private server certificate authority</summary><p>For a private development server, paste its verified public CA certificate. Public HTTPS services normally need no entry. Certificate checks always remain enabled.</p><label>Public CA certificate<textarea @bind="caPem" rows="5" maxlength="8192"></textarea></label></details>
 <p>Only connect to a server you trust. It will receive device health and resource alarms.</p></section>
-<section class="card"><h2>Confirm local ownership</h2><label>Your appliance password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label><label>Fresh authenticator code<input @bind="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" /></label>
-<button disabled="@(busy || !Enrollment.Enabled)" @onclick="Connect">@(busy ? "Connecting…" : "Connect this appliance")</button><button class="secondary" disabled="@busy" @onclick="StartOver">Start over</button><p>The private device key is created here and stays here. Your local password and authenticator secret are never sent to PiDockCloud.</p></section></div>
+<section class="card"><h2>Connect appliance</h2><button disabled="@(busy || !Enrollment.Enabled)" @onclick="Connect">@(busy ? "Connecting…" : "Connect this appliance")</button><button class="secondary" disabled="@busy" @onclick="StartOver">Start over</button><p>The private device key is created here and stays here. Your local password and authenticator secret are never sent to PiDockCloud.</p></section></div>
 }
 <p role="status">@message</p>
+<ReauthenticationDialog @ref="confirmation" />
 @code {
-    private string server = "", enrollmentCode = "", caPem = "", password = "", otp = "", message = ""; private bool busy, allowRemoteControl; private CloudConnection? connection;
+    private ReauthenticationDialog confirmation = default!;
+    private string server = "", enrollmentCode = "", caPem = "", message = ""; private bool busy, allowRemoteControl; private CloudConnection? connection;
     private readonly CancellationTokenSource stop = new(); private Task? refresh;
     protected override void OnInitialized() { connection = Enrollment.Connection; allowRemoteControl = Applications.Current.ControlEnabled; server = Settings["Enrollment:DefaultCloudUrl"] ?? "https://pidock.knowledgelocker.ai"; refresh = Refresh(); }
     private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2)); while(await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(StateHasChanged); } catch(OperationCanceledException) { } }
     public async ValueTask DisposeAsync() { await stop.CancelAsync(); if(refresh is not null) await refresh; stop.Dispose(); }
-    private void StartOver() { enrollmentCode = ""; caPem = ""; password = ""; otp = ""; message = "Enter a code from PiDockCloud to try again. Retrying the same code recovers the original device key if a response was lost."; }
-    private async Task<bool> Confirm()
-    {
-        var user = (await Authentication.GetAuthenticationStateAsync()).User;
-        bool valid = Users.IsCurrent(user) && user.IsInRole("Owner") && Users.Authenticate(user.Identity!.Name!, password, otp, DateTimeOffset.UtcNow) is not null;
-        password = ""; otp = "";
-        if(!valid) message = "Your local owner password and a fresh authenticator code are required.";
-        return valid;
-    }
+    private void StartOver() { enrollmentCode = ""; caPem = ""; message = "Enter a code from PiDockCloud to try again. Retrying the same code recovers the original device key if a response was lost."; }
+
     private async Task SaveRemotePolicy()
     {
         if(busy || !Enrollment.Enabled) return; busy = true;
-        try { if(!await Confirm()) return; Applications.SetEnabled(allowRemoteControl); message = allowRemoteControl ? "Cloud container control allowed. Its status will appear after the next telemetry update." : "Cloud container control is off. New remote operations will be rejected."; }
+        var allowed = allowRemoteControl;
+        try { if(!await confirmation.Request("Save container access", allowed ? "Allow your cloud organization’s owners and administrators to control managed containers." : "Reject new container operations from PiDockCloud.")) return; Applications.SetEnabled(allowed); message = allowed ? "Cloud container control allowed. Its status will appear after the next telemetry update." : "Cloud container control is off. New remote operations will be rejected."; }
         catch(IOException) { message = "Container access could not be saved."; }
         finally { busy = false; }
     }
     private async Task Retry()
     {
         if(busy || !Enrollment.Enabled || connection is null) return; busy = true;
-        try { if(!await Confirm()) return; Delivery.RetryConnection(); message = "Connection reset. Retrying with the saved registration; watch the telemetry status above."; }
+        try { if(!await confirmation.Request("Retry cloud connection", "Reconnect using this appliance’s saved identity. Buffered telemetry stays queued.")) return; Delivery.RetryConnection(); message = "Connection reset. Retrying with the saved registration; watch the telemetry status above."; }
         finally { busy = false; }
     }
     private async Task Connect()
@@ -62,12 +53,12 @@
         if(busy) return; busy = true;
         try
         {
-            if(!await Confirm()) return;
+            if(!await confirmation.Request("Connect this appliance", $"Register this appliance with {server}. The server will receive device health and resource alarms. Local credentials stay on this appliance.")) return;
             connection = await Enrollment.ConnectAsync(server, enrollmentCode, caPem); enrollmentCode = ""; caPem = "";
             message = "Device registered. Monitoring will connect automatically; allow up to a minute for the first live reading.";
         }
         catch(Exception e) when(e is ArgumentException or InvalidOperationException or IOException or HttpRequestException or System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException or OperationCanceledException)
         { message = e is ArgumentException or InvalidOperationException ? e.Message : "Connection failed. Verify the server address, certificate trust and device time, then retry with the same code."; }
-        finally { password = ""; otp = ""; busy = false; }
+        finally { busy = false; }
     }
 }

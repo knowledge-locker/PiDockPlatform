@@ -685,3 +685,10 @@ textarea { width:100%; box-sizing:border-box; padding:12px; border:1px solid var
 
 .os-update-select { display:block; width:100%; font:inherit; background:var(--input); color:var(--text); border:1px solid var(--input-border); border-radius:7px; padding:11px; margin-top:8px; }
 .os-update-select:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+
+.reauth-dialog { width:min(480px, calc(100vw - 40px)); max-height:calc(100dvh - 40px); box-sizing:border-box; padding:28px; border:1px solid var(--line); border-radius:16px; background:var(--panel); color:var(--text); box-shadow:0 24px 80px #0004; }
+.reauth-dialog::backdrop { background:#12121b99; }
+.reauth-dialog h2 { margin-top:0; }
+.reauth-dialog .button-row { justify-content:flex-end; margin-top:20px; }
+.reauth-error:empty { display:none; }
+.reauth-error { color:var(--accent); }
