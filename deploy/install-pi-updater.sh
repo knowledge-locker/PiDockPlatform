@@ -32,6 +32,12 @@ printf '%s\n' '[Unit]' 'After=pidock-updater.service' '[Service]' 'Environment=U
 chmod 644 /etc/systemd/system/pidock-appliance.service.d/updater.conf
 systemctl daemon-reload
 systemctl enable --now pidock-updater.service
+ready=0
+for attempt in $(seq 1 60); do
+    if curl --fail --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 5 --unix-socket /run/pidock-updater/update.sock http://localhost/status >/dev/null 2>&1; then ready=1; break; fi
+    sleep 1
+done
+[ "$ready" = 1 ] || { echo 'Updater started but its private status endpoint did not become ready. Check pidock-updater.service logs.' >&2; exit 1; }
 systemctl restart pidock-appliance.service
 systemctl is-active --quiet pidock-updater.service pidock-appliance.service pidock-broker.service
 echo 'Independent updater installed. Cloud-managed PiDockOS updates default to off.'
