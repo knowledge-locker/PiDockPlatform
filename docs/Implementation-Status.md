@@ -6,7 +6,7 @@ The specification remains the production target. This increment establishes runn
 
 | Area | Implemented now | Remaining release work |
 | --- | --- | --- |
-| Accounts | Console commissioning, password/TOTP, replay persistence, throttling, protected accounts, CSRF, session expiration | Physical-presence recovery, hardened clock gate, audited credential lifecycle, trusted local commissioning UX |
+| Accounts | Console commissioning, password/TOTP, replay persistence, throttling, protected accounts, CSRF, revocable remembered sessions and shared per-action MFA dialog | Physical-presence recovery, hardened clock gate, audited credential lifecycle, trusted local commissioning UX |
 | Appliance UI | Overview, storage policy, applications, live pin map, network counters | Files, network changes/rollback, raw diagnostics, complete error/status handling |
 | Containers | Separate Unix broker, constrained digest-pinned ARM64 deployment, start/stop, resource limits | Archive import, signature policy, persistence, secrets, Compose subset, hardware grants and update rollback |
 | Storage | Percentage budget, protected reserve, per-class oldest-first cleanup, policy preview/save and persistent unsent-loss counters | Allocated-block accounting, application quotas, class/age editing, long-run SD testing |
@@ -16,6 +16,7 @@ The specification remains the production target. This increment establishes runn
 | Enrollment | Single-use expiring codes, CSR validation, device-specific certificates, key-bound response recovery, local key generation and automatic MQTT activation | Isolated signing service, renewal, revocation, migration and production provisioning |
 | Persistence | Atomic protected account files, segmented local telemetry, atomic fleet JSON | PostgreSQL/RLS, migrations, historical queries, log/object storage, scheduled off-site backups |
 | Packaging | HTTPS cloud container, mTLS broker, local-only Compose package, non-root services | Complete release signing/CA lifecycle, public hosting, certificate provisioning, MQTT routing and PRX3MUS application installation |
+| Remote interface | Local-owner opt-in, enrolled-device outbound relay, isolated device origins, fresh cloud MFA, five-minute sessions, revocation and bounded audit logging; development cloud deployed | DNS owner verification, signed dev.14 Pi installation and local owner enablement pending; physical remote-session acceptance pending |
 | OS | Systemd integration units and acceptance checklist | Buildroot image, supported kernel/drivers, RTC/NTS, verified root, signed A/B updates, secure provisioning |
 
 ## Next implementation order
