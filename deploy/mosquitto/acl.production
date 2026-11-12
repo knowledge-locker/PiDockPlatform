@@ -1,0 +1,7 @@
+# Only authenticated certificate identities receive access.
+pattern write pidock/v1/tenants/%u/telemetry
+pattern read pidock/v1/tenants/%u/receipts
+
+user pidock-ingest
+topic read pidock/v1/tenants/+/devices/+/telemetry
+topic write pidock/v1/tenants/+/devices/+/receipts

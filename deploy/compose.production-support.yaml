@@ -42,7 +42,7 @@ services:
         read_only: true
         bind: {create_host_path: false}
       - type: bind
-        source: ./mosquitto/acl.development
+        source: ./mosquitto/acl.production
         target: /mosquitto/config/acl
         read_only: true
         bind: {create_host_path: false}
@@ -101,6 +101,7 @@ services:
     restart: unless-stopped
 networks:
   proxy:
+    external: true
     name: pidock-production-support
 volumes:
   broker-state:
