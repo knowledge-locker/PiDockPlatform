@@ -58,7 +58,7 @@ public sealed class FleetStore
                 if (previous.BootId != Guid.Empty && previous.BootId != envelope.BootId) retired = retired.Append(previous.BootId).TakeLast(16).ToArray();
             }
             var record = new StoredDevice(envelope.TenantId, envelope.DeviceId, envelope.MessageId, DateTimeOffset.UtcNow,
-                envelope.Snapshot, envelope.BootId, envelope.Sequence, retired, live ? envelope.Alarms ?? [] : [], live, live ? envelope.Applications : null, live ? envelope.OsUpdates : null);
+                envelope.Snapshot, envelope.BootId, envelope.Sequence, retired, live ? envelope.Alarms ?? [] : [], live, live ? envelope.Applications : null, live ? envelope.OsUpdates : null, live ? envelope.RemoteInterfaceEnabled : null);
             var updated = devices.ToList(); if (index >= 0) updated[index] = record; else updated.Add(record);
             StateFiles.WriteAtomic(path, JsonSerializer.Serialize(updated, StateFiles.Json));
             devices.Clear(); devices.AddRange(updated); return new(true, true);

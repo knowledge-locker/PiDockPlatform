@@ -49,4 +49,41 @@ public sealed class TelemetryPolicyTests
         Assert.Equal("Allowed · stale",Format.CloudControl(device with {HasLiveContact=false},now));
         Assert.Equal("Allowed · stale",Format.CloudControl(device with {Applications=frame.Applications! with {ObservedAt=now.AddMinutes(-2)}},now));
     }
+    [Fact]
+    public void RemoteInterfaceStatusSeparatesLocalPermissionLiveConnectionAndStaleReports()
+    {
+        var frame = Frame(); var now = DateTimeOffset.UtcNow;
+        var device = new StoredDevice("tenant", "pi", frame.MessageId, now, frame.Snapshot);
+        Assert.Equal("Not configured", Format.RemoteInterface(device, false, false, now));
+        Assert.Equal("Unavailable", Format.RemoteInterface(device, true, false, now));
+        Assert.Equal("Enabled", Format.RemoteInterface(device, true, true, now));
+        device = device with { RemoteInterfaceEnabled = false };
+        Assert.Equal("Disabled", Format.RemoteInterface(device, true, false, now));
+        Assert.Equal("Enabled", Format.RemoteInterface(device, true, true, now));
+        Assert.Equal("Disabled · stale", Format.RemoteInterface(device, true, false, now.AddSeconds(90)));
+        device = device with { RemoteInterfaceEnabled = true };
+        Assert.Equal("Enabled", Format.RemoteInterface(device, true, false, now));
+        Assert.Equal("Enabled · stale", Format.RemoteInterface(device with { HasLiveContact = false }, true, false, now));
+    }
+    [Fact]
+    public void RemoteInterfacePermissionSurvivesIngestionAndRestartButIsNotClaimedByReplay()
+    {
+        var directory = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pidock-remote-status-" + Guid.NewGuid());
+        try {
+            var frame = Frame() with { RemoteInterfaceEnabled = false };
+            var fleet = new FleetStore(new StateDirectory(directory));
+            Assert.True(fleet.Ingest(IdentityRules.Topic("tenant", "pi"), frame));
+            var json = File.ReadAllText(Path.Combine(directory, "fleet.json"));
+            Assert.False(JsonSerializer.Deserialize<StoredDevice[]>(json, StateFiles.Json)![0].RemoteInterfaceEnabled);
+            Assert.False(new TelemetryChannels(false, false, false, false, false, false, false).Filter(frame).RemoteInterfaceEnabled);
+            var legacy = JsonSerializer.Serialize(frame with { RemoteInterfaceEnabled = null }, StateFiles.Json);
+            Assert.DoesNotContain("remoteInterfaceEnabled", legacy);
+            Assert.Null(JsonSerializer.Deserialize<TelemetryEnvelope>(legacy, StateFiles.Json)!.RemoteInterfaceEnabled);
+            var replayFrame = frame with { DeviceId = "replay-pi", MessageId = Guid.NewGuid(), Sequence = 2, IsReplay = true, RemoteInterfaceEnabled = true };
+            Assert.True(fleet.Ingest(IdentityRules.Topic("tenant", "replay-pi"), replayFrame));
+            var replay = JsonSerializer.Deserialize<StoredDevice[]>(File.ReadAllText(Path.Combine(directory, "fleet.json")), StateFiles.Json)!.Single(d => d.DeviceId == "replay-pi");
+            Assert.Null(replay.RemoteInterfaceEnabled);
+        } finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
 }

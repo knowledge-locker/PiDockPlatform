@@ -175,6 +175,6 @@ public static class CloudWorkspaceEndpoints
                 context.Response.StatusCode = 400;
                 return Html("Workspace action", $"<h1>Workspace action incomplete</h1><p role='alert'>{E(ex.Message)}</p><a href='/workspaces'>Return to workspaces</a>");
             }
-        }).RequireRateLimiting("login").RequireAuthorization();
+        }).RequireRateLimiting("workspace-management").RequireAuthorization();
     }
 }

@@ -40,8 +40,13 @@ public static class Authentication
         builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 65536);
         builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => { o.ValueLengthLimit = 1024; o.ValueCountLimit = 16; o.KeyLengthLimit = 128; });
         builder.Services.AddAuthorization(); builder.Services.AddCascadingAuthenticationState();
-        builder.Services.AddRateLimiter(options => options.AddPolicy("login", context =>
-            RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })));
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+            options.AddPolicy("workspace-management", context => RateLimitPartition.GetFixedWindowLimiter(context.User.Identity?.Name ?? "unauthenticated",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+        });
     }
     public static void MapPiDockAuthentication(this WebApplication app, string product)
     {
