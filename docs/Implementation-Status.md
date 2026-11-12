@@ -81,3 +81,7 @@ Development release `0.1.0-dev.10` adds local-owner MFA protected telemetry chan
 ## Workspace teams development deployment — November 12, 2026
 
 Release `0.1.0-dev.15` deploys global accounts with workspace memberships, team invitations, switching, visible/audited Owner support access and an Owner-only public-signup toggle (enabled by default). Signup is blocked until the Owner exists; disabling public signup preserves invited-account creation directly in the assigned workspace. Membership/context changes invalidate stale access, while the selected browser retains its original remembered-sign-in expiry. The release integrates with the newer remote interface and shared fresh-MFA approval flows rather than replacing them. The Release build is warning-free and all 148 tests passed locally and in Linux publication. Verified encrypted backup/restore and hosted state/HTTPS/device checks are recorded in [Development cloud](Development-Cloud.md). Production was not changed.
+
+## Hosted workspace checklist acceptance — November 12, 2026
+
+Development release `0.1.0-dev.19` fixes shared authentication/workspace throttling and browser form-origin rejection found during real hosted testing. All 46 hosted assertions and 151 automated tests pass. Four temporary accounts, their sessions/memberships/invitations, two workspaces and two synthetic device records were removed with retained-account/key/device baseline verification. The original Owner context and enabled signup setting were restored. See [hosted acceptance details](Development-Cloud.md).

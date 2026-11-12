@@ -14,7 +14,7 @@ The platform Owner can open **Workspaces & team â†’ Workspace signup settings â†
 
 When disabled, public workspace signup and creation of additional workspaces by ordinary users are blocked on the server as well as hidden in the interface. A signup form opened before the setting changed cannot bypass the restriction. The Owner can still create a workspace, so an invitation-only installation can be established even before its first team exists. Existing workspaces, memberships, switching and device registrations remain available.
 
-Team invitations continue to work in both modes. A new invited user creates an account with password and authenticator verification, joins only the invited workspace with the assigned role, and does not create another workspace. Existing users sign in and accept the invitation normally. Invalid, expired, revoked or already-used invitations cannot authorize account creation.
+Team invitations continue to work in both modes. Authenticated workspace actions use a separate per-user limit of 60 actions per minute; public sign-in/signup retain their 10-per-minute IP limit. Browser pages preserve only their origin in referrer headers, so invitation/setup paths remain private while same-origin form posts pass validation. A new invited user creates an account with password and authenticator verification, joins only the invited workspace with the assigned role, and does not create another workspace. Existing users sign in and accept the invitation normally. Invalid, expired, revoked or already-used invitations cannot authorize account creation.
 
 ## Create an account and workspace
 
