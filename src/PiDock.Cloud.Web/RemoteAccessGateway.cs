@@ -43,7 +43,7 @@ public static class RemoteAccessGateway
             }
             await next(context); return;
         }
-        context.Response.Headers.CacheControl = "no-store"; context.Response.Headers["Referrer-Policy"] = "no-referrer";
+        context.Response.Headers.CacheControl = "no-store"; context.Response.Headers["Referrer-Policy"] = "strict-origin";
         context.Response.Headers["X-Content-Type-Options"] = "nosniff"; context.Response.Headers["X-Frame-Options"] = "DENY";
         if (!context.Request.IsHttps || !context.Request.Host.Port.GetValueOrDefault(443).Equals(443) || !service.KnownHost(context.Request.Host.Host)) { context.Response.StatusCode = 404; return; }
         var origin = "https://" + context.Request.Host.Host;
@@ -95,7 +95,7 @@ public static class RemoteAccessGateway
                 if (Hop.Contains(header.Key) || header.Key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase) || header.Key.Equals("Location", StringComparison.OrdinalIgnoreCase) || header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) || header.Key.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase)) continue;
                 context.Response.Headers[header.Key] = header.Value.ToArray();
             }
-            context.Response.Headers.CacheControl = "no-store"; context.Response.Headers["Referrer-Policy"] = "no-referrer"; context.Response.Headers["X-Frame-Options"] = "DENY";
+            context.Response.Headers.CacheControl = "no-store"; context.Response.Headers["Referrer-Policy"] = "strict-origin"; context.Response.Headers["X-Frame-Options"] = "DENY";
             context.Response.Headers.Append("Content-Security-Policy", "frame-ancestors 'none'");
             if (response.Headers.Location is { } location) {
                 if (location.IsAbsoluteUri && (location.Host != "localhost" || location.Port != 7241 || location.Scheme != "https")) throw new IOException("Invalid appliance redirect.");

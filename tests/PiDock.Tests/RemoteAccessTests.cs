@@ -66,6 +66,7 @@ public sealed class RemoteAccessTests
         get.Headers.Add("Cookie", cookie + "; PiDock.Cloud=never-forward; PiDock.Appliance=test-appliance-cookie");
         var page = await client.SendAsync(get); Assert.Equal("appliance reached", await page.Content.ReadAsStringAsync());
         Assert.Equal("no-store", page.Headers.CacheControl!.ToString());
+        Assert.Equal("strict-origin", page.Headers.GetValues("Referrer-Policy").Single());
         Assert.DoesNotContain(page.Headers.GetValues("Set-Cookie"), s => s.Contains("PiDock.Cloud"));
         Assert.Contains(page.Headers.GetValues("Set-Cookie"), s => s.StartsWith("PiDock.Appliance=") && !s.Contains("domain=", StringComparison.OrdinalIgnoreCase));
         var forwarded = f.Requests.Single(); Assert.Contains("PiDock.Appliance=test-appliance-cookie", forwarded); Assert.DoesNotContain("never-forward", forwarded); Assert.DoesNotContain("__Host-PiDockRemote", forwarded);
