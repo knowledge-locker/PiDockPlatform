@@ -1,7 +1,7 @@
 [Unit]
 Description=PiDock initial physical media provisioning
-After=var.mount boot-control.mount systemd-tmpfiles-setup.service
-Requires=var.mount boot-control.mount
+After=pidock-data-grow.service var.mount boot-control.mount systemd-tmpfiles-setup.service
+Requires=pidock-data-grow.service var.mount boot-control.mount
 Before=pidock-wifi.service pidock-appliance.service pidock-identity.service
 [Service]
 Type=oneshot

@@ -85,3 +85,28 @@ class FlashSafetyTests(unittest.TestCase):
         with self.assertRaises(ValueError): flash_macos.validate('disk0',media,identity,'card-serial',64000,60000)
         with self.assertRaises(ValueError): flash_macos.validate('disk16',media,identity,'different-card',64000,60000)
         with self.assertRaises(ValueError): flash_macos.validate('disk16',media,identity,'card-serial',64000,65000)
+
+
+class DataPartitionTests(unittest.TestCase):
+    def test_capacity_preparation_changes_only_extended_and_final_partition_lengths(self):
+        from disk_layout import partitions,grow_data_partition
+        with tempfile.TemporaryDirectory() as temporary:
+            file=Path(temporary)/'image'
+            def table(entries,signature=False):
+                value=bytearray(512);value[510:]=b'\x55\xaa'
+                if signature:struct.pack_into('<I',value,440,0x5049444b)
+                for n,(kind,start,size) in enumerate(entries):
+                    value[446+n*16+4]=kind;struct.pack_into('<II',value,446+n*16+8,start,size)
+                return value
+            with file.open('wb') as out:
+                out.truncate(20<<20)
+                for sector,data in [(0,table([(12,2048,100),(12,4096,100),(12,6144,100),(5,8192,32768)],True)),(8192,table([(0x83,2048,1024),(5,4096,28672)])),(12288,table([(0x83,2048,1024),(5,8192,24576)])),(16384,table([(0x83,2048,8192)]))]:out.seek(sector*512);out.write(data)
+            before=file.read_bytes();grow_data_partition(file,64<<20);after=file.read_bytes()
+            self.assertEqual(len(before),len(after))
+            allowed=set(range(446+3*16+12,446+3*16+16))|set(range(16384*512+446+12,16384*512+446+16))
+            self.assertTrue(all(a==b or n in allowed for n,(a,b) in enumerate(zip(before,after))))
+            with file.open('rb') as source:
+                def read(offset,size):source.seek(offset);return source.read(size)
+                layout=partitions(read,64<<20)
+            self.assertEqual(64<<20,(layout[7].start+layout[7].sectors)*512)
+            with self.assertRaises(ValueError):grow_data_partition(file,8<<20)

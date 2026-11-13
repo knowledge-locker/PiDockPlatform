@@ -75,6 +75,8 @@ def main():
         target=os.open('/dev/r'+args.device,os.O_RDWR|os.O_NOFOLLOW)
         try:
             if not stat.S_ISCHR(os.fstat(target).st_mode): raise ValueError('Raw target is not a device')
+            media,identity=inventory(args.device)
+            validate(args.device,media,identity,args.card_serial,args.card_bytes,info.st_size)
             os.lseek(source,0,os.SEEK_SET)
             remaining=info.st_size
             while remaining:
