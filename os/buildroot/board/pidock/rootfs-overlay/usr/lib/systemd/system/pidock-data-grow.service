@@ -1,0 +1,16 @@
+[Unit]
+Description=Expand the PiDock managed-data filesystem to its prepared partition
+After=var.mount
+Requires=var.mount
+Before=pidock-provision.service pidock-appliance.service pidock-broker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/resize2fs /dev/disk/by-partuuid/5049444b-07
+RemainAfterExit=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var
+[Install]
+WantedBy=multi-user.target

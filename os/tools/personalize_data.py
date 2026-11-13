@@ -15,6 +15,7 @@ def main():
     parser.add_argument('--owner',required=True,type=Path)
     parser.add_argument('--identity',required=True,type=Path)
     parser.add_argument('--output',required=True,type=Path)
+    parser.add_argument('--network',type=Path)
     parser.add_argument('--bytes',required=True,type=int)
     parser.add_argument('--fakeroot',required=True)
     args=parser.parse_args()
@@ -34,6 +35,12 @@ def main():
             source=args.identity/name
             if source.is_symlink() or not source.is_file() or not 0<source.stat().st_size<=65536:raise ValueError('Private local TLS identity is missing')
             shutil.copy2(source,ca/name)
+        if args.network is not None:
+            source=args.network
+            if source.is_symlink() or not source.is_file() or not 0<source.stat().st_size<=16384 or source.stat().st_mode&0o077:raise ValueError('Private Wi-Fi setup is missing or has unsafe permissions')
+            network=seed/'lib/pidock/network';network.mkdir(parents=True)
+            shutil.copy2(source,network/'wpa_supplicant.conf')
+        # No GPIO grants or cloud permissions are imported from another appliance.
         for directory in seed.rglob('*'):
             if directory.is_dir():directory.chmod(0o755)
             elif directory.is_file():directory.chmod(0o600)

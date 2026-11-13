@@ -5,6 +5,7 @@ target=$1
 for part in appliance broker updater; do
     case "$part" in appliance) program=PiDock.Appliance.Web;; broker) program=PiDock.Appliance.Broker;; updater) program=PiDock.Updater;; esac
     test -f "$PIDOCK_PAYLOAD/$part/$program.dll"
+    rm -rf -- "$target/usr/lib/pidock/$part"
     mkdir -p "$target/usr/lib/pidock/$part"
     cp -a "$PIDOCK_PAYLOAD/$part/." "$target/usr/lib/pidock/$part/"
 done
@@ -29,5 +30,5 @@ sequence=int(os.environ.get('PIDOCK_IMAGE_SEQUENCE',profile['sequence']))
 minimum=int(os.environ.get('PIDOCK_IMAGE_MINIMUM',profile['minimumSequence']))
 if not re.fullmatch(r'[A-Za-z0-9.+-]{1,64}',version) or sequence<=0 or not 0<=minimum<=sequence:
     raise SystemExit('Invalid image version policy')
-(root/'etc/pidock/image-profile.json').write_text(json.dumps(dict(schema=1,version=version,sequence=sequence,minimumSequence=minimum,development=True),separators=(',',':'))+'\n')
+(root/'etc/pidock/image-profile.json').write_text(json.dumps(dict(schema=1,version=version,sequence=sequence,minimumSequence=minimum,development=True,sourceCommit=os.environ.get('PIDOCK_SOURCE_COMMIT','unknown')),separators=(',',':'))+'\n')
 PY

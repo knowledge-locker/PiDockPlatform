@@ -10,6 +10,7 @@ import re
 import stat
 import subprocess
 import sys
+import time
 
 def command(*args, timeout=15):
     return subprocess.run(list(args),check=True,capture_output=True,timeout=timeout).stdout
@@ -37,13 +38,17 @@ def validate(device,media,identity,serial,size,image_size):
         raise ValueError('SD card identity changed; no write permitted')
     if image_size<=0 or image_size>size: raise ValueError('Image does not fit this card')
 
-def checksum(descriptor,length):
+def checksum(descriptor,length,stage=None):
     result=hashlib.sha256()
     remaining=length
+    started=time.monotonic();reported=0
     while remaining:
         block=os.read(descriptor,min(4<<20,remaining))
         if not block: raise IOError('Unexpected end of image or device')
         result.update(block);remaining-=len(block)
+        if stage and (length-remaining-reported>=256<<20 or remaining==0):
+            reported=length-remaining
+            print(json.dumps(dict(action=stage,completedBytes=reported,totalBytes=length,elapsedSeconds=round(time.monotonic()-started))),flush=True)
     return result.hexdigest()
 
 def main():
@@ -64,7 +69,7 @@ def main():
         if not stat.S_ISREG(info.st_mode): raise ValueError('Image must be a regular file')
         media,identity=inventory(args.device)
         validate(args.device,media,identity,args.card_serial,args.card_bytes,info.st_size)
-        actual=checksum(source,info.st_size)
+        actual=checksum(source,info.st_size,"checking-image")
         if actual!=args.sha256: raise ValueError('Image checksum mismatch; no write permitted')
         print(json.dumps(dict(action='validated',device=args.device,bytes=info.st_size,sha256=actual)),flush=True)
         if not args.write: return
@@ -75,8 +80,11 @@ def main():
         target=os.open('/dev/r'+args.device,os.O_RDWR|os.O_NOFOLLOW)
         try:
             if not stat.S_ISCHR(os.fstat(target).st_mode): raise ValueError('Raw target is not a device')
+            media,identity=inventory(args.device)
+            validate(args.device,media,identity,args.card_serial,args.card_bytes,info.st_size)
             os.lseek(source,0,os.SEEK_SET)
             remaining=info.st_size
+            started=time.monotonic();reported=0
             while remaining:
                 block=os.read(source,min(4<<20,remaining))
                 if not block: raise IOError('Source image changed during writing')
@@ -86,10 +94,13 @@ def main():
                     if count<=0:raise IOError('SD write did not make progress')
                     view=view[count:]
                 remaining-=len(block)
+                if info.st_size-remaining-reported>=256<<20 or remaining==0:
+                    reported=info.st_size-remaining
+                    print(json.dumps(dict(action='writing',completedBytes=reported,totalBytes=info.st_size,elapsedSeconds=round(time.monotonic()-started))),flush=True)
             # Raw-device reads bypass the filesystem cache. Verify exactly the written image extent.
             command('/bin/sync',timeout=30)
             os.lseek(target,0,os.SEEK_SET)
-            if checksum(target,info.st_size)!=actual: raise IOError('SD readback verification failed; do not boot this card')
+            if checksum(target,info.st_size,"readback")!=actual: raise IOError('SD readback verification failed; do not boot this card')
         finally: os.close(target)
         command('/usr/sbin/diskutil','eject','/dev/'+args.device,timeout=30)
         print(json.dumps(dict(action='written-and-readback-verified',device=args.device,bytes=info.st_size,sha256=actual)),flush=True)

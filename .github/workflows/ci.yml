@@ -14,3 +14,10 @@ jobs:
       - run: dotnet build --no-restore --configuration Release
       - run: dotnet test --no-build --configuration Release --logger trx
       - run: dotnet list package --vulnerable --include-transitive
+
+  image-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cryptsetup-bin e2fsprogs openssl
+      - run: python3 -m unittest discover -s os/tests -p 'test_*.py' -v
