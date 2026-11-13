@@ -1,0 +1,8 @@
+[Unit]
+Description=PiDock local certificate renewal check
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+Unit=pidock-identity-renew.service
+[Install]
+WantedBy=timers.target

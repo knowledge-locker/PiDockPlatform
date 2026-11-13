@@ -41,7 +41,7 @@ public sealed class MqttTelemetryPublisher : ITelemetryPublisher, IDisposable
     private readonly IMqttClient client = new MqttClientFactory().CreateMqttClient();
     private readonly ILogger logger;
     private bool subscribed;
-    public MqttTelemetryPublisher(MqttConnection connection, HistoryStore history, ILogger logger, RemoteApplicationAgent? applications = null)
+    public MqttTelemetryPublisher(MqttConnection connection, HistoryStore history, ILogger logger, RemoteApplicationAgent? applications = null, OsUpdateAgent? updates = null)
     {
         this.connection = connection; this.history = history; this.logger = logger; scope = connection.RouteScope;
         client.DisconnectedAsync += _ => { subscribed = false; return Task.CompletedTask; };
@@ -56,6 +56,7 @@ public sealed class MqttTelemetryPublisher : ITelemetryPublisher, IDisposable
                     {
                         history.Acknowledge(scope, receipt.MessageId);
                         if (receipt.Command is not null) applications?.Enqueue(receipt.Command);
+                        if (receipt.OsUpdate is not null) updates?.Enqueue(receipt.OsUpdate);
                     }
                 }
             }
@@ -83,7 +84,7 @@ public sealed class MqttTelemetryPublisher : ITelemetryPublisher, IDisposable
 }
 
 public sealed class TelemetryDeliveryService(HistoryStore history, MqttConnection mqtt, AgentSession session,
-    DeliveryStatus status, TimeProvider clock, ILogger<TelemetryDeliveryService> logger, RemoteApplicationAgent? applications = null) : BackgroundService
+    DeliveryStatus status, TimeProvider clock, ILogger<TelemetryDeliveryService> logger, RemoteApplicationAgent? applications = null, OsUpdateAgent? updates = null) : BackgroundService
 {
     private readonly object retryGate = new();
     private CancellationTokenSource retry = new(); private bool stopped;
@@ -117,7 +118,7 @@ public sealed class TelemetryDeliveryService(HistoryStore history, MqttConnectio
                         if (!ReferenceEquals(profile, current))
                         {
                             publisher?.Dispose(); publisher = null;
-                            publisher = new MqttTelemetryPublisher(current, history, logger, applications); profile = current;
+                            publisher = new MqttTelemetryPublisher(current, history, logger, applications, updates); profile = current;
                             pump = new(history, clock); failures = 0;
                         }
                         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cycle.Token); timeout.CancelAfter(TimeSpan.FromSeconds(10));

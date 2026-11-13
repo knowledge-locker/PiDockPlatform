@@ -1,0 +1,51 @@
+@page "/provisioning"
+@attribute [Authorize(Roles = "Owner,Administrator")]
+@implements IAsyncDisposable
+@using Microsoft.JSInterop
+@inject FactoryImageStore Store
+@inject AuthenticationStateProvider Authentication
+@inject IJSRuntime JS
+<PageTitle>Create PiDockOS image · PiDockCloud</PageTitle>
+<p class="eyebrow">PIDOCKCLOUD / PROVISIONING</p><h1>Create an SD image</h1>
+<p>Prepare a new headless Raspberry Pi 5. Choose a signed image, set up a separate local owner and Wi-Fi, then download an image ready to flash.</p>
+<section class="card"><h2>1. Choose an image</h2>
+@if(images.Length==0) { <p>No signed factory images have been published in this workspace.</p> }
+else { <label>PiDockOS image<select @bind="digest" disabled="@busy"><option value="">Choose an image</option>@foreach(var image in images) { <option value="@image.Image.Digest">@image.Image.Manifest.Version · Raspberry Pi 5 @(image.Image.Manifest.Development?"· Development boot key":"")</option> }</select></label> }
+<p>Use an SD card of at least 16 GB. Flashing erases the selected card. GPIO outputs and cloud permissions start disabled.</p>
+<button @onclick="Configure" disabled="@(busy||string.IsNullOrEmpty(digest))">Configure image</button>
+</section>
+<section class="card"><h2>2. Set up and download</h2><p>The form below runs in your browser. The local password, authenticator secret and Wi-Fi credentials are never submitted to PiDockCloud. Your download contains private device setup; keep it secure and delete it after flashing.</p><div @ref="host"></div></section>
+<p role="status">@message</p>
+<details class="card"><summary>Publish a signed factory image</summary><p>Upload a credential-free factory package signed by a trusted release key. Publication requires fresh cloud authentication.</p><InputFile OnChange="e=>file=e.File" accept=".pidockfactory,.zip" disabled="@busy"/><button @onclick="Publish" disabled="@(busy||file is null)">Publish factory image</button></details>
+<ReauthenticationDialog @ref="confirmation" Cloud="true"/>
+@code {
+    private PublishedFactory[] images=[];private string digest="",message="";private bool busy;
+    private IBrowserFile? file;private ElementReference host;private ReauthenticationDialog confirmation=default!;
+    private IJSObjectReference? module;private DotNetObjectReference<Provisioning>? reference;
+    protected override async Task OnInitializedAsync()=>images=Store.List((await Authentication.GetAuthenticationStateAsync()).User);
+    private async Task Configure() {
+        try {
+            var image=images.Single(x=>x.Image.Digest==digest).Image;
+            module??=await JS.InvokeAsync<IJSObjectReference>("import","./provisioning.js");reference??=DotNetObjectReference.Create(this);
+            await module.InvokeVoidAsync("configure",host,image,reference);message="";
+        }catch(Exception e) when(e is JSException or InvalidOperationException) { message="Image configuration is unavailable. Refresh and use a current browser with secure download support."; }
+    }
+    [JSInvokable] public async Task<string?> ApproveDownload(string imageDigest) {
+        if(busy||!images.Any(x=>x.Image.Digest==imageDigest))return null;busy=true;
+        try {
+            if(!await confirmation.Request("Download configured PiDockOS image","Authorize this image download. Local setup stays in your browser; the audit records the image version and your cloud identity."))return null;
+            return Store.AuthorizeDownload((await Authentication.GetAuthenticationStateAsync()).User,imageDigest);
+        }finally { busy=false;await InvokeAsync(StateHasChanged); }
+    }
+    private async Task Publish() {
+        if(busy||file is null)return;busy=true;
+        try {
+            if(!await confirmation.Request("Publish factory image",$"Verify and publish {file.Name} for this workspace."))return;
+            var user=(await Authentication.GetAuthenticationStateAsync()).User;
+            await using var input=file.OpenReadStream(FactoryImages.MaximumCompressed);
+            await Store.Publish(user,input);images=Store.List(user);file=null;message="Signed factory image published.";
+        }catch(Exception e) when(e is IOException or InvalidOperationException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException) { message="Publication failed. Check the signed package, trust key, immutable version and available storage."; }
+        finally { busy=false; }
+    }
+    public async ValueTask DisposeAsync() { reference?.Dispose();if(module is not null)try { await module.InvokeVoidAsync("clear",host);await module.DisposeAsync(); }catch(JSDisconnectedException){} }
+}

@@ -25,7 +25,7 @@ public sealed class WebTests
         var result = await Login(client, "test-owner", code);
         Assert.Equal(HttpStatusCode.Redirect, result.StatusCode); Assert.Equal("/", result.Headers.Location!.OriginalString);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/status")).StatusCode);
-        foreach (var route in new[] { "/", "/storage", "/gpio", "/interfaces", "/applications", "/cloud" })
+        foreach (var route in new[] { "/", "/storage", "/gpio", "/interfaces", "/applications", "/cloud", "/updates", "/remote-access" })
         {
             var page = await client.GetAsync(route); Assert.Equal(HttpStatusCode.OK, page.StatusCode);
             Assert.Contains("PiDock", await page.Content.ReadAsStringAsync());
@@ -35,6 +35,24 @@ public sealed class WebTests
         // Same valid code cannot create a second authenticated session.
         using var other = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         var replay = await Login(other, "test-owner", code); Assert.Contains("failed=1", replay.Headers.Location!.OriginalString);
+    }
+    [Fact]
+    public async Task RemoteApplianceConnectionCannotEnableItsOwnRemotePermission()
+    {
+        using var factory = new PreviewFactory<PiDock.Appliance.Web.ApplianceMarker>();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
+        var secret = Totp.NewSecret(); factory.Services.GetRequiredService<UserStore>().Add("local-owner", "integration-test-password", secret, "local", "Owner", true, -1);
+        await Login(client, "local-owner", Totp.Code(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30));
+        var remote = factory.Services.GetRequiredService<PiDock.Agent.RemoteInterfaceAgent>();
+        client.DefaultRequestHeaders.Add("X-PiDock-Remote-Proof", "invalid");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/remote-access")).StatusCode);
+        client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Proof");
+        remote.SetAllowed(true, "local-owner");
+        client.DefaultRequestHeaders.Add("X-PiDock-Remote-Proof", remote.LocalProof); client.DefaultRequestHeaders.Add("X-PiDock-Remote-Id", Guid.NewGuid().ToString());
+        var html = await client.GetStringAsync("/remote-access"); Assert.Contains("only be changed through a local connection", html); Assert.DoesNotContain("Save remote interface permission", html);
+        var cloud = await client.GetStringAsync("/cloud"); Assert.DoesNotContain("Connect this appliance", cloud); Assert.DoesNotContain("Move to this cloud", cloud);
+        client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Proof"); client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Id");
+        Assert.Contains("Save remote interface permission", await client.GetStringAsync("/remote-access"));
     }
     [Fact]
     public async Task EnrollmentRedemptionRequiresHttpsAndIsRateLimitedWhileManagementRequiresLogin()
@@ -80,12 +98,81 @@ public sealed class WebTests
         Assert.Equal(HttpStatusCode.BadRequest,(await client.GetAsync(endpoint.Replace("signals=cpu,memory","signals=password"))).StatusCode);
         var page=await client.GetAsync("/devices/pi5");Assert.Equal(HttpStatusCode.OK,page.StatusCode);Assert.Contains("Resource trends",await page.Content.ReadAsStringAsync());
     }
-    private static async Task<HttpResponseMessage> Login(HttpClient client, string username, string code)
+    [Fact]
+    public async Task ApplianceTrendsAndDownloadsWorkWithoutCloudAndExportTheCompleteSelection()
+    {
+        using var factory = new PreviewFactory<PiDock.Appliance.Web.ApplianceMarker>();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
+        var now = DateTimeOffset.UtcNow;
+        string endpoint = "/api/telemetry/export?format=csv&signals=cpu,memory&from=" + Uri.EscapeDataString(now.AddHours(-1).ToString("O")) + "&to=" + Uri.EscapeDataString(now.ToString("O"));
+        Assert.Equal(HttpStatusCode.Redirect, (await client.GetAsync(endpoint)).StatusCode);
+        var secret = Totp.NewSecret();
+        factory.Services.GetRequiredService<UserStore>().Add("local-owner", "integration-test-password", secret, "local", "Owner", true, -1);
+        await Login(client, "local-owner", Totp.Code(secret, now.ToUnixTimeSeconds() / 30));
+        var history = factory.Services.GetRequiredService<PiDock.Agent.HistoryStore>();
+        var storage = PiDock.Core.DataPolicyCalculator.Evaluate(new(), new(32L << 30, 16L << 30, 0));
+        for (int i = 0; i < 60; i++)
+        {
+            var sample = new PiDock.Core.HostSnapshot(now.AddSeconds(-1800 + i * 25), "local-history-test", "Linux", i, 1024, 512, null, 3600, storage, [], "Test");
+            Assert.True(history.Append(PiDock.Core.HistoryClass.Telemetry, new PiDock.Core.TelemetryEnvelope(1, "local", "pi", Guid.NewGuid(), Guid.NewGuid(), i + 1, sample)));
+        }
+        var page = await client.GetStringAsync("/telemetry");
+        foreach (string text in new[] { "Resource trends", "Live window", "Apply range", "Inspect sample values", "↓ CSV", "↓ JSON", "Cloud reporting settings", "CPU utilization" }) Assert.Contains(text, WebUtility.HtmlDecode(page));
+        Assert.Contains("data-pidock-trend", page);
+        Assert.Contains("pidock-trends.js", page);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/_content/PiDock.Web.Shared/pidock-trends.js")).StatusCode);
+        var csvResponse = await client.GetAsync(endpoint);
+        Assert.Equal(HttpStatusCode.OK, csvResponse.StatusCode);
+        Assert.True(csvResponse.Headers.CacheControl!.NoStore);
+        Assert.Equal("attachment", csvResponse.Content.Headers.ContentDisposition!.DispositionType);
+        var csv = await csvResponse.Content.ReadAsStringAsync();
+        Assert.Contains("cpu_percent,memory_percent", csv);
+        Assert.DoesNotContain("temperature_c", csv);
+        Assert.Equal(60, csv.Split("local-history-test").Length - 1);
+        var jsonResponse = await client.GetAsync(endpoint.Replace("format=csv", "format=json"));
+        using var json = System.Text.Json.JsonDocument.Parse(await jsonResponse.Content.ReadAsStringAsync());
+        var samples = json.RootElement.GetProperty("samples").EnumerateArray().Where(s => s.GetProperty("hostname").GetString() == "local-history-test").ToArray();
+        Assert.Equal(60, samples.Length);
+        Assert.Equal(50, samples[0].GetProperty("values").GetProperty("memory").GetDouble());
+        foreach (string invalid in new[] {
+            endpoint.Replace("signals=cpu,memory", "signals=invalid"),
+            endpoint.Replace("signals=cpu,memory", "signals="),
+            endpoint.Replace("format=csv", "format=xml"),
+            "/api/telemetry/export?format=csv&from=" + Uri.EscapeDataString(now.ToString("O")) + "&to=" + Uri.EscapeDataString(now.ToString("O")),
+            "/api/telemetry/export?format=csv&from=" + Uri.EscapeDataString(now.AddDays(-32).ToString("O")) + "&to=" + Uri.EscapeDataString(now.ToString("O"))
+        }) Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(invalid)).StatusCode);
+    }
+    [Fact]
+    public Task CloudRememberedSessionIsPersistentAndSignOutRejectsCookieReplay() => VerifySessionCookie<PiDock.Cloud.Web.CloudMarker>(true, "/api/devices");
+    [Fact]
+    public Task ApplianceSessionWithoutRememberIsNotSavedAcrossBrowserRestarts() => VerifySessionCookie<PiDock.Appliance.Web.ApplianceMarker>(false, "/api/status");
+    private static async Task VerifySessionCookie<T>(bool remember, string protectedRoute) where T : class
+    {
+        using var factory = new PreviewFactory<T>();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
+        var secret = Totp.NewSecret(); factory.Services.GetRequiredService<UserStore>().Add("session-owner", "integration-test-password", secret, "local", "Owner", true, -1);
+        var login = await Login(client, "session-owner", Totp.Code(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30), remember);
+        Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
+        var header = login.Headers.GetValues("Set-Cookie").Single(h => h.StartsWith("PiDock.", StringComparison.Ordinal));
+        Assert.Equal(remember, header.Contains("expires=", StringComparison.OrdinalIgnoreCase));
+        if (remember) Assert.InRange(Microsoft.Net.Http.Headers.SetCookieHeaderValue.Parse(header).Expires!.Value - DateTimeOffset.UtcNow, TimeSpan.FromDays(7).Subtract(TimeSpan.FromMinutes(1)), TimeSpan.FromDays(7));
+        Assert.Contains("httponly", header.ToLowerInvariant()); Assert.Contains("samesite=strict", header.ToLowerInvariant());
+        var cookie = header.Split(';')[0];
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(protectedRoute)).StatusCode);
+        var html = await client.GetStringAsync("/auth/login");
+        var token = WebUtility.HtmlDecode(Regex.Match(html, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value);
+        var logout = await client.PostAsync("/auth/logout", new FormUrlEncodedContent(new Dictionary<string,string> { ["__RequestVerificationToken"] = token }));
+        Assert.Equal(HttpStatusCode.Redirect, logout.StatusCode);
+        using var replay = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri("https://localhost") });
+        replay.DefaultRequestHeaders.Add("Cookie", cookie);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await replay.GetAsync(protectedRoute)).StatusCode);
+    }
+    private static async Task<HttpResponseMessage> Login(HttpClient client, string username, string code, bool remember = false)
     {
         var html = await client.GetStringAsync("/auth/login");
         var token = WebUtility.HtmlDecode(Regex.Match(html, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value);
         Assert.NotEmpty(token);
-        return await client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string> { ["username"] = username, ["password"] = "integration-test-password", ["code"] = code, ["__RequestVerificationToken"] = token }));
+        return await client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string> { ["username"] = username, ["password"] = "integration-test-password", ["code"] = code, ["remember"] = remember ? "true" : "false", ["__RequestVerificationToken"] = token }));
     }
     [Fact]
     public async Task ProductionHttpOnlyServesLivenessAndDoesNotTrustSpoofedProxyHeaders()

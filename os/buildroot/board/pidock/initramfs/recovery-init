@@ -1,0 +1,20 @@
+#!/bin/sh
+# A self-contained signed recovery environment. No systemd, networking or applications start.
+set -eu
+export PATH=/bin:/sbin
+mount -t devtmpfs devtmpfs /dev
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
+exec </dev/tty1 >/dev/tty1 2>&1
+epoch=$(cat /etc/build-epoch)
+[ "$(date +%s)" -ge "$epoch" ] || date -u -s "@$epoch"
+printf '\nPiDockOS physical recovery\nNo network administration is running.\nType RECOVER within 60 seconds to continue: '
+answer=
+read -r -t 60 answer || { reboot -f; exit 1; }
+[ "$answer" = RECOVER ] || { reboot -f; exit 1; }
+mkdir -p /run/pidock
+printf 'physical-console\n' >/run/pidock/physical-recovery
+chown 0:1654 /run/pidock/physical-recovery
+chmod 640 /run/pidock/physical-recovery
+exec /bin/pidock-recovery

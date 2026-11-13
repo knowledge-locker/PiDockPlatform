@@ -39,6 +39,13 @@ public static class StateFiles
         }
         finally { File.Delete(temporary); }
     }
+    public static void MoveDirectory(string source, string destination)
+    {
+        Directory.Move(source, destination);
+        SyncDirectory(Path.GetDirectoryName(source)!);
+        SyncDirectory(Path.GetDirectoryName(destination)!);
+    }
+    public static void SynchronizeDirectory(string directory) => SyncDirectory(directory);
     private static void SyncDirectory(string directory)
     {
         if (!OperatingSystem.IsLinux()) return;

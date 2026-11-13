@@ -1,0 +1,21 @@
+[Unit]
+Requires=pidock-provision.service
+After=pidock-provision.service
+Description=PiDock headless wireless connection
+After=var.mount sys-subsystem-net-devices-wlan0.device
+Requires=var.mount
+Wants=sys-subsystem-net-devices-wlan0.device
+Before=network.target
+ConditionPathExists=/var/lib/pidock/network/wpa_supplicant.conf
+[Service]
+ExecStart=/usr/sbin/wpa_supplicant -Dnl80211 -iwlan0 -c/var/lib/pidock/network/wpa_supplicant.conf
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=wpa_supplicant
+RuntimeDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

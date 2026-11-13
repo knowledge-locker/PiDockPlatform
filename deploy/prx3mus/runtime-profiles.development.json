@@ -44,6 +44,10 @@
           {
             "Source": "enrollment/issuer.key",
             "Target": "/enrollment/issuer.key"
+          },
+          {
+            "Source": "os-updates/pidock-dev-20261111.pem",
+            "Target": "/certs/pidock-dev-20261111.pem"
           }
         ]
       }

@@ -1,0 +1,17 @@
+[Unit]
+Description=PiDock initial physical media provisioning
+After=var.mount boot-control.mount systemd-tmpfiles-setup.service
+Requires=var.mount boot-control.mount
+Before=pidock-wifi.service pidock-appliance.service pidock-identity.service
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/pidock/appliance/PiDock.Appliance.Web --import-media
+ExecStartPost=/bin/chown -R pidock:pidock /var/lib/pidock/appliance
+Environment=PiDock__StateDirectory=/var/lib/pidock/appliance
+Environment=ASPNETCORE_ENVIRONMENT=Production
+UMask=0077
+RemainAfterExit=yes
+ProtectHome=yes
+PrivateTmp=yes
+[Install]
+WantedBy=multi-user.target

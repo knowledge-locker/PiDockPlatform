@@ -1,0 +1,35 @@
+[Unit]
+Requires=pidock-provision.service
+After=pidock-provision.service
+Description=PiDockOS appliance management
+After=var.mount pidock-identity.service pidock-broker.service pidock-time.service
+Requires=var.mount pidock-identity.service
+[Service]
+User=pidock
+Group=pidock
+WorkingDirectory=/usr/lib/pidock/appliance
+ExecStart=/usr/lib/pidock/appliance/PiDock.Appliance.Web
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=PiDock__StateDirectory=/var/lib/pidock/appliance
+Environment=PiDock__RequireTrustedClock=true
+Environment="AllowedHosts=localhost;127.0.0.1;[::1];pidock;pidock.local"
+Environment=Broker__SocketPath=/run/pidock/broker.sock
+Environment=Kestrel__Endpoints__Local__Url=https://127.0.0.1:7241
+Environment=Kestrel__Endpoints__Lan__Url=https://0.0.0.0:443
+Environment=Kestrel__Certificates__Default__Path=/var/lib/pidock/identity/server/appliance.pfx
+StateDirectory=pidock/appliance
+UMask=0077
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ReadWritePaths=/var/lib/pidock/appliance
+[Install]
+WantedBy=multi-user.target

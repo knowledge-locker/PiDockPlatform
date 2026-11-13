@@ -1,0 +1,64 @@
+@page "/updates"
+@attribute [Authorize(Roles = "Owner")]
+@implements IAsyncDisposable
+@inject IOsUpdater Updater
+@inject OsUpdateAgent UpdateAgent
+@inject AuthenticationStateProvider Authentication
+<PageTitle>PiDockOS updates · PiDockOS</PageTitle>
+<p class="eyebrow">PIDOCKOS / SOFTWARE</p><h1>PiDockOS updates</h1>
+<p>Install signed PiDockOS releases from PiDockCloud or upload a package locally. Both paths verify the signer, target and file digests before installation.</p>
+@if (UpdateAgent.Current is { } status)
+{
+<section class="card"><div class="section-heading"><h2>Installed software</h2><span class="pill status-neutral">@(status.Available ? "Updater ready" : "Updater unavailable")</span></div>
+<dl><dt>Version</dt><dd>@(status.InstalledVersion ?? "Development / legacy installation")</dd><dt>Target</dt><dd>@status.Runtime</dd><dt>Updater</dt><dd>@status.Status</dd></dl>
+@if (status.Operation is { } operation) { <h3>@operation.State · @operation.Version</h3><p>@operation.Message</p><small>Request @operation.Id · @operation.ChangedAt.UtcDateTime.ToString("u")</small> }
+@if (!Updater.Configured) { <p>The independent updater must be installed once by a local administrator before managed updates are available.</p> }
+</section>
+<div class="columns"><section class="card"><h2>Cloud update permission</h2>
+<label class="live-switch"><input type="checkbox" @bind="allowCloud" /> Allow cloud-managed PiDockOS updates</label>
+<p>Current permission: <strong>@(status.CloudEnabled ? "Allowed" : "Off")</strong>. This permission is separate from cloud container control. Each cloud update requires a named release and fresh cloud owner/administrator authentication.</p>
+<button disabled="@(busy || !status.Available)" @onclick="SavePolicy">Save update permission</button>
+<small>Turning this off rejects new cloud installations. An installation already in progress completes or rolls back.</small></section>
+<section class="card"><h2>Local package upload</h2><p>Cloud access and cloud update permission are not required. Choose a signed package of at most 512 MiB.</p>
+<InputFile OnChange="Pick" accept=".zip" disabled="@busy" />
+@if (file is not null) { <p>@file.Name · @Format.Bytes(file.Size)</p> }
+<button disabled="@(busy || file is null || !status.Available || OsUpdateRules.Busy(status.Operation?.State))" @onclick="Upload">Upload and verify</button>
+</section></div>
+@if (status.Staged is { } release)
+{
+<section class="card"><h2>Verified package</h2><dl><dt>Version</dt><dd>@release.Version</dd><dt>Target</dt><dd>@release.Runtime</dd><dt>Signer</dt><dd>@release.KeyId</dd><dt>SHA-256</dt><dd style="overflow-wrap:anywhere">@release.Digest</dd></dl>
+<p>@(status.UpdateKind == "image" ? "Installation restarts the appliance and interrupts applications. The inactive system slot is written and checked, then booted once. Verified-root and service health checks must pass before promotion; otherwise the previous slot is restored." : "Installation restarts PiDockOS and its broker. The independent updater checks both services and restores the previous program files if the new release fails.") Accounts, enrollment, history and application volumes stay in place.</p>
+<button disabled="@(busy || !status.Available || OsUpdateRules.Busy(status.Operation?.State) || status.Operation?.State == "RecoveryFailed")" @onclick="Install">Install version @release.Version</button></section>
+}
+}
+<p role="status">@message</p>
+<ReauthenticationDialog @ref="confirmation" />
+@code {
+    private IBrowserFile? file; private bool busy, allowCloud; private string message = ""; private ReauthenticationDialog confirmation = default!;
+    private readonly CancellationTokenSource stop = new(); private Task? refresh;
+    protected override async Task OnInitializedAsync() { await UpdateAgent.Refresh(); allowCloud = UpdateAgent.Current.CloudEnabled; refresh = Refresh(); }
+    private void Pick(InputFileChangeEventArgs args) { file = args.File; message = file.Size > OsUpdateRules.MaximumPackageBytes ? "Choose a package of at most 512 MiB." : "Package selected. Select Upload and verify to continue."; }
+
+    private Task SavePolicy() { var allowed = allowCloud; return Act("Save update permission", allowed ? "Allow PiDockCloud to install signed PiDockOS releases on this appliance." : "Reject new PiDockOS installations requested through PiDockCloud.", async () => { await Updater.SetCloudEnabled(allowed); message = "Cloud update permission saved."; }); }
+    private Task Upload() => Act("Upload and verify package", $"Verify the selected package {file?.Name} on this appliance. This does not install it.", async () => { if (file is null) return; await using var input = file.OpenReadStream(OsUpdateRules.MaximumPackageBytes, stop.Token); var release = await Updater.Stage(input, stop.Token); message = $"Version {release.Version} verified. Confirm installation with a fresh authenticator code."; file = null; });
+    private Task Install()
+    {
+        var release = UpdateAgent.Current.Staged;
+        if (release is null) return Task.CompletedTask;
+        return Act("Install PiDockOS release", $"Install version {release.Version}. SHA-256: {release.Digest}. PiDockOS and its broker will restart; failed health checks restore the previous program files.", async () => {
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            await Updater.Install(new(Guid.NewGuid(), release.Digest, "local", user.Identity!.Name!));
+            message = "Installation accepted. This page may disconnect during restart; reconnect to inspect the result.";
+        });
+    }
+
+    private async Task Act(string title, string detail, Func<Task> action)
+    {
+        if (busy) return; busy = true;
+        try { if (!await confirmation.Request(title, detail)) return; await action(); await UpdateAgent.Refresh(); }
+        catch (Exception e) when (e is IOException or HttpRequestException or InvalidOperationException or OperationCanceledException or ArgumentException) { message = "Update action failed. Check package size, trusted signer, target, free space and updater status."; }
+        finally { busy = false; }
+    }
+    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2)); while (await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(StateHasChanged); } catch (OperationCanceledException) { } }
+    public async ValueTask DisposeAsync() { await stop.CancelAsync(); if (refresh is not null) await refresh; stop.Dispose(); }
+}

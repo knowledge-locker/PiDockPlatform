@@ -1,0 +1,6 @@
+[Match]
+Name=eth0 end0 en*
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+MulticastDNS=yes

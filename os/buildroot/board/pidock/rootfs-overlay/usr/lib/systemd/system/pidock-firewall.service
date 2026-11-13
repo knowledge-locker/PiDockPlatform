@@ -1,0 +1,11 @@
+[Unit]
+Description=PiDockOS host management firewall
+Before=network-pre.target
+Wants=network-pre.target
+After=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/nftables.conf
+RemainAfterExit=true
+[Install]
+WantedBy=multi-user.target

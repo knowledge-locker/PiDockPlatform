@@ -1,0 +1,8 @@
+[all]
+arm_64bit=1
+kernel=Image
+initramfs initramfs.gz followkernel
+disable_overscan=1
+avoid_warnings=2
+dtoverlay=vc4-kms-v3d
+# No GPIO output, bus or peripheral overlays are enabled by default.

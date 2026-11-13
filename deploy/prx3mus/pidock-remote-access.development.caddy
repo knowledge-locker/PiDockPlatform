@@ -1,0 +1,17 @@
+# Add once to the existing Caddyfile GLOBAL options block, not inside a site:
+# on_demand_tls {
+#     ask https://pidock-dev.knowledgelocker.ai/api/remote/tls-allow
+# }
+# Only active registered device hostnames pass that authorization endpoint.
+https:// {
+    tls {
+        on_demand
+    }
+    @pidock_remote host *.pidock-access-dev.knowledgelocker.ai
+    handle @pidock_remote {
+        reverse_proxy prox3mus-pidockplatform-eca278f0:8080
+    }
+    handle {
+        respond 404
+    }
+}

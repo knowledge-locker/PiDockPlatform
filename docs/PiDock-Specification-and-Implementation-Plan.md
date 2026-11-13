@@ -1,6 +1,6 @@
 # PiDockPlatform Specification and Implementation Plan
 
-Version 1.1 draft — November 10, 2026.
+Version 1.3 draft — November 12, 2026.
 
 PiDock turns a Raspberry Pi 5 with an RTC battery into a secure, browser-managed platform for Linux containers and .NET IoT applications. A built-in host agent monitors the appliance, reports through MQTT, evaluates local alarms, and synchronizes selected logs. PiDockCloud provides fleet monitoring, alerting, history, and access control through a Blazor Server application. The same cloud software is available as a self-hosted deployment.
 
@@ -8,15 +8,15 @@ This specification records agreed requirements and proposed implementation defau
 
 # Product scope and release boundaries
 
-The first supported appliance is Raspberry Pi 5, ARM64, with a fitted RTC backup battery. The appliance must remain usable without PiDockCloud or internet access, provided its clock remains sufficiently accurate. Cloud enrollment is optional. System monitoring, alarm evaluation, MQTT publishing, and configurable remote log synchronization are built into the first release.
+The first supported appliance is Raspberry Pi 5, ARM64, with a fitted RTC backup battery. The appliance must remain usable without PiDockCloud or internet access, provided its clock remains sufficiently accurate. Cloud enrollment is optional. System monitoring, shared application APIs, centralized logging and alarm evaluation, an agent MCP interface, MQTT publishing, and configurable remote log synchronization are built into the first release. Define and validate these application platform contracts before developing hosted product applications; conformance samples are part of platform development.
 
 The production reference appliance remains Raspberry Pi 5 ARM64 with an RTC battery. Available development hardware is Raspberry Pi 4 and Raspberry Pi 3 Model B: use the Pi 4 for primary functional testing and the 3B for constrained-memory compatibility tests. Run a 64-bit OS and ARM64 workloads on both, and keep the cloud platform on a separate server. These are test targets until model-specific hardware validation is complete; neither validates Pi 5 secure boot, firmware, RP1 GPIO behavior, or battery-backed RTC holdover. Continuous mains power permits battery-free development tests, but after reboot or power loss require valid time synchronization before TOTP-dependent testing; it does not replace an RTC or trusted-time checks.
 
 The hosted portal is planned for https://pidock.knowledgelocker.ai and deployment through PROX3MUS. Self-hosted installations must support custom domains, certificate authorities, MQTT endpoints, time endpoints, and log destinations without contacting Knowledge Locker for licensing or authentication.
 
-Version 1 includes application image upload and registry pulls, restricted multi-container deployments, local monitoring, automatic capacity-based data retention, live GPIO/interface diagnostics with controlled I/O overrides, files and volumes, networking, device assignments, mandatory local MFA, physical recovery, signed OS updates, MQTT fleet telemetry, notifications, multiple cloud users, RBAC, and backup/restore.
+Version 1 includes individually uploaded application packages, registry pulls, tenant-scoped versioned application publishing and distribution through the registered PiDockCloud instance, restricted multi-container deployments, local monitoring, automatic capacity-based data retention, live GPIO/interface diagnostics with controlled I/O overrides, files and volumes, networking, device assignments, mandatory local MFA, physical recovery, signed OS updates, MQTT fleet telemetry, notifications, multiple cloud users, RBAC, and backup/restore. USB-connected expansion nodes are an agreed product requirement with staged implementation and separate hardware acceptance gates; their production availability must be explicitly declared in the supported-device matrix and must not be inferred from single-appliance version 1 support.
 
-ESP32, Pico, and conventional Arduino boards are companion devices connected through serial, USB, or application protocols; they do not run the PiDock image or Docker. Fleet-wide remote deployment, remote shells, generic cloud file access, application marketplaces, Kubernetes, high-availability cloud clustering, and arbitrary desktop environments are outside version 1. The protocol must reserve room for separately authorized remote control without granting that capability now.
+ESP32, Pico, and conventional Arduino boards are companion devices connected through serial, USB, or application protocols; they do not run the PiDock image or Docker. Unattended fleet-wide installation, remote shells, generic cloud file access, application marketplaces, Kubernetes, high-availability cloud clustering, and arbitrary desktop environments are outside version 1. Cloud package distribution does not itself authorize installation: the local owner approves an exact release or explicitly grants a scoped installation/update policy. Broader remote control remains separately authorized.
 
 # Reference hardware and supported interfaces
 
@@ -30,6 +30,8 @@ ESP32, Pico, and conventional Arduino boards are companion devices connected thr
 | Recovery | Attached keyboard and HDMI display as the baseline local console |
 | Network | Ethernet and Wi-Fi; country configuration required for wireless operation |
 | Optional accessories | GPIO recovery button, compatible camera, UPS, hardware key storage module |
+| Expansion connection | Supported nodes use their USB-C port for power, discovery, provisioning and ongoing communication; no Ethernet cable or user-managed IP addressing between primary and nodes |
+| Expansion power | Validated powered dock/hub with sufficient per-port and total power for supported nodes and attached devices; primary Pi USB output alone is not the expansion power budget |
 
 The Pi 5 includes the RTC, but battery-backed retention requires the external battery. Battery presence or state of charge may not be directly measurable; PiDock must not display an invented battery percentage. Record clock continuity checks instead. See [Raspberry Pi hardware documentation](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#real-time-clock-rtc).
 
@@ -50,7 +52,18 @@ flowchart LR
   Owner[Local owner browser] -->|HTTPS and MFA| UI[Appliance management service]
   UI -->|Restricted local API| Broker[Privileged host broker]
   Broker --> Runtime[Docker runtime and devices]
+  UI --> Nodes[Expansion node manager]
+  Nodes -->|Authenticated private USB links via powered dock| NodeBroker[Node-local restricted brokers]
+  NodeBroker --> NodeServices[Compute, storage, image hosting, GPIO, video and optional Ethernet]
   Runtime --> Apps[Application containers]
+  Apps -->|Scoped app identity| API[Versioned platform API]
+  API -->|Validated hardware requests| Broker
+  API --> Shared[Telemetry, logging and local alarm services]
+  Apps -->|Captured stdout/stderr| Shared
+  AI[Development agent] --> MCP[Authorized MCP interface]
+  MCP --> API
+  Shared --> Agent
+  Catalog[Cloud versioned app catalog] -->|Authorized HTTPS download| Broker
   Host[Host metrics and audit events] --> Agent[Monitoring agent and local alarms]
   Agent -->|Outbound MQTT with mutual TLS| MQTT[Cloud MQTT broker]
   Agent -->|Outbound HTTPS| Logs[Configured log receiver]
@@ -65,6 +78,63 @@ flowchart LR
 Cloud monitoring credentials never authorize the local management API. The portal never receives appliance owner passwords or TOTP secrets. Application credentials, device certificates, cloud user credentials, and OS signing keys are separate security domains.
 
 Docker control is effectively privileged. Only the host broker may access the runtime socket. The management frontend sends validated operations over a local Unix socket; it cannot submit arbitrary commands or unrestricted Docker requests. Applications must not mount the runtime socket. [Docker security documentation](https://docs.docker.com/engine/security/) explains the daemon and container configuration trust boundaries.
+
+# USB-connected expansion nodes
+
+Status — agreed architecture, planned implementation. The engineering preview does not yet implement node adoption, USB image provisioning, remote service placement or expansion hardware access. Discovery must report these as planned/unavailable until their individual acceptance gates pass.
+
+## Appliance and node model
+
+One primary PiDockOS appliance manages multiple expansion Pis through its local dashboard. USB is the required interconnect for discovery, provisioning and ongoing management/data communication. Each supported expansion node uses a single cable into its USB-C port for both power and data. Ethernet cables, Wi-Fi setup, household-router DHCP and user-entered IP addresses must not be prerequisites for node adoption or operation. The primary normally connects through a USB-A host port to a powered expansion dock/hub; this requirement does not imply that its own USB-C power connector becomes a downstream expansion port. Use a star topology through validated hubs rather than assuming node-to-node daisy chaining.
+
+Use one PiDockOS base image with selectable node roles, node-local platform services and a restricted privileged broker. The primary owns appliance administration; adopted nodes use service identities rather than separate human owner accounts. A node must not expose an independent unclaimed administrator setup flow after adoption. Adoption into a different primary requires explicit release/reset and revocation under the physical recovery policy. PiDockCloud is optional and is not the node control plane.
+
+Nodes advertise stable identity, board model, architecture, OS/API versions, boot ID, available CPU/RAM, storage, interfaces, power information where measurable and supported service capabilities. USB port paths and addresses describe current attachment, not ownership or authenticated identity. The inventory combines primary and node resources while retaining their location, health, grants and conflicts. Adding a node increases schedulable capacity; it does not transparently combine CPU or RAM for an existing process.
+
+## USB power and communication
+
+The dock must provide simultaneous downstream USB data and sufficient power to each supported node, including its declared peripheral load. Validate voltage/current delivery, USB-C/PD behavior where applicable, cables, cooling, aggregate supply capacity, protection against backfeeding and port isolation on the actual hardware. A charging-only hub, a shared total-wattage claim or a generic powered hub is insufficient evidence. Do not rely on the primary Pi's downstream USB budget to power multiple full-size Pis. A production accessory may be a qualified off-the-shelf dock or a purpose-built carrier; select it through hardware testing rather than promising compatibility with arbitrary hubs.
+
+Use a private USB network gadget as the proposed communication transport. PiDock automatically configures isolated node links and addresses, detects conflicts with existing networks and authenticates each node independently of address. The owner never configures node IP addresses. Keep the USB management network separate from application and external networks; do not bridge or forward it automatically. HTTPS/mTLS supports management and scoped service traffic; a bounded USB serial interface may provide bootstrap/recovery diagnostics. A custom non-IP USB protocol is not required to meet the zero-configuration user experience. Reconnection must recover the same authenticated node even when enumeration order, port or internal address changes.
+
+Pi 4/5 USB-C peripheral operation uses the USB 2.0 path, not their USB 3 host ports. Budget for its 480 Mbit/s signalling ceiling, protocol overhead and shared hub/controller bandwidth; publish measured useful throughput rather than promising the theoretical rate. Prioritize management/heartbeats and bound bulk transfers so storage, image downloads and video cannot starve control traffic. Admission checks must account for CPU, RAM, local/remote disk space, power and shared link capacity. See Raspberry Pi's [USB gadget guide](https://pip-assets.raspberrypi.com/categories/685-app-notes-guides-whitepapers/documents/RP-009276-WP-1-Using%20OTG%20mode%20on%20Raspberry%20Pi%20SBCs) and [power requirements](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#power-supply).
+
+## Automatic provisioning and adoption
+
+The supported workflow starts with an unconfigured Pi and suitable installed blank storage; no preinstalled operating system or network configuration is required on supported provisioning targets. Hardware entry into provisioning mode may require a documented physical action. Maintain a board/firmware/storage compatibility matrix: the documented Pi 5 procedure holds the power button while connecting USB-C; Pi 4B requires prior RPIBOOT configuration and must not be advertised as factory-blank plug-and-play; Compute Modules require compatible carrier boot controls. Pi 3B compatibility as a standalone development host does not imply USB-C expansion support. See the official [RPIBOOT provisioning tooling](https://github.com/raspberrypi/usbboot).
+
+1. Detect a supported USB boot/provisioning device and show its reported model/identity, provisioning eligibility and storage information when available. An unknown or unsupported device must never trigger an automatic disk write.
+2. The authenticated primary owner selects a friendly name and requested roles. Before erasure, show the exact target node, disk and any detected existing data; require fresh owner authorization bound to that target and image. Detection alone is not installation consent. The privileged provisioner must distinguish the node's exposed storage from primary/other-node disks and revalidate identity immediately before writing.
+3. Load a verified temporary provisioning environment, install the board-compatible signed PiDockOS image, verify the written content, and supply the primary trust anchor plus an expiring, single-use adoption credential. Never clone device private keys, owner credentials, TOTP secrets or cloud identities into images. Use an offline cached verified image when available; do not silently depend on internet access.
+4. On boot, the node creates its own private key and proves possession while redeeming the adoption credential over the private USB link. Bind the resulting node identity to the intended primary and provisioning transaction; support idempotent retry without issuing a second identity. USB attachment or a serial number alone is not cryptographic device attestation. Secure-boot locking/OTP operations remain a separately documented production provisioning procedure, not an implicit role-selection action.
+5. Configure only approved roles, apply grants/resource limits, run readiness checks and display the result. Track detected, awaiting approval, provisioning, rebooting, pairing, configuring, ready, failed and recovery-required states, with actionable errors and durable transaction progress. Interrupted transfers cannot produce an accepted partial installation; retries must revalidate the target, and an ambiguous destructive retry needs renewed approval.
+
+The same workflow must support adopting an already installed compatible unclaimed node through explicit pairing without reflashing. Pairing expiration, unauthorized attachment, replacement hardware and a node already claimed elsewhere must fail closed. Reconnecting a known node must not erase it or silently transfer ownership. Existing local ownership/physical recovery rules remain in force; node provisioning must not create a remote reset path for an independently owned appliance.
+
+## Selectable services and placement
+
+Each node may provide several explicitly enabled services, subject to compatibility, grants, measured resources and conflicts. Roles can be changed without reflashing; disabling a service must identify dependents and require explicit decisions for stopping workloads, migrating data or deleting it. Inventorying hardware does not itself enable its service or assign it to applications.
+
+| Service | Required behavior and boundaries |
+| --- | --- |
+| Compute | Run approved ARM64 containers/jobs on a selected node with resource limits, health checks and local broker enforcement. Expose placement and capacity; no transparent pooled memory or automatic acceleration of a single process. Image builds remain outside version 1. |
+| Storage | Offer explicitly managed volumes/shares, archives and backup destinations over USB with quotas, access grants, safe removal and capacity reporting. Distinguish node-local, remotely shared, backed-up and replicated data; extra capacity alone provides no redundancy. |
+| Docker image hosting/cache | Host approved immutable OCI image content and/or cache approved upstream images with authentication, digest/signature verification, quotas and safe garbage collection. Local image hosting does not authorize publishing or installation and must support locally supplied images for offline use. |
+| GPIO and other I/O | Expose named GPIO, I²C/SPI/PWM, UART/USB serial and compatible attached devices through node-local brokers. Enforce exclusive leases, grants, maintenance handoff and node-local timeout/fallback even when the primary is unreachable. |
+| Video | Provide certified camera capture, processing and display/HDMI channels. Declare formats, codecs, placement and bandwidth requirements; local processing/display is distinct from streaming video over USB. Reject unsupported or over-budget requests. |
+| Ethernet | Enable a node's Ethernet port as an explicitly configured service: application network access, isolated equipment subnet, routing/NAT or an approved bridge. Separate grants and configuration apply to each mode; no automatic port activation, bridging, routing or forwarding on adoption. |
+
+Ethernet is a peer capability alongside storage, GPIO and video, not a required inter-node transport. Service configuration defines interface purpose, DHCP/static addressing where relevant, routes, DNS, DHCP-server scope if provided, permitted consumers, ingress/egress firewall policy and exposure through the primary. Never start a DHCP server on an existing external network implicitly. Routing/NAT/bridge modes require explicit owner approval and must preserve USB management isolation and application boundaries; network changes use health checks and confirmation rollback. Physical link detection is permitted while the Ethernet service remains administratively disabled. External devices and networks may need configuration, but none is required for the node's USB management path.
+
+Extend application manifests and API/MCP discovery with stable node/resource identifiers, requested capabilities, placement/affinity, storage locality, service exports and consumer grants. Pin hardware-dependent workloads to their resource-owning node by default. Cross-node service use must be explicitly supported, authorized and within link budgets; a remote GPIO must not masquerade as a local kernel device. Place workloads near large datasets or cameras where practical. Show per-node and total capacity without implying that all resources are interchangeable.
+
+## Identity, lifecycle and failure handling
+
+Each node enforces scoped, revocable mutual authentication and local policy; the primary never forwards unrestricted Docker/socket or shell access. Node service credentials, application identities, cloud enrollment and release-signing keys are separate domains. Preserve source node/boot identity and clock trust in logs, measurements and alarms; synchronize node time through an authenticated local mechanism subject to the trusted-clock policy. Queue telemetry locally within per-node budgets when USB is unavailable. Do not expose raw management USB traffic through a node's Ethernet service.
+
+Provide per-node monitoring, bounded audit/history, signed compatible updates with health rollback, drain, safe detach, replacement, revocation and decommissioning. Roll out updates in a controlled order and reject incompatible primary/node protocol versions with an explicit state. Primary configuration backup includes node membership, grants, service definitions and placement; node volume backup and identity recovery are explicit, separately tested concerns. Revocation must invalidate the node locally; physically deleting keys from an unreachable node cannot be assumed.
+
+On USB disconnect, mark the node and its resources unavailable, report stale readings and fail dependent operations explicitly. Do not redirect a volume, pin or camera to replacement hardware. Mounted remote storage must not silently fall through to an empty local directory. Nodes enforce I/O lease expiry/fallback locally and continue only workloads explicitly permitted by their disconnected-operation policy. Reconcile identity, grants, mounts, leases and actual workload state before reconnect promotion. Never automatically replay output commands. For any workload moved after loss of contact, fence the old writer/instance first; automatic failover, replicated storage, primary election and high availability require separate designs and are not implied by expansion support.
 
 # Operating system and storage layout
 
@@ -152,6 +222,48 @@ If clock trust is lost, existing application workloads continue. New owner login
 
 The authenticator phone maintains its own clock; the cloud cannot force it to match. TOTP verifier code and policy are shared between products, but local and cloud secrets are distinct. Test RTC drift during extended power-off periods and explicitly show clock health. Authenticated time transport follows [RFC 8915](https://www.rfc-editor.org/rfc/rfc8915.html).
 
+# Application platform API and development contract
+
+Implementation note — November 11, 2026: API/MCP discovery, registered-cloud context, registry-reference cloud publishing, scoped shared logs/measurements/system reads and durable app alarm lifecycle are implemented in engineering preview. The full hardware/install/notification conformance gate remains pending. See [discovery setup](Application-Platform.md) and [shared services/publishing limits](Cloud-Publishing-and-App-Services.md).
+
+PiDockOS is the shared application platform for hosted Docker applications. A versioned, language-neutral API must provide hardware and service discovery, permitted hardware operations, system information, telemetry publication/subscription, centralized logging, alarm lifecycle operations, and authorized app-to-app service discovery. Ordinary applications use the API without an AI agent or MCP dependency. Privileged operations remain behind the host broker; the application API must never proxy arbitrary shell commands or Docker requests.
+
+Publish a machine-readable API description, JSON schemas, error catalogue, compatibility/deprecation policy, authoring guide, and small .NET client. Document app layout, ARM64 image requirements, immutable image references, startup/shutdown behavior, configuration and secret references, writable/persistent storage, health checks, resource budgets, permissions, telemetry, logging, and package/deployment structure. Other languages must be able to use the same contracts. API changes must declare supported versions and incompatible requirements rather than silently changing behavior.
+
+An expanded versioned manifest declares application identity and version, required platform/API versions, services and image digests, resource limits, persistence, secrets, requested hardware and network capabilities, published/consumed services, telemetry schemas, event codes, and alarm definitions. Validate syntax and policy before installation and expose requested versus granted permissions. An app may only publish for its own authenticated identity; declared names or payload fields cannot impersonate the host or another app. Author-supplied alarm definitions are proposals subject to owner policy.
+
+Issue revocable per-app/service credentials bound to the approved deployment and grants. Authenticate requests independently of container IP addresses and apply authorization, bounded payloads, concurrency limits, rate limits, and audit policy to every operation and stream. Separate read-only status from hardware writes, network changes, deployment control, and administrative configuration. Apps cannot acquire additional grants by editing their manifests or requesting them at runtime. Restart, update, removal, credential rotation, and revocation must reconcile grants and release resources.
+
+Capability discovery reports platform/API versions, appliance model, stable hardware aliases, supported operations, limits, ownership/conflicts, and implementation state. Distinguish physical, simulated, unsupported, unavailable, stale, and denied capabilities. Cover GPIO, I²C/SPI/PWM, serial/USB, storage, system resources, Ethernet/Wi-Fi, camera input and HDMI/display/video channels. Hardware-specific paths and certification remain gated by the reference hardware tests. Unsupported features must return explicit errors, never success-shaped placeholders.
+
+Broker-backed hardware access must define exclusive ownership, leases, timeouts, disconnect/restart behavior, removal/reconnection, and configured fallbacks. Preserve the live I/O and maintenance handoff rules below. Direct device grants remain an explicit supported exception with documented visibility limits. Network status and Wi-Fi configuration are different grants; changes require owner policy and confirmation/rollback. A camera/display API must inventory and allocate named channels and describe supported stream/control mechanisms, formats, ownership, and limits; control discovery does not imply that high-bandwidth media is transported through the management API or MCP.
+
+Telemetry uses versioned typed measurements/events with units, source identity, observation and receipt timestamps, clock state, sequence, freshness, and schema identifiers. Register bounded schemas and cardinality limits. Provide authorized discovery, current readings, bounded history queries, and subscriptions with backpressure, reconnect cursors where supported, and explicit gaps. Each app defaults to its own data; reading host or another app's telemetry requires a grant. App-to-app services use explicit exports and consumer grants rather than a universally shared network or unrestricted topic namespace. Local exchange must work without cloud connectivity, and selected cloud forwarding obeys independent policy and retention.
+
+# Agent MCP interface and target discovery
+
+Provide an MCP interface over the same platform contracts and authorization services. It supplies versioned authoring documentation, manifest/API schemas, capability and compatibility discovery, package templates, conformance examples, and validation results. Support offline authoring from a versioned documentation bundle and live validation against a selected appliance. Validation must identify target mismatches, unimplemented requirements, conflicting resource claims, and missing grants before deployment. Distinguish static validation from verified hardware execution.
+
+PiDockOS must provide an owner-only Agent access page for named third-party application registrations. Generate a cryptographically random per-registration bearer token, display an owner-reviewed HTTPS discovery URL, and provide a copyable connection prompt containing the URL, token, expiry and granted scopes. Discovery is the default grant; additional rights are explicit. Store tokens encrypted and integrity-protected, with owner-authorized retrieval for re-copying rather than storing only irreversible hashes. Creation, reveal, rotation and revocation require a current owner session plus fresh password/TOTP. Never expose anonymous registration or credential retrieval, put tokens in URLs/logs, or treat LAN membership as authorization. Check revocation/expiry on every remote request. Protect the encryption key ring under the appliance secret-storage policy and retain the production hardware-key release gate.
+
+Keep documentation/read-only discovery separate from publishing, upload, install, hardware writes, and administrative tools. Agent sessions use their own scoped, expiring credentials; they do not inherit owner authority or receive device private keys, passwords, TOTP secrets, or cloud enrollment tokens. Mutating tools use the same policy checks, audit trail, and approval requirements as the UI/API. Treat app-provided documents, logs, and package metadata as untrusted content, not instructions that can authorize further actions.
+
+The authenticated API and MCP must expose a target context containing platform/API versions, supported features, registration state, and the registered PiDockCloud base URL when available. Include cloud instance/tenant identifiers and advertised catalog, publishing, and distribution endpoints, supported package/contract versions, and capability status when authorized and available. The registered URL is taken from the owner-approved enrollment configuration, never guessed or hard-coded. Separate configured registration from current connectivity; return an explicit absent/unavailable state when unregistered, unreachable, or unsupported. A cloud URL alone does not establish publishing support or permission. Endpoint discovery and authenticated cloud responses establish those separately, with normal TLS, redirect, origin, and SSRF controls.
+
+An agent must be able to determine whether to produce a package for direct PiDockOS upload or publish a version to the registered cloud. Expose available destinations and the agent's permitted actions without including credentials in discovery responses. Cloud publishing requires a separately authorized tenant-scoped publisher session, distinct from the appliance's telemetry certificate. Changing the registered cloud invalidates stale publishing context and cannot silently redirect an in-flight publication or transfer private packages between tenants.
+
+# Application packages and cloud distribution
+
+Support two equivalent delivery paths: an owner uploads an individual application package directly to PiDockOS, or an authorized publisher publishes a versioned package to PiDockCloud for authorized appliances to discover and download. Both paths use the same versioned package contract, compatibility checks, trust policy, resource/permission review, and broker installation path. Standalone appliances require no cloud registration for direct upload or installation.
+
+A package contains a manifest, immutable ARM64 image references or validated bundled image archives, release notes, checksums, publisher/signature metadata, and declared platform/API compatibility. Explicitly identify whether a package is self-contained for offline installation or requires registry downloads. Never bundle live credentials. Image archives, expanded layers, and metadata are untrusted; stage and verify complete content with bounded disk usage before promotion. Interrupted uploads/downloads must not create installable partial releases.
+
+PiDockCloud must add a tenant-scoped application catalog, package/artifact storage (or an explicitly integrated OCI registry), immutable release versions and digests, publishing API/UI, release metadata, access grants, and authenticated download endpoints. Re-publishing different content under an existing version is rejected. Mutable channels such as development or stable, if provided, resolve to immutable releases and are audited. Define publisher authorization separately from catalog reading, downloading, release promotion, and device installation. No public marketplace is required.
+
+Registered appliances can report compatibility and discover authorized releases using outbound authenticated HTTPS; bulk packages do not travel in telemetry MQTT messages. Provide explicit target selection and distribution status: available, downloading, verified, awaiting approval, installing, healthy, failed, and rolled back. The cloud may offer a release but cannot bypass local owner grants, fresh authentication where required, or an explicitly approved scoped update policy. Record release digest, publisher, target, approval/policy, outcome, and correlation ID. Fleet distribution means making releases available to authorized targets; unattended fleet-wide installation remains outside version 1.
+
+Verify package/image signatures and digests on the appliance even when cloud storage is trusted. A cloud catalog is not a substitute for publisher trust. Preserve the previous manifest and image reference for health-based rollback, subject to allowed-version policy; application data migration remains a separate backup/recovery concern. Revoked or withdrawn releases must be blocked from new installation and surfaced to existing users without silently deleting running apps or their data. Apply tenant quotas, bounded upload/download sizes, safe artifact garbage collection, and independent retention for installable releases; operational log cleanup must never delete application artifacts. Backup and restore include catalog metadata, retained artifacts/references, grants, and required cryptographic material.
+
 # Application deployment and isolation
 
 Support Linux ARM64 images from authenticated registries and Docker image archives. Validate archive structure, architecture, expanded size, available disk, image metadata, and checksum before import. Do not support image builds on the appliance in version 1.
@@ -180,7 +292,7 @@ Network settings include hostname, Ethernet/Wi-Fi, DHCP/static addressing, DNS, 
 
 The host firewall defaults to deny inbound traffic except explicitly permitted management access and approved application ports. Enforce container port policy in the actual Docker packet path, not just the host input chain. Cloud connections are outbound. LAN access is not treated as proof of trust.
 
-HTTPS is mandatory for management. Provision a unique local certificate and physically verifiable fingerprint; support a user-managed certificate or local CA. Certificate changes are audited. A VPN or deliberate firewall rule can permit remote browser administration, but PiDock does not automatically expose or relay its management interface through the cloud.
+HTTPS is mandatory for management. Provision a unique local certificate and physically verifiable fingerprint; support a user-managed certificate or local CA. Certificate changes are audited. A VPN can permit remote browser administration. Optional PiDockCloud interface relay now requires an independent local-owner permission (default off), an enrolled-device outbound connection, fresh cloud MFA and a five-minute session on a per-device isolated HTTPS origin. Appliance authentication and action checks remain required. See [Remote interface access](Remote-Interface-Access.md); enabling its trusted cloud relay is a deliberate expansion of the local management trust boundary.
 
 # Live GPIO and interface diagnostics
 
@@ -227,7 +339,26 @@ Each rule defines severity, scope, threshold, duration, hysteresis, cooldown, ma
 
 Local rules operate offline. The cloud independently detects lost contact and evaluates fleet rules. Display last-seen time, data freshness, and whether a value is delayed. Proposed offline default: mark stale after 90 seconds and open an offline incident after three minutes. A broker Last Will is advisory, not the only offline detector.
 
-Log collection supports host service logs, audit logs, and opt-in container stdout/stderr. Configurable destinations include the PiDock HTTPS batch receiver and syslog over TLS; connectors share bounded queues and explicit credential handling. Include timestamps, device ID, boot ID, source, severity, sequence, and event ID. Redact secrets and authentication material; never log TOTP values, enrollment QR data, tokens, or private keys.
+Centralized logging is a mandatory platform service for PiDockOS and hosted apps. Collect host service logs, protected audit records, and bounded stdout/stderr from every managed container by default; provide an authenticated structured logging API/client for rich events. Preserve source stream and original external severity when adapting text logs; unstructured records must not acquire an inferred alarm priority. Host collection continues when Docker is unavailable. Apps need no private log storage, rotation, or notification implementation to use this service.
+
+The common event envelope includes schema version, device and boot IDs, authenticated app/service identity and deployed version, unique event ID, source sequence, event code, message, bounded structured fields, correlation/trace ID, diagnostic level, optional operational priority, observed UTC time, collector receipt UTC time, and clock trust. Preserve supplied observation time as source-reported; receipt time and source identity come from the collector. Include monotonic elapsed time within each boot and durable ingestion ordering so clock corrections cannot reorder retention or alarm timers. The cloud adds its own receipt time without overwriting source timestamps. Time zones affect display only; do not claim globally exact ordering across disconnected or unsynchronized clocks.
+
+| PiDock operational priority | Name | Meaning |
+| --- | --- | --- |
+| 1 | Critical | Immediate action required; essential function failed |
+| 2 | Warning | Degraded operation or an approaching limit |
+| 3 | Alert | A condition requiring attention |
+| 4 | Notice | Meaningful operational event |
+
+Lower numbers indicate greater urgency. Priority is independent of diagnostic detail (Trace, Debug, Information, Warning, Error, Critical); field names and adapters must distinguish them. Define explicit mappings for external log formats rather than assuming syslog or framework numeric levels match PiDock priorities. Events can have no operational priority. Apps register event codes and recommended priorities; owner policy controls alarm eligibility, routing, and any priority overrides. Notice events do not notify by default. Priority alone does not authorize an app to operate hardware, execute commands, or trigger unrestricted automated remediation.
+
+Provide common minimum diagnostic-level controls globally and per app/service, with audited temporary diagnostic overrides and automatic expiry. Changes apply consistently to platform collectors and participating clients; expose unsupported client controls and retain hard collector limits. Central queries and live views filter by time, app/version, device, event code, priority, diagnostic level, and correlation ID, with bounded results and explicit gaps. Access to logs and cross-app queries is granted separately from telemetry viewing; app readers default to their own records. Protect audit writers and retention independently from app logs even though the troubleshooting view is unified.
+
+Local and cloud alarm rules can match authorized event codes, structured fields, priorities, and bounded count/window conditions, as well as telemetry thresholds. Apps may raise, update, and clear named alarm conditions through the shared API. Use a stable condition key (device, app, rule/condition, resource) and unique transition IDs; persist active/acknowledged/resolved state separately from rotating logs. Acknowledgement does not clear the underlying condition, and deleting logs must not resolve alarms. Define explicit clear/recovery behavior for event-only rules, deduplication, cooldown, maintenance suppression, escalation, and approved notification routing. Define evaluation ownership per rule and origin IDs for forwarded transitions so replay or local/cloud evaluation cannot duplicate incidents or notifications. Historical replay does not reopen resolved alarms or trigger stale notifications by default. Persist transitions and notification work with bounded failure reporting; no unlimited or lossless-delivery guarantee is implied.
+
+Local alarm evaluation and the local alarm view operate offline. Optional cloud synchronization and in-app/email/signed-webhook delivery follow authorized destinations and a durable bounded outbox. Built-in actionable alarms cover collector failure, queue overflow, dropped records, and storage pressure; prevent recursive log/alarm storms through coalescing and independent bounded health status. Apply per-app payload/rate/storage quotas, backpressure, fairness, and bounded priority lanes, and report rejected/dropped counts. High-priority floods cannot bypass quotas or the host reserve.
+
+Configurable remote log destinations include the PiDock HTTPS batch receiver and syslog over TLS; connectors share bounded queues and explicit credential handling. Redact secrets and authentication material; never log TOTP values, enrollment QR data, tokens, or private keys. Escape log content in every UI/export path, and keep raw diagnostic capture under its separate explicit policy.
 
 Local telemetry, logs, audit/events and diagnostic captures use the capacity-based data policy instead of fixed MiB spool limits or mandatory local retention days. Oldest eligible data is purged automatically within each class, even during outages. Report purge activity, effective limits, remaining reserve, and unsynchronized data loss; no history class can grow without a bound.
 
@@ -269,6 +400,8 @@ The UI includes:
 - User/role management and device enrollment/revocation.
 - Notification routing, retention, backup status, and self-hosted server health.
 - Downloads for appliance images, signatures, release notes, and server packages.
+- Tenant application catalog with publishing, immutable versions, publisher grants, compatibility, authorized distribution targets and installation outcomes.
+- Unified host/app log timeline with shared filters, diagnostic controls, priority-based alarm rules and local/cloud incident correlation.
 
 The first release supports in-app notifications, SMTP email, and signed HTTPS webhooks. Tenant-configured outbound URLs must be checked against SSRF, DNS rebinding, and access to metadata endpoints or private services unless explicitly allowed by the self-host administrator. Webhooks use timeouts, bounded retries, HMAC signatures, and delivery IDs.
 
@@ -276,14 +409,16 @@ The portal requires working WebSocket forwarding, appropriate idle timeouts, sec
 
 # Cloud tenancy authentication and RBAC
 
-Cloud users may belong to multiple organizations. An organization contains fleets and devices. Membership and grants are scoped; cross-organization access is denied by default.
+Cloud users have one global account and may belong to multiple workspaces (tenants), with an independent role for each membership. A workspace owns its PiDockOS registrations, fleets, telemetry, releases and operations. Team refers to the workspace’s members. Cross-workspace access is denied by default.
 
-Require MFA for all human users. Use password plus external TOTP initially, with separate cloud enrollment secrets. Invitations are single-use and expire. Recovery uses a documented verified-email/recovery-code process with notifications, session revocation, and audit records. Self-hosted bootstrap requires a local deployment-generated one-time token, not a public first-user-wins registration page.
+Exactly one platform Owner is established through trusted local commissioning before any tenant signup is allowed. Public signup never creates an Owner; it creates an account, a workspace and its Administrator membership after authenticator verification. Multi-tenant signup is enabled by default and can be disabled only by the platform Owner through an audited, persistent setting. When disabled, public signup and ordinary-user workspace creation are denied, including previously opened forms; the Owner can still establish a workspace. Team invitations and invited-user account creation remain available in both modes, adding the account directly to the invited workspace with the assigned role and without creating a personal tenant. Existing workspaces and memberships are preserved. When enabled, existing users can create additional workspaces. Workspace Administrators invite users by username with a scoped, single-use, expiring token and assign workspace roles. A user may be Administrator in one workspace and Viewer in another. At least one Administrator must remain in a tenant-created workspace. The platform Owner has global administration and explicitly enters a selected workspace for support, with a visible support banner and audited context changes. Workspace selection and role checks are server-enforced; switching or changing a membership invalidates old sessions and interactive circuits. Removing a member does not remove devices or transfer their ownership.
+
+Require MFA for all human users. Use password plus external TOTP initially, with separate cloud enrollment secrets. Invitations are single-use and expire. Recovery uses a documented verified-email/recovery-code process with notifications, session revocation, and audit records. Self-hosted Owner bootstrap requires a trusted local commissioning flow, never a public first-user-wins registration page. Tenant signup remains unavailable until that Owner exists.
 
 | Role | Default capabilities |
 | --- | --- |
-| Owner | Organization settings, ownership, administrators, retention and deletion |
-| Administrator | Users below own authority, fleet/device management, enrollment, revocation, alarms and destinations |
+| Owner | Single platform-wide identity; global administration and explicitly selected workspace support |
+| Administrator | Workspace team membership and role management, fleet/device management, enrollment, revocation, alarms and destinations |
 | Operator | View telemetry, acknowledge incidents, configure permitted alarm rules |
 | Viewer | Read authorized telemetry and incident state |
 | Auditor | Read security audit records and approved exports without configuration rights |
@@ -298,13 +433,13 @@ Neither an organization owner nor the cloud platform administrator can reset an 
 
 # Data contracts retention and backups
 
-Core entities: User, Organization, Membership, PermissionGrant, Fleet, Device, DeviceCertificate, EnrollmentToken, TelemetrySample, TelemetryAggregate, Event, AlarmRule, Incident, NotificationDestination, NotificationDelivery, LogBatch, AuditRecord, and BackupRecord. Deployments and device grants are authoritative locally; any cloud inventory copy is informational.
+Core entities: User, Organization, Membership, PermissionGrant, Fleet, Device, DeviceCertificate, EnrollmentToken, ApplicationIdentity, ApplicationGrant, Capability, ServiceExport, TelemetrySchema, TelemetrySample, TelemetryAggregate, StructuredLogEvent, Event, AlarmDefinition, AlarmRule, AlarmCondition, Incident, NotificationDestination, NotificationDelivery, LogBatch, AuditRecord, ApplicationPackage, ApplicationRelease, ReleaseChannel, DistributionTarget, InstallationResult, PublisherGrant, and BackupRecord. Deployments and device grants are authoritative locally; any cloud inventory copy is informational.
 
 Every tenant-owned record includes tenant ID. Every ingested event includes server receipt time and a unique device/message key. Use partitioned telemetry tables and bounded queries. High-cardinality raw logs are compressed into segment files or an S3-compatible store with searchable metadata in PostgreSQL; do not load unlimited logs into the relational database by default.
 
 Proposed cloud retention: raw telemetry seven days; five-minute aggregates 90 days; hourly aggregates one year; synchronized logs 14 days; incidents and security audit records one year. These server-side settings are configurable within server quotas. Appliance history instead follows its capacity-based data policy, with optional age limits and clear data export behavior.
 
-Back up cloud database, log segments/object references, broker ACL state, certificate authority material, application secret-encryption keys, and ASP.NET Core Data Protection keys. Encrypt backups using keys stored separately from backup media. A database backup without required cryptographic keys is not a recoverable deployment.
+Back up cloud database, log segments/object references, broker ACL state, certificate authority material, application catalog and retained package artifacts/references, publisher grants, application secret-encryption keys, and ASP.NET Core Data Protection keys. Encrypt backups using keys stored separately from backup media. A database backup without required cryptographic keys is not a recoverable deployment.
 
 Appliance backups include deployment manifests, selected data volumes, and configuration. Authentication/device identity material is excluded from portable backups by default. Restoring onto a different appliance requires physical setup and cloud enrollment, preventing cloned identities. Consistent database/container data backups require application quiescing or application-aware hooks.
 
@@ -334,7 +469,7 @@ Initial self-hosted sizing target: four virtual CPUs, 8 GB RAM, SSD-backed stora
 
 # Platform security updates and release engineering
 
-Threat model: hostile LAN clients, stolen cloud credentials, compromised application containers, malicious images and archives, broker abuse, cross-tenant requests, log injection, supply-chain compromise, physical access, storage exhaustion, and unreliable power/connectivity.
+Threat model: malicious or substituted USB nodes, misidentified provisioning disks, compromised node services, cross-node grant abuse, unintended Ethernet forwarding, shared power/link exhaustion, hostile LAN clients, stolen cloud credentials, compromised application containers, malicious images and archives, broker abuse, cross-tenant requests, log injection, supply-chain compromise, physical access, storage exhaustion, and unreliable power/connectivity.
 
 Use least-privilege host services, protected local sockets, syscall restrictions, bounded resource use, disabled debug endpoints, hardened TLS, dependency patching, and restricted outbound destinations where practical. Encrypt secrets at rest, but do not claim that a software key stored on removable media protects against an attacker who can read the entire device. Strong physical key protection is a separate hardware/provisioning requirement.
 
@@ -357,11 +492,20 @@ CI produces firmware/image manifests, application containers, SBOMs, dependency/
 | RTC battery failure or implausible clock | Apps continue; protected login waits for trusted time or physical repair |
 | Expired/revoked device certificate | No insecure fallback; queue within limits and require approved renewal/re-enrollment |
 | Application fills its volume | Quota enforcement protects host operation and security queues |
-| Docker fails | Host management, time and monitoring remain available |
+| Docker fails | Host management, time, logging and alarm evaluation remain available; container collection reports unavailable |
+| App floods logs/telemetry | Per-app limits and fairness protect other sources; bounded loss counters remain visible |
+| Platform API/collector restarts | Reconcile app identity, hardware leases and active alarms; report gaps and apply configured hardware fallback |
+| Cloud publishing unavailable | Direct upload and installed apps remain usable; discovery reports publishing unavailable |
+| Package transfer interrupted | Partial content cannot install; bounded staging is recoverable or cleaned |
 | Network misconfiguration | Confirmation timeout restores previous working configuration |
 | Power loss during OS update | Boot a verified slot; do not execute partial images |
 | Corrupt app data | Surface failure; do not claim OS rollback repairs it |
 | Cloud worker crash | Replay/deduplicate durable events and resume notification outbox |
+| USB node/link loss | Mark node resources unavailable; bound retries/queues, enforce node-local I/O fallback, protect mounts and prevent duplicate writers |
+| Primary unavailable | Nodes enforce approved disconnected-operation policy; no implicit election, failover or unrestricted continued control |
+| Expansion power/bandwidth exhausted | Reject unsupported admission, preserve management traffic, surface measured faults and avoid claiming unavailable power telemetry |
+| Node provisioning interrupted | No partial image becomes ready; resume/recover through recorded target-bound transaction with identity revalidation |
+| Node Ethernet misconfiguration | USB management remains isolated and reachable; confirmation timeout restores the prior approved service configuration |
 
 Initial appliance budgets on the reference Pi 5: under 512 MiB steady platform memory excluding application containers and reclaimable cache; under 3% of total four-core CPU capacity at idle with five mostly idle sample containers; management available within 60 seconds on SSD; p95 local read-only UI/API operations under one second excluding bulk transfers. Measure and revise before declaring supported capacity.
 
@@ -369,26 +513,40 @@ Time/client authentication and management must start without cloud availability.
 
 # Implementation phases and deliverables
 
-The plan assumes two experienced engineers with dedicated security review and hardware test time. A preliminary 18–26 week range is a planning allowance, not a commitment. Hardware compatibility, verified boot/update work, and PROX3MUS integration are the principal schedule uncertainties.
+The plan assumes two experienced engineers with dedicated security review and hardware test time. The previous 18–26 week planning allowance predates the expanded application platform scope and must be re-estimated. Durations below are provisional where retained; the new contract, shared-service and distribution gates require estimates after design/prototype review. Hardware compatibility, shared-service resource cost, verified boot/update work, PROX3MUS integration, USB boot compatibility and dock power/bandwidth validation remain schedule uncertainties. Expansion-node work adds scope and must be estimated independently after its prototype gate; it is not absorbed into the previous allowance.
 
 | Phase | Indicative duration | Deliverables and exit gate |
 | --- | --- | --- |
-| 0 Requirements and threat model | 1 week | Accepted scope, abuse cases, trust diagram, recovery UX, hardware BOM and decision records |
-| 1 Compatibility prototypes | 2–3 weeks | Pi 4 primary and Pi 3B constrained-resource ARM64 tests on a temporary Linux test image; .NET, Docker, network time and GPIO/serial samples; subsequent Pi 5 Buildroot, RTC battery, RP1 I/O and secure boot/update validation; PROX3MUS capability report |
-| 2 Appliance foundation | 3–4 weeks | Repeatable image build, host broker, read-only root, capacity-based history cleanup, network rollback, local HTTPS and commissioning |
-| 3 Authentication and application management | 3–4 weeks | Mandatory password/TOTP, replay protection, physical recovery, manifest validation, files, device grants, live GPIO/interface view, timed I/O overrides and restricted multi-container deployment |
-| 4 Monitoring vertical slice | 2–3 weeks | Local metrics/alarms, per-device enrollment, mTLS MQTT, HTTPS logs, policy-managed offline queues, bounded traffic traces, basic cloud device dashboard |
-| 5 Cloud and self hosting | 3–4 weeks | Tenant RBAC, history, alarm inbox, email/webhooks, retention, backup/restore, Compose distribution and PROX3MUS staging |
-| 6 Production hardening and beta | 4–5 weeks | Signed A/B updates, verified boot/root integrity, fault injection, restore drills, independent security review, operator docs and release candidate |
+| 0 Requirements and threat model | 1 week, re-estimate | Accepted application platform scope, abuse cases, trust diagram, recovery UX, hardware BOM and decisions |
+| 1 Compatibility prototypes | 2–3 weeks plus expansion prototype, re-estimate | Pi 4/Pi 3B ARM64 and .NET/native compatibility; subsequent Pi 5 Buildroot, RTC, RP1 and boot/update validation; PROX3MUS capability report; Pi 5 USB-C simultaneous power/data and RPIBOOT experiment, dock/cable power and shared-throughput measurements, supported-node matrix |
+| 2 Appliance foundation | 3–4 weeks, re-estimate | Host broker, image foundation, capacity policy, network rollback, local HTTPS, commissioning/recovery and trusted-clock policy |
+| 3 Platform contracts and agent discovery | Estimate after contract review | Versioned app/package manifests, API/schema catalogue, authoring guide, app identities/grants, telemetry/log/alarm contracts, MCP documentation/discovery/validation, registered-cloud target context; unavailable features explicitly marked |
+| 4 Shared services and platform conformance | Estimate after prototype | Broker-backed simulated GPIO then hardware validation, scoped telemetry exchange, centralized host/container/structured logs, diagnostic controls, priority rules and durable alarm lifecycle; offline, restart, quota and isolation checks |
+| 5 Application delivery and cloud publishing | Estimate after package prototype | Direct package upload, persistence/secrets, trust checks, restricted multi-service install and rollback; tenant catalog, immutable cloud releases, publishing authorization, registered-target distribution and install approvals |
+| 6 Cloud monitoring and self hosting | 3–4 weeks, re-estimate | Enrollment/mTLS, bounded log/telemetry replay, PostgreSQL/RLS, correlated incidents, notification outbox, RBAC, retention, catalog/log backups and restore, Compose/PROX3MUS staging |
+| 6a USB node adoption and compute | Estimate after USB prototype | Adopt an already booted compatible node over USB with automatic private addressing, node identities/mTLS, local grants, monitoring and one remotely placed container; reconnect/primary-loss isolation gates |
+| 6b Expansion services | Estimate after node contract review | Managed storage and OCI hosting/cache, scoped GPIO/I/O, certified video and configurable Ethernet modes; locality/grants, safe detach, disconnected behavior and resource admission verified |
+| 6c Blank-node USB provisioning | Estimate after image/provisioning prototype | Target-bound owner-approved Pi 5 imaging, signed image checks, single-use adoption and resumable recovery; extend to other boards only after separate acceptance |
+| 7 Production hardening and beta | 4–5 weeks, re-estimate | Signed A/B updates, verified boot/root integrity, fault injection, hardware acceptance, restore drills, security review, operator/authoring docs and release candidate |
 
-Some work overlaps after the compatibility gate; ranges must be re-estimated from measured results. Build telemetry message contracts and the first cloud ingestion path during the appliance phases so IoT support is part of the architecture from the beginning, not retrofitted.
+Work may overlap after compatibility checks, but the platform contract and shared-service conformance gates precede hosted product app development. Contract samples are development fixtures used to prove the platform, not a reason to postpone platform design. Cloud distribution is a separate gate: direct-upload development can proceed after local platform conformance, while an app must not claim cloud publishing support until that path is implemented and verified.
 
-Milestone A is a development-only image that boots offline, keeps time, runs a sample app, and reports to a self-hosted server. Milestone B is a private beta with enforced authentication/recovery and complete monitoring. General availability requires the production hardening gate; beta convenience settings cannot silently become production defaults.
+The first conformance scenario validates a manifest against target discovery, grants a simulated GPIO lease, publishes typed app telemetry and structured logs, and lets a second explicitly authorized consumer read them. Exercise a priority-triggered alarm through raise, acknowledgement, recovery and replay; verify denial for an ungranted consumer. Repeat physical I/O on validated hardware and prove restart/fallback behavior. Next, publish an immutable package to a test cloud, discover its URL/capabilities through API/MCP, download it to an enrolled appliance, approve installation and demonstrate health rollback. Test direct offline upload of the same self-contained package separately.
+
+Milestone A is a development platform with accepted versioned contracts, working API/MCP discovery and validation, shared local services, and the offline conformance scenario. Milestone B adds verified direct upload/cloud package distribution and correlated cloud logging/alarming. Private beta requires enforced authentication/recovery and complete monitoring. Expansion milestone C first proves USB adoption/compute on an already booted node, then service roles, then blank-node Pi 5 provisioning; phases 6a–6c depend on compatible contracts, image/update foundations and the USB power/data prototype, not on cloud availability. Production expansion support requires its provisioning, power, isolation and failure tests plus phase 7 hardening. General availability requires production hardening; beta convenience settings cannot silently become production defaults.
 
 # Work breakdown and repository structure
 
-Proposed solution layout:
-- `src/PiDock.Contracts`: versioned MQTT, log and API contracts.
+Proposed solution layout (new names below are planned components, not claims that these projects exist; current shared contracts are in `PiDock.Core` and appliance sampling/delivery in `PiDock.Agent`):
+- `src/PiDock.Contracts`: versioned application/package manifests, capability, API, telemetry, log, alarm and distribution contracts.
+- `src/PiDock.Platform.Api`: scoped application-facing services and capability discovery, separate from owner administration.
+- `src/PiDock.Platform.Client`: small .NET client and authoring helpers.
+- `src/PiDock.Agent.Mcp`: authorized documentation, target/cloud discovery, validation and scoped agent tools.
+- `src/PiDock.Nodes`: planned primary node inventory, USB link lifecycle, adoption, capabilities, placement and reconciliation.
+- `src/PiDock.Provisioning`: planned isolated privileged USB boot/image writer with signed-image and target-identity checks.
+- `src/PiDock.Node.Agent`: planned node-local service lifecycle, scoped primary authentication and broker integration; share the base image and existing service code where appropriate.
+- `src/PiDock.Logging`: host/container adapters, structured ingestion, bounded storage and query services.
+- `src/PiDock.Cloud.Applications`: tenant catalog, immutable publishing, artifact access and distribution tracking.
 - `src/PiDock.Security`: reusable TOTP policy, credential primitives and contract validation without sharing secrets.
 - `src/PiDock.Appliance.Web`: local management UI and authenticated API.
 - `src/PiDock.Appliance.Agent`: metrics, local rules, spooling and outbound connections.
@@ -402,7 +560,20 @@ Proposed solution layout:
 - `tests/`: protocol/security integration suites, hardware acceptance and fault injection.
 - `docs/`: installation, recovery, application authoring, hosting and maintenance.
 
-Early implementation tickets, in order: capture decisions and supported hardware; build a repeatable Pi 5 image; validate .NET/native dependencies on the production libc; prove RTC and NTS startup; exercise restricted GPIO and serial containers; prove signed boot plus verified root and slot recovery; confirm PROX3MUS transport/persistence; define contracts; implement ownership and physical recovery; implement a single device-to-cloud telemetry path. Do not spend the first milestone polishing dashboards before these constraints are proven.
+Next implementation tickets, in dependency order:
+
+1. Inventory implemented contracts and capabilities, record the expanded threat model, and publish versioned manifest/package, API, telemetry, log and alarm schemas with compatibility/error rules.
+2. Define app/agent/publisher identities and grants, registered-cloud discovery, and offline authoring/validation; implement read-only API/MCP discovery before mutating tools.
+3. Prove scoped broker-backed simulated I/O, telemetry exchange, central host/container/structured logging, common timestamps, diagnostic controls and the priority/alarm lifecycle using conformance fixtures.
+4. Complete persistence, secrets and publisher policy; implement direct package upload and constrained installation with health rollback.
+5. Add tenant-scoped cloud publishing/artifact storage, immutable releases, endpoint discovery, authorized distribution and approval-bound installation; verify cloud and standalone paths.
+6. Extend existing device monitoring/replay with shared-service forwarding, correlated incidents, notifications, PostgreSQL/RLS and complete backup/restore.
+7. Define versioned node identity/capability/placement and lifecycle contracts; prototype USB-C power/data and private automatic addressing, then adopt a compatible booted node and place one container without Ethernet or cloud.
+8. Add node storage and image hosting/cache, then broker-backed I/O, video and opt-in Ethernet modes with per-node grants, budgets, safe removal and fault tests.
+9. Implement signed, target-bound blank-node USB provisioning and recovery on Pi 5; qualify other boards/docks separately, then complete node updates, backup/replacement and production expansion acceptance.
+10. Continue hardware compatibility, trusted-clock/physical recovery and signed image/update work in parallel where independent, then complete hardware/fault/security release gates before production.
+
+Do not begin hosted product applications until the local platform contract and conformance gate passes. Do not represent planned APIs, physical drivers, agent tools or cloud publishing as available in discovery or documentation.
 
 # Release acceptance and security verification
 
@@ -412,6 +583,14 @@ Early implementation tickets, in order: capture decisions and supported hardware
 | Local login | Correct and incorrect codes, replay, skew, clock rollback, throttling, service restart and session expiry tested |
 | Physical recovery | Network scans and API/MQTT attempts cannot trigger reset; console process works with cloud disconnected and revokes sessions |
 | Time | Battery-backed power-off retention measured; dead RTC, wrong date, blocked NTS and certificate-bootstrap cases handled without insecure fallback |
+| Platform contracts | Version negotiation, schema validation, explicit unavailable/simulated/denied states, authoring bundle and .NET client interoperate; incompatible apps are rejected before installation |
+| API/MCP permissions | Own-app publication identity enforced; cross-app reads denied without grants; revoked credentials/streams terminate; agent documents/logs cannot authorize actions; no owner secrets exposed |
+| Registered-cloud discovery | Registered URL and instance/tenant binding match approved configuration; absent/offline/unsupported publishing states work; stale context, redirects and unauthorized publishers cannot redirect releases |
+| Shared telemetry/services | Authorized discovery, bounded history/subscriptions, schema/cardinality limits, gaps/backpressure and offline app exchange verified |
+| Central logging | Host and managed apps appear in one scoped timeline; UTC observation/receipt times, clock trust, boot ordering, priority/diagnostic mappings, temporary verbosity expiry, redaction and flood fairness verified |
+| Shared alarms | Priority 1–4 mapping, event/threshold rules, raise/acknowledge/clear, restart state, suppression/escalation, no duplicate local/cloud replay notifications and collector-failure alarms verified |
+| Package delivery | Offline self-contained direct upload and cloud distribution use identical validation; partial/tampered/wrong-architecture packages rejected; manifests, grants and previous version survive rollback |
+| Cloud publishing | Tenant/publisher isolation, immutable version collision, artifact digest/signature checks, target approval, withdrawal, quotas, safe garbage collection and catalog/artifact restore verified |
 | Runtime isolation | Malicious app cannot read owner secrets, access runtime socket, change clock or obtain unassigned devices |
 | Files and inputs | Traversal, symlink races, malicious archives, oversized uploads, escaped log display and SSRF tests pass |
 | Networking | Container ports respect policy; Wi-Fi/static address failure rolls back; HTTPS trust workflow is usable |
@@ -424,7 +603,13 @@ Early implementation tickets, in order: capture decisions and supported hardware
 | Data policy | Different SD/SSD capacities, app growth, quota changes, full volume/inodes, unacknowledged data, clock rollback and power loss during purge; actual free space and protected files verified |
 | Live I/O | Correct Pi 5 mapping, ownership visibility, stale/unknown states, simulated versus physical values, exclusive override handoff, expiry/disconnect/restart fallback and audit records |
 | Interface traces | Serial traffic is not consumed twice; unsupported sniffing is labeled; filters, redaction/exclusions, capture caps, auto-stop and no default cloud trace upload verified |
-| Capacity | Appliance budgets and a 100-device cloud workload measured with published test conditions |
+| USB expansion transport/power | Multiple nodes use one USB-C power/data cable each; no Ethernet, Wi-Fi, router DHCP or user IP setup; qualified dock per-port/aggregate load, cables, hotplug, power faults and management fairness measured |
+| Node provisioning | Supported blank-storage Pi 5 installs verified image and pairs offline from cache; wrong target, primary/other-node disk, existing data, unsupported board, tampering, token replay/expiry, interrupted write/boot/pair and already-owned node cases fail safely |
+| Node identity/isolation | Address/port changes preserve identity; substituted node rejected; scoped grants, revocation, protocol incompatibility and cloud-independent ownership enforced |
+| Expansion services | Compute placement/locality, storage quotas and unavailable-mount behavior, OCI digest/auth/GC, node-local GPIO lease fallback, certified video limits and service disable/dependency handling verified |
+| Node Ethernet | Disabled on adoption; each enabled mode requires grants; DHCP/static, NAT/bridge/filter rules, external exposure and rollback tested; no implicit DHCP service, management bridging or loss of USB control |
+| Node lifecycle/recovery | USB/primary loss, restart, safe detach, reconnect reconciliation, signed update/rollback, membership/volume restore and replacement verified; no output replay, silent data substitution or duplicate writers |
+| Capacity | Appliance budgets and a 100-device cloud workload measured with published test conditions; expansion node counts and useful USB throughput qualified separately under mixed compute/storage/video loads |
 
 Use unit tests for security-sensitive logic and contract compatibility; integration tests for broker ACLs, database policies, queues and migrations; real Pi hardware tests for clock, I/O, boot, recovery and power loss. An emulator is insufficient for secure boot or RTC acceptance.
 
@@ -432,10 +617,10 @@ Before public release, complete a security review focused on privileged broker b
 
 # Decisions to validate before implementation commitments
 
-Agreed: Pi 5 with RTC battery; one appliance owner; mandatory external authenticator; physically gated resets; independent local verification; authenticated time synchronization; built-in MQTT monitoring/alarms/log forwarding; automatic capacity-based history purging with editable UI defaults; live GPIO/interface monitoring, controlled I/O forcing and bounded traffic diagnostics; multi-user cloud RBAC; Blazor Server; hosted portal and equivalent self-hosted distribution.
+Agreed: USB-connected expansion nodes with automatic supported-board provisioning and a single USB-C power/data cable per node; validated powered dock and automatic private addressing with no required Ethernet interconnect; selectable compute, storage, Docker image hosting/cache, GPIO/I/O, video and Ethernet services, with Ethernet disabled until explicitly configured; versioned application platform API and authoring contracts before hosted app development; authorized MCP documentation/discovery/validation with registered-cloud URL and publishing capability context; shared scoped hardware/telemetry/services; centralized host/app logging with common UTC envelopes and independent diagnostic detail; operational priorities Critical=1, Warning=2, Alert=3, Notice=4 and shared local/cloud alarm lifecycle; individual direct package uploads and tenant-scoped immutable PiDockCloud publishing/distribution subject to local install policy; Pi 5 with RTC battery; one appliance owner; mandatory external authenticator; physically gated resets; independent local verification; authenticated time synchronization; built-in MQTT monitoring/alarms/log forwarding; automatic capacity-based history purging with editable UI defaults; live GPIO/interface monitoring, controlled I/O forcing and bounded traffic diagnostics; multi-user cloud RBAC; Blazor Server; hosted portal and equivalent self-hosted distribution.
 
-Proposed defaults in this specification: Buildroot/glibc/systemd production host, .NET 10 LTS, Docker Engine, PostgreSQL, Mosquitto, SMTP/webhooks, restricted Compose support, 4 GB minimum appliance RAM, software-protected secrets with explicit physical limits, and optional packaged NTS service.
+Proposed defaults in this specification: Buildroot/glibc/systemd production host, .NET 10 LTS, Docker Engine, PostgreSQL, Mosquitto, SMTP/webhooks, restricted Compose support, 4 GB minimum appliance RAM, software-protected secrets with explicit physical limits, optional packaged NTS service, private isolated USB network gadget transport, and one base image with selectable node roles.
 
-Compatibility gates decide: exact kernel/runtime package versions; root integrity/update tooling and Pi 5 firmware constraints; hardware-backed secret protection requirements; supported camera/display combination; measured RTC holdover policy; PROX3MUS capabilities; production image signing authority and customer-managed signing model.
+Compatibility gates decide: exact kernel/runtime package versions; root integrity/update tooling and Pi 5 firmware constraints; hardware-backed secret protection requirements; supported camera/display combination; measured RTC holdover policy; PROX3MUS capabilities; production image signing authority and customer-managed signing model; expansion board/firmware/storage matrix and provisioning entry steps; powered dock/cable BOM and USB-C power behavior; measured node count/link budgets; certified expansion services and primary/node update compatibility.
 
 The signed production profile, local recovery design and tenant isolation are release gates. If a prototype reveals a conflict, update the specification and threat model before changing those guarantees.

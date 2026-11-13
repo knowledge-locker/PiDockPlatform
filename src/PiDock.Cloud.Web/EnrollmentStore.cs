@@ -15,9 +15,10 @@ public sealed class EnrollmentStore
     private readonly object gate = new(); private readonly string path;
     private readonly TimeProvider clock; private readonly IDeviceCertificateIssuer issuer;
     private List<DeviceInvitation> entries;
-    public EnrollmentStore(StateDirectory state, TimeProvider clock, IDeviceCertificateIssuer issuer)
+    private readonly UserStore? users;
+    public EnrollmentStore(StateDirectory state, TimeProvider clock, IDeviceCertificateIssuer issuer, UserStore? users = null)
     {
-        this.clock = clock; this.issuer = issuer; path = Path.Combine(state.Path, "enrollments.json");
+        this.users = users; this.clock = clock; this.issuer = issuer; path = Path.Combine(state.Path, "enrollments.json");
         entries = File.Exists(path) ? JsonSerializer.Deserialize<List<DeviceInvitation>>(File.ReadAllText(path), StateFiles.Json)! : [];
     }
     public bool Ready => issuer.Ready;
@@ -25,13 +26,13 @@ public sealed class EnrollmentStore
         && (user.IsInRole("Owner") || user.IsInRole("Administrator"));
     public IReadOnlyList<DeviceInvitation> For(ClaimsPrincipal user)
     {
-        if (user.Identity?.IsAuthenticated != true || !IdentityRules.IsId(user.FindFirstValue("tenant"))) return [];
+        if ((users is not null && !users.IsCurrent(user)) || user.Identity?.IsAuthenticated != true || !IdentityRules.IsId(user.FindFirstValue("tenant"))) return [];
         lock (gate) return entries.Where(e => e.TenantId == user.FindFirstValue("tenant"))
             .Select(e => e with { CodeHash = "", Reply = null, State = e.State == "Pending" && e.ExpiresAt <= clock.GetUtcNow() ? "Expired" : e.State }).ToArray();
     }
     public EnrollmentCode Create(ClaimsPrincipal user, string name)
     {
-        if (!CanManage(user)) throw new UnauthorizedAccessException();
+        if ((users is not null && !users.IsCurrent(user)) || !CanManage(user)) throw new UnauthorizedAccessException();
         if (!Ready) throw new InvalidOperationException("Enrollment signing is not configured.");
         name = name.Trim();
         if (name.Length is < 1 or > 80 || name.Any(char.IsControl)) throw new ArgumentException("Enter a device name of 1–80 characters.");
@@ -49,7 +50,7 @@ public sealed class EnrollmentStore
     }
     public bool Cancel(ClaimsPrincipal user, Guid id)
     {
-        if (!CanManage(user)) throw new UnauthorizedAccessException();
+        if ((users is not null && !users.IsCurrent(user)) || !CanManage(user)) throw new UnauthorizedAccessException();
         lock (gate)
         {
             int index = entries.FindIndex(e => e.Id == id && e.TenantId == user.FindFirstValue("tenant") && e.State == "Pending");
@@ -76,6 +77,23 @@ public sealed class EnrollmentStore
             Save(updated); return reply;
         }
     }
+    public (string Tenant, string Device)? AuthenticateRemoteDevice(string certificatePem, string nonce, string signature)
+    {
+        try {
+            if (certificatePem.Length > 8192 || signature.Length > 1024) return null;
+            using var certificate = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(certificatePem);
+            var now = clock.GetUtcNow().UtcDateTime;
+            if (certificate.NotBefore.ToUniversalTime() > now || certificate.NotAfter.ToUniversalTime() <= now) return null;
+            using var key = System.Security.Cryptography.X509Certificates.RSACertificateExtensions.GetRSAPublicKey(certificate);
+            if (key is null || !key.VerifyData(RemoteProtocol.ProofBytes(nonce), Convert.FromBase64String(signature), HashAlgorithmName.SHA256, RSASignaturePadding.Pss)) return null;
+            lock (gate) foreach (var entry in entries.Where(e => e.State == "Registered" && e.Reply is not null)) {
+                using var issued = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(entry.Reply!.CertificatePem);
+                if (CryptographicOperations.FixedTimeEquals(certificate.RawData, issued.RawData)) return (entry.TenantId, entry.DeviceId);
+            }
+        } catch (Exception e) when (e is CryptographicException or FormatException or ArgumentException) { }
+        return null;
+    }
+    public (string Tenant, string Device)[] RemoteRegistrations() { lock (gate) return entries.Where(e => e.State == "Registered" && e.Reply?.ExpiresAt > clock.GetUtcNow()).Select(e => (e.TenantId, e.DeviceId)).ToArray(); }
     private static string Hash(string code) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)));
     private void Save(List<DeviceInvitation> updated)
     {

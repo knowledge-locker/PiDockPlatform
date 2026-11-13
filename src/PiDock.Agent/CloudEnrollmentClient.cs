@@ -21,7 +21,12 @@ public sealed class CloudEnrollmentClient
             return File.Exists(path) ? JsonSerializer.Deserialize<CloudConnection>(File.ReadAllText(path), StateFiles.Json) : null;
         }
     }
-    public async Task<CloudConnection> ConnectAsync(string server, string code, string? serverCaPem = null, CancellationToken ct = default)
+    public Task<CloudConnection> ConnectAsync(string server, string code, string? serverCaPem = null, CancellationToken ct = default)
+        => ConnectCore(server, code, serverCaPem, null, ct);
+    // Caller must obtain local-owner fresh MFA. Reset old cloud permissions before committing.
+    public Task<CloudConnection> MoveAsync(string server, string code, Func<Task> revokePermissions, string? serverCaPem = null, CancellationToken ct = default)
+        => ConnectCore(server, code, serverCaPem, revokePermissions ?? throw new ArgumentNullException(nameof(revokePermissions)), ct);
+    private async Task<CloudConnection> ConnectCore(string server, string code, string? serverCaPem, Func<Task>? revokePermissions, CancellationToken ct)
     {
         if (!Enabled) throw new InvalidOperationException("Enrollment is disabled in the isolated UI review.");
         if (!Uri.TryCreate(server.Trim(), UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.UserInfo.Length != 0 ||
@@ -33,8 +38,10 @@ public sealed class CloudEnrollmentClient
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(20)); ct = timeout.Token;
-            if (Connection is not null) throw new InvalidOperationException("This device already has a cloud connection. Moving servers requires a separate local approval flow.");
-            var pendingPath = Path.Combine(directory, "cloud-enrollment-pending.json");
+            var previous = Connection; bool moving = revokePermissions is not null;
+            if (previous is not null && !moving) throw new InvalidOperationException("This device already has a cloud connection. Use Change cloud server locally.");
+            if (moving && previous is null) throw new InvalidOperationException("No existing cloud connection to replace.");
+            var pendingPath = Path.Combine(directory, moving ? "cloud-move-pending.json" : "cloud-enrollment-pending.json");
             string origin = uri.AbsoluteUri, hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
             var pending = File.Exists(pendingPath) ? JsonSerializer.Deserialize<PendingCloudKey>(File.ReadAllText(pendingPath), StateFiles.Json) : null;
             using var key = RSA.Create(2048);
@@ -60,18 +67,26 @@ public sealed class CloudEnrollmentClient
             if (length > 32768) throw new InvalidOperationException("Invalid cloud enrollment response.");
             var reply = JsonSerializer.Deserialize<EnrollmentReply>(buffer.AsSpan(0, length), StateFiles.Json) ?? throw new InvalidOperationException("Invalid cloud enrollment response.");
             ValidateReply(reply, key);
-            var connection = new CloudConnection(origin, reply.TenantId, reply.DeviceId, reply.CertificatePem, pending!.PrivateKeyPem, reply.CaPem, reply.MqttHost, reply.MqttPort, reply.ExpiresAt);
+            var connection = new CloudConnection(origin, reply.TenantId, reply.DeviceId, reply.CertificatePem, pending!.PrivateKeyPem, reply.CaPem, reply.MqttHost, reply.MqttPort, reply.ExpiresAt, serverCaPem);
             // Stage runtime files first; commit the record before making the profile active.
-            var prepared = mqtt.PrepareEnrollment(connection);
-            try { StateFiles.WriteAtomic(Path.Combine(directory, "cloud-connection.json"), JsonSerializer.Serialize(connection, StateFiles.Json)); }
+            var prepared = mqtt.PrepareEnrollment(connection, moving);
+            try {
+                // Validate runtime material before the old registration or permissions can change.
+                _ = prepared.Options("pidock-enrollment-check");
+                if (moving) {
+                    StateFiles.WriteAtomic(Path.Combine(directory, "cloud-connection.previous.json"), JsonSerializer.Serialize(previous, StateFiles.Json));
+                    await revokePermissions!();
+                }
+                StateFiles.WriteAtomic(Path.Combine(directory, "cloud-connection.json"), JsonSerializer.Serialize(connection, StateFiles.Json));
+            }
             catch { prepared.Dispose(); throw; }
-            mqtt.ActivatePrepared(prepared);
+            mqtt.ActivatePrepared(prepared, moving);
             try { File.Delete(pendingPath); } catch (IOException) { /* One bounded redundant key file can be cleaned up locally. */ }
             return connection;
         }
         finally { gate.Release(); }
     }
-    public static HttpClientHandler CreateHandler(string? caPem)
+    public static HttpClientHandler CreateHandler(string? caPem, bool allowSystemTrust = false)
     {
         var handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false };
         if (!string.IsNullOrWhiteSpace(caPem))
@@ -81,6 +96,7 @@ public sealed class CloudEnrollmentClient
             byte[] publicCa = ca.RawData;
             handler.ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
             {
+                if (allowSystemTrust && errors == SslPolicyErrors.None) return true;
                 if (certificate is null || (errors & (SslPolicyErrors.RemoteCertificateNameMismatch | SslPolicyErrors.RemoteCertificateNotAvailable)) != 0) return false;
                 using var root = X509CertificateLoader.LoadCertificate(publicCa); using var chain = new X509Chain();
                 chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust; chain.ChainPolicy.CustomTrustStore.Add(root);

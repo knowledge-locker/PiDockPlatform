@@ -1,0 +1,36 @@
+#!/bin/sh
+# This script and root.env are inside the signed boot ramdisk. Never source data-partition files.
+set -eu
+export PATH=/bin:/sbin
+mount -t devtmpfs devtmpfs /dev
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
+exec </dev/console >/dev/console 2>&1
+# A signed build timestamp only bootstraps TLS plausibility; it is never a trusted-time proof.
+epoch=$(cat /etc/build-epoch)
+[ "$(date +%s)" -ge "$epoch" ] || date -u -s "@$epoch"
+fail() { echo "PiDockOS: verified startup failed: $*. Press R during startup for physical recovery." >/dev/console; sleep 3; boot-reboot normal; exit 1; }
+# A failed system slot must not make its independent recovery environment unreachable.
+echo 'PiDockOS: press R for physical recovery (5 seconds).'
+key=
+read -r -n 1 -t 5 key </dev/tty1 || true
+case "$key" in r|R) exec boot-reboot 1;; esac
+. /etc/root.env
+# Unauthenticated external command-line arguments cannot select another root or change its hash.
+root_device=
+for attempt in $(seq 1 60); do
+    devices=$(blkid -t "PARTUUID=$ROOT_PARTUUID" -o device || true)
+    count=$(echo "$devices" | grep -c '^/dev/' || true)
+    [ "$count" -le 1 ] || fail 'ambiguous system media; disconnect duplicate PiDockOS media'
+    if [ "$count" -eq 1 ]; then root_device=$devices; break; fi
+    sleep 1
+done
+[ -b "$root_device" ] || fail 'system partition missing'
+veritysetup open "$root_device" pidock-root "$root_device" "$ROOT_HASH" --hash-offset "$HASH_OFFSET" --data-blocks "$((HASH_OFFSET / 4096))" --data-block-size 4096 --hash-block-size 4096 --hash sha256 --readonly --restart-on-corruption || fail 'root integrity check rejected'
+mount -t ext4 -o ro /dev/mapper/pidock-root /newroot || fail 'verified root cannot be mounted'
+mount --move /dev /newroot/dev
+mount --move /proc /newroot/proc
+mount --move /sys /newroot/sys
+# /var is a dedicated persistent partition mounted by systemd before the application services.
+exec switch_root /newroot /sbin/init --unit=multi-user.target

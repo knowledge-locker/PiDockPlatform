@@ -682,3 +682,36 @@ textarea { width:100%; box-sizing:border-box; padding:12px; border:1px solid var
 .telemetry-help::backdrop { background:#28242955; }
 .telemetry-help .section-heading { gap:16px; align-items:center; }
 .telemetry-help h2 { margin:0; }
+
+.os-update-select { display:block; width:100%; font:inherit; background:var(--input); color:var(--text); border:1px solid var(--input-border); border-radius:7px; padding:11px; margin-top:8px; }
+.os-update-select:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+
+.reauth-dialog { width:min(480px, calc(100vw - 40px)); max-height:calc(100dvh - 40px); box-sizing:border-box; padding:28px; border:1px solid var(--line); border-radius:16px; background:var(--panel); color:var(--text); box-shadow:0 24px 80px #0004; }
+.reauth-dialog::backdrop { background:#12121b99; }
+.reauth-dialog h2 { margin-top:0; }
+.reauth-dialog .button-row { justify-content:flex-end; margin-top:20px; }
+.reauth-error:empty { display:none; }
+.reauth-error { color:var(--accent); }
+
+/* Account setup and team management share the platform's visual language. */
+.account-page { width: min(880px, calc(100% - 40px)); margin: 48px auto; }
+.account-page > .brand { margin-bottom: 28px; }
+.account-page .card { margin: 24px 0; }
+.account-page form { max-width: 560px; margin: 16px 0; }
+.account-page label { display: grid; gap: 6px; margin: 16px 0; }
+.account-page input, .account-page select { width: 100%; }
+.setup-key { overflow-wrap: anywhere; user-select: all; }
+.workspace-select { display: flex; align-items: center; gap: 8px; margin: 0; }
+.workspace-select select { max-width: 220px; }
+.account-page select, .workspace-select select { font: inherit; background: var(--input); color: var(--text); border: 1px solid var(--input-border); border-radius: 7px; padding: 10px; }
+.workspace > header { min-height: 78px; height: auto; gap: 12px; padding-top: 12px; padding-bottom: 12px; flex-wrap: wrap; }
+.workspace > header > div { flex-wrap: wrap; gap: 14px; }
+@media(max-width:650px) { .workspace-select { flex-wrap: wrap; } .account-page { margin: 20px auto; padding: 18px 0; } }
+
+.device-access-summary { display:flex; flex-wrap:wrap; align-items:flex-start; gap:1rem 2.5rem; margin:0 0 1.5rem; padding:1rem 0; border-block:1px solid var(--line, #e5dfe2); }
+.device-control-summary { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; }
+.remote-interface-summary { flex:1; min-width:min(100%, 20rem); }
+.remote-interface-summary > small { display:block; margin-top:.5rem; }
+.remote-access-details { margin-top:.5rem; font-size:.875rem; }
+.remote-access-details summary { cursor:pointer; }
+.device-access-note { flex-basis:100%; }

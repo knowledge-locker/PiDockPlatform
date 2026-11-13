@@ -1,0 +1,91 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject AuthenticationStateProvider Authentication
+@inject UserStore Users
+@inject IJSRuntime JS
+
+<dialog @ref="dialog" class="reauth-dialog" aria-labelledby="@titleId" aria-describedby="@descriptionId" @oncancel="Cancel" @oncancel:preventDefault>
+@if (pending is not null)
+{
+    <form @onsubmit="Submit" @onsubmit:preventDefault>
+        <h2 id="@titleId">@action</h2>
+        <p id="@descriptionId">@description</p>
+        <p>Confirm with your @(Cloud ? "cloud owner or administrator" : "local owner") password and a fresh authenticator code. This confirmation applies only to this action.</p>
+        <label>@(Cloud ? "Cloud password" : "Appliance password")<input type="password" @bind="password" @bind:event="oninput" autocomplete="current-password" maxlength="256" required autofocus /></label>
+        <label>Fresh authenticator code<input @bind="otp" @bind:event="oninput" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" required /></label>
+        <p class="reauth-error" role="alert">@error</p>
+        <div class="button-row"><button type="button" class="secondary" @onclick="Cancel" disabled="@submitting">Cancel</button><button type="submit" disabled="@submitting">@(submitting ? "Confirming…" : "Confirm and continue")</button></div>
+    </form>
+}
+</dialog>
+
+@code {
+    [Parameter] public bool Cloud { get; set; }
+    private readonly string titleId = "reauth-title-" + Guid.NewGuid().ToString("N"), descriptionId = "reauth-description-" + Guid.NewGuid().ToString("N");
+    private ElementReference dialog;
+    private IJSObjectReference? module;
+    private TaskCompletionSource<bool>? pending;
+    private string action = "", description = "", password = "", otp = "", error = "";
+    private bool show, submitting, disposed;
+
+    // Trusted server actions may perform their own credential check to avoid consuming one TOTP twice.
+    // Never use this callback for an action that does not independently authenticate the supplied credentials.
+    private Func<System.Security.Claims.ClaimsPrincipal,string,string,bool>? confirmAction;
+    public Task<bool> Request(string title, string detail, Func<System.Security.Claims.ClaimsPrincipal,string,string,bool>? actionWithCredentials = null)
+    {
+        if (disposed || pending is not null) return Task.FromResult(false);
+        confirmAction=actionWithCredentials;
+        action = title; description = detail; password = ""; otp = ""; error = "";
+        pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var result = pending.Task;
+        show = true; StateHasChanged();
+        return result;
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (disposed || (!firstRender && !show)) return;
+        show = false;
+        try {
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./_content/PiDock.Web.Shared/reauthentication.js");
+            if (!disposed && pending is not null) await module.InvokeVoidAsync("show", dialog);
+        }
+        catch (Exception e) when (e is JSException or OperationCanceledException) { Finish(false); await InvokeAsync(StateHasChanged); }
+    }
+    private async Task Submit()
+    {
+        if (submitting || pending is null) return;
+        submitting = true;
+        try {
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            bool allowed = user.IsInRole("Owner") || (Cloud && user.IsInRole("Administrator"));
+            if (!Users.IsCurrent(user) || !allowed || !(confirmAction is not null ? confirmAction(user,password,otp) : Users.Authenticate(user.Identity!.Name!, password, otp, DateTimeOffset.UtcNow) is not null)) {
+                error = "Confirmation failed. Check your password and use a new authenticator code. If your session expired, sign in again.";
+                return;
+            }
+            await Close(true);
+        }
+        catch (UnauthorizedAccessException) { error="Confirmation failed. Check your password and use a new authenticator code."; }
+        catch (Exception e) when(e is ArgumentException or InvalidOperationException) { error=e.Message; }
+        catch (Exception e) when(e is IOException or System.Security.Cryptography.CryptographicException) { error = "Confirmation could not be completed. Please try again."; }
+        finally { password = ""; otp = ""; submitting = false; }
+    }
+    private Task Cancel() => submitting ? Task.CompletedTask : Close(false);
+    private async Task Close(bool confirmed)
+    {
+        try { if (module is not null) await module.InvokeVoidAsync("close", dialog); }
+        catch (Exception e) when (e is JSException or OperationCanceledException) { confirmed = false; }
+        Finish(confirmed);
+    }
+    private void Finish(bool confirmed)
+    {
+        var completion = pending; pending = null; show = false; confirmAction=null;
+        password = ""; otp = ""; error = ""; action = ""; description = "";
+        completion?.TrySetResult(confirmed);
+    }
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true; Finish(false);
+        if (module is not null) { try { await module.DisposeAsync(); } catch (JSDisconnectedException) { } }
+    }
+}
