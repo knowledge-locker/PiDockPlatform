@@ -1,10 +1,10 @@
 # Hosted PiDockCloud development
 
-The development portal is https://pidock-dev.knowledgelocker.ai, hosted on `knowledgelocker-dev` through the PRX3MUS host agent. Production is separate and unchanged. This is the engineering preview, not a production security release.
+The development portal is https://pidock-dev.knowledgelocker.ai, hosted on `knowledgelocker-dev` through the PRX3MUS host agent. Production is separate and now runs the same promoted rc.4 image. This is the engineering preview, not a production security release.
 
 ## Deployed services
 
-- Cloud: `prox3mus-pidockplatform-eca278f0`, image `ghcr.io/knowledge-locker/pidockplatform@sha256:b103a15eef5fbcc3bc8777d11790b1ffeec37c19eedfdf933bf0d4a5b34a3b46` (`0.1.0-dev.20`, source `8b993620bcce92b9aa93992c1f6a041ddb359edd`). [Publication and provenance](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43281750170).
+- Cloud: `prox3mus-pidockplatform-eca278f0`, image `ghcr.io/knowledge-locker/pidockplatform@sha256:e097dac3a8a721022845b2e434aa8a76ffff0593c783bac812abb357573a2300` (`0.1.0-rc.4`, source `90b6119b2c4acadf0235cc4d0179034ce47fbb32`). [Publication and provenance](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43462665056).
 - HTTPS: existing Caddy reverse proxy, publicly trusted certificate with automatic renewal. Its exact trusted proxy address is `172.18.0.2`; revalidate this configuration if the Caddy container/network changes. No trust-all forwarded-header setting is used.
 - MQTT: `pidock-development-broker`, a constrained non-root Mosquitto container managed by `/opt/pidock/deploy/compose.development-broker.yaml`. It uses the existing proxy Docker network, with TLS hostname `pidock-development-broker` for the cloud worker and `pidock-dev.knowledgelocker.ai:8883` for devices. Shared-network membership grants no MQTT permissions without a valid certificate.
 - State: the separately labelled development external cloud/broker volumes described in [Persistent storage](Persistent-Storage.md).
@@ -133,3 +133,12 @@ Development cloud `0.1.0-dev.20` adds Remote UI status to the fleet inventory an
 Encrypted snapshot `2a6e78a4ff1722a0fbd055b47e8f1b16dd644702ed6924e5ffb59bac2d98d90e` passed full encrypted data checking and a 2,797-file restore check before deployment. Post-deployment public health passed, account and sign-in key hashes matched, and the single existing Pi registration remained intact with one-second-old telemetry and the MQTT broker running.
 
 The source also adds optional local-permission telemetry for future PiDockOS service builds. The existing physical Pi was not updated in this cloud rollout: a connected relay confirms Enabled, while a disconnected older appliance shows Unavailable rather than an unverified Disabled claim. See [remote interface status semantics](Remote-Interface-Access.md#fleet-and-device-summary).
+
+
+## Reconciled release promotion — November 13, 2026
+
+**0.1.0-rc.4** was published from merged main `90b6119b2c4acadf0235cc4d0179034ce47fbb32` and deployed to development first, then production using the same immutable image `ghcr.io/knowledge-locker/pidockplatform@sha256:e097dac3a8a721022845b2e434aa8a76ffff0593c783bac812abb357573a2300`. All **204 tests** passed in [publication CI](https://github.com/knowledge-locker/PiDockPlatform/actions/runs/43462665056). This includes the reconciled agent/API, shared application services, current workspace fixes and factory provisioning source.
+
+Pre-deployment snapshot `1e458c5180a465a68d46b5d10f406e0bfd7fbe31f159df35095697bd100a37ec` passed encrypted-data verification and a **2,942-file** restore check. A protected off-host recovery copy was retained with matching SHA-256 `b7080b4680814745ec91ac530a53a79a2d53be00ea3d30746f95282f9a7d2df1`. Accounts, Data Protection key rings and registered device identities matched the pre-deployment baseline. Containers retain non-root, read-only execution. Public HTTPS liveness, sign-in HTML and provisioning assets return 200; anonymous device and application-catalog API access is rejected.
+
+The supported host-agent deployment request was issued from the production control-plane host using its existing mTLS client identity. The older temporary client bundle on development had been removed; no replacement identity was created or copied there. The development storage maintenance lock and old-image guard covered deployment, with rollback available through the same agent. The broker is running. Its retained Pi record is historical because the physical appliance is registered to production.
