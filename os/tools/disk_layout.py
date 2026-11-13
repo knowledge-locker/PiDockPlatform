@@ -58,8 +58,13 @@ def grow_data_partition(path, media_bytes):
         end=(media_bytes//(1<<20))*2048
         if media_bytes<length or end<data.start+data.sectors:raise ValueError('Media would shrink existing partitions')
         if end<=data.start or data.table<=extended.start:raise ValueError('Unsupported data partition position')
+        # Grow the container, each EBR link range and the final data entry together.
         # Boot/root offsets and lengths stay unchanged. ext4 grows online on first boot.
-        for offset,value in [(446+3*16+12,end-extended.start),(data.table*512+446+12,end-data.start)]:
+        updates=[(446+3*16+12,end-extended.start),(data.table*512+446+12,end-data.start)]
+        for number in (5,6):
+            current=layout[number].table;next_table=layout[number+1].table
+            updates.append((current*512+446+16+12,end-next_table))
+        for offset,value in updates:
             image.seek(offset);image.write(struct.pack('<I',value))
         image.flush()
         import os

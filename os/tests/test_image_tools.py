@@ -88,7 +88,7 @@ class FlashSafetyTests(unittest.TestCase):
 
 
 class DataPartitionTests(unittest.TestCase):
-    def test_capacity_preparation_changes_only_extended_and_final_partition_lengths(self):
+    def test_capacity_preparation_preserves_system_ranges_and_grows_all_chain_lengths(self):
         from disk_layout import partitions,grow_data_partition
         with tempfile.TemporaryDirectory() as temporary:
             file=Path(temporary)/'image'
@@ -104,6 +104,10 @@ class DataPartitionTests(unittest.TestCase):
             before=file.read_bytes();grow_data_partition(file,64<<20);after=file.read_bytes()
             self.assertEqual(len(before),len(after))
             allowed=set(range(446+3*16+12,446+3*16+16))|set(range(16384*512+446+12,16384*512+446+16))
+            for sector in (8192,12288):
+                allowed.update(range(sector*512+446+16+12,sector*512+446+16+16))
+            self.assertEqual((64<<20)//512-12288,struct.unpack_from('<I',after,8192*512+446+16+12)[0])
+            self.assertEqual((64<<20)//512-16384,struct.unpack_from('<I',after,12288*512+446+16+12)[0])
             self.assertTrue(all(a==b or n in allowed for n,(a,b) in enumerate(zip(before,after))))
             with file.open('rb') as source:
                 def read(offset,size):source.seek(offset);return source.read(size)
