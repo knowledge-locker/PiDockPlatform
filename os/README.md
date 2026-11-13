@@ -1,6 +1,6 @@
 # PiDockOS image and hardware integration
 
-The Pi 5 development image pipeline builds a signed, flashable ARM64 image with a dm-verity system, separate A/B boot and root slots, independent signed recovery, and persistent managed data. The current prepared image is **1.0.0-alpha.2**. It includes the reconciled agent/API implementation from the rc.4 source. This is a hardware-acceptance image, not a claim that secure boot has been provisioned on the board.
+The Pi 5 development image pipeline builds a signed, flashable ARM64 image with a dm-verity system, separate A/B boot and root slots, independent signed recovery, and persistent managed data. The current prepared image is **1.0.0-alpha.3**. It includes the reconciled agent/API implementation from the rc.4 source. This is a hardware-acceptance image, not a claim that secure boot has been provisioned on the board.
 
 ## Headless card preparation
 

@@ -21,6 +21,9 @@ def verify(target):
             if not resolve_target(target,'/'+str(link.relative_to(target))).exists():raise ValueError('Dangling enabled service: '+str(link.relative_to(target)))
     broker=(units/'pidock-broker.service').read_text()
     if 'ExecStart=/usr/lib/pidock/broker/PiDock.Appliance.Broker\n' not in broker:raise ValueError('Broker must use its self-contained executable')
+    clock=(units/'pidock-time.service').read_text()
+    if 'CapabilityBoundingSet=CAP_DAC_OVERRIDE\n' not in clock or 'ProtectClock=true\n' not in clock:
+        raise ValueError('Time guard must query the chrony socket while retaining clock protection')
     for file in (target/'usr/lib/pidock/broker').glob('appsettings*.json'):
         if file.name not in ('appsettings.json','appsettings.Production.json'):continue
         values=json.loads(file.read_text())
@@ -28,7 +31,7 @@ def verify(target):
     state=target/'var/lib/pidock'
     if state.exists() and any(p.is_file() for p in state.rglob('*')):raise ValueError('Public image contains per-device managed state')
     profile=json.loads((target/'etc/pidock/image-profile.json').read_text())
-    if profile.get('version')!='1.0.0-alpha.2' or profile.get('sequence')!=2 or not profile.get('development'):raise ValueError('Unexpected development image profile')
+    if profile.get('version')!='1.0.0-alpha.3' or profile.get('sequence')!=3 or not profile.get('development'):raise ValueError('Unexpected development image profile')
     if len(profile.get('sourceCommit',''))!=40:raise ValueError('Image source revision is missing')
     return dict(serviceExecutables=len(checked),gpioOutputs='disabled',privateState='absent',profile=profile)
 
