@@ -1,7 +1,8 @@
 // Device credentials stay in this DOM, never in Blazor state or requests.
 const enc=new TextEncoder();
+const preparations=new WeakMap();
 const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
-export function clear(host){host.shadowRoot?.replaceChildren();}
+export function clear(host){preparations.get(host)?.abort();preparations.delete(host);host.shadowRoot?.replaceChildren();}
 export async function passwordHash(password,salt=crypto.getRandomValues(new Uint8Array(16))){
  const key=await crypto.subtle.importKey('raw',enc.encode(password),'PBKDF2',false,['deriveBits']);
  const hash=new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:210000,hash:'SHA-512'},key,256));
@@ -41,7 +42,7 @@ export function cloudSetup(enabled,url,register,code,remoteControl,remoteUi){
 }
 function interfaceForm(name,title,enabled){return `<fieldset class="interface"><legend>${title}</legend><label class="check"><input name="${name}Enabled" type="checkbox" ${enabled?'checked':''}>Enable ${title}</label><div id="${name}Settings"><label>IPv4 addressing<select name="${name}Method"><option value="dhcp">Automatic (DHCP)</option><option value="static">Static</option></select></label><div id="${name}Static" hidden><label>IPv4 address / prefix<input name="${name}Address" placeholder="192.168.1.50/24" autocomplete="off"></label><label>Gateway (optional)<input name="${name}Gateway" placeholder="192.168.1.1" autocomplete="off"></label><label>DNS servers (optional, separated by commas)<input name="${name}Dns" placeholder="192.168.1.1, 1.1.1.1" autocomplete="off"></label></div></div></fieldset>`;}
 export function configure(host,image,bridge){
- clear(host);const root=host.shadowRoot||host.attachShadow({mode:'open'}),expanded=image.manifest.setupSchema===2;
+ clear(host);const controller=new AbortController();preparations.set(host,controller);const root=host.shadowRoot||host.attachShadow({mode:'open'}),expanded=image.manifest.setupSchema===2;
  root.innerHTML=`<style>:host{font:inherit}label{display:block;margin:1em 0}input,select{display:block;box-sizing:border-box;width:100%;padding:.7em;margin-top:.4em;font:inherit;border:1px solid #bcb5b8;border-radius:6px}button{font:inherit;cursor:pointer;padding:.8em;border-radius:7px;border:0;background:#c4144e;color:white}fieldset{border:0;padding:0}fieldset.interface{border:1px solid #ded8dc;padding:1em;margin:1em 0}input[type=checkbox]{width:auto;display:inline;margin-right:.5em}.check{display:flex;align-items:center;gap:.4em}[hidden]{display:none!important}output{display:block;margin:1em 0}code{user-select:all;overflow-wrap:anywhere}</style><form><fieldset id="all">${expanded?`<label>Mode<select name="mode"><option value="Main">Main</option><option value="Node">Node</option></select></label><p id="nodeNote" hidden>Prepare an unpaired USB expansion node. No human owner, external network, cloud registration or remote permissions are configured. Connect it to a Main device over a data-capable USB link, then adopt and configure it from Main → USB nodes. The Main owner must confirm adoption.</p>`:'<p>This image supports basic Main setup. Choose an expanded-setup image for mode, static addressing and cloud options.</p>'}<fieldset id="main"><legend>Local appliance owner</legend>
  <label>Username<input name="username" pattern="[A-Za-z0-9-]{1,64}" maxlength="64" autocomplete="off" required></label>
  <label>Appliance password<input name="password" type="password" minlength="14" maxlength="256" autocomplete="new-password" required></label>
@@ -53,7 +54,8 @@ export function configure(host,image,bridge){
  <div ${expanded?'hidden':''}><label>Network<select name="network"><option value="wifi">Wi-Fi</option><option value="ethernet">Ethernet</option></select></label></div><div id="wifi">
  <label>Wi-Fi network name<input name="ssid" maxlength="32" autocomplete="off"></label><label>Wi-Fi password<input name="wifiPassword" type="password" autocomplete="off"></label><label>Country code<input name="country" value="US" maxlength="2" pattern="[A-Z]{2}"></label></div>
  ${expanded?`<fieldset class="interface"><legend>PiDockCloud (optional)</legend><label class="check"><input name="cloudEnabled" type="checkbox">Configure PiDockCloud</label><fieldset id="cloudSettings" disabled hidden><label>Cloud URL<input name="cloudUrl" type="url" autocomplete="off" maxlength="512"></label><label class="check"><input name="register" type="checkbox">Register on first boot</label><fieldset id="registrationSettings" disabled hidden><label>Single-use enrollment code<input name="enrollmentCode" autocomplete="off" maxlength="64" spellcheck="false"></label><p>Generate an invitation in the chosen cloud shortly before creating the image. It must still be valid when the Pi first connects. An expired invitation can be replaced locally after boot.</p><label class="check"><input name="remoteControl" type="checkbox">Allow remote container control</label><label class="check"><input name="remoteUi" type="checkbox">Allow remote PiDockOS interface access</label><p>These are separate local permissions, off by default. They take effect only after this registration succeeds. Cloud actions still require fresh MFA; remote UI sessions also require PiDockOS sign-in. Cloud-managed OS updates remain off.</p></fieldset></fieldset></fieldset>`:'<p>Cloud enrollment and remote permissions are approved separately after first boot.</p>'}</fieldset><button type="submit">Create and download image</button></fieldset><output id="status" role="status"></output><div id="download"></div></form>`;
- const form=root.querySelector('form'),f=form.elements,status=root.querySelector('#status'),bytes=crypto.getRandomValues(new Uint8Array(20)),secret=base32(bytes);let first=-1,active=false,objectUrl;
+ const form=root.querySelector('form'),f=form.elements,status=root.querySelector('#status'),bytes=crypto.getRandomValues(new Uint8Array(20)),secret=base32(bytes);let first=-1,active=false,objectUrl,payload;
+ controller.signal.addEventListener('abort',()=>{bytes.fill(0);payload?.fill(0);if(objectUrl)URL.revokeObjectURL(objectUrl);f.password.value='';f.confirm.value='';f.wifiPassword.value='';if(expanded)f.enrollmentCode.value='';},{once:true});
  root.querySelector('#secret').textContent=secret;
  root.querySelector('#verify').onclick=async()=>{const s=Math.floor(Date.now()/30000);if(f.code.value===await totp(bytes,s)){first=s;f.code.value='';root.querySelector('#verification').textContent='Verified. Wait for the next code.';}else root.querySelector('#verification').textContent='Enter the current code from the new authenticator entry.';};
  const sync=()=>{
@@ -82,17 +84,18 @@ export function configure(host,image,bridge){
  }
  const setup=node?{schema:2,mode:'Node',username:'',passwordHash:'',secret:'',lastStep:0,wifi:null,network}:{schema:expanded?2:1,username:f.username.value,passwordHash:await passwordHash(f.password.value),secret,lastStep:step,wifi};
  if(expanded&&!node){setup.mode='Main';setup.network=network;setup.cloud=cloud;}
- const payload=enc.encode(JSON.stringify(setup));
+ if(controller.signal.aborted)return;
+ payload=enc.encode(JSON.stringify(setup));
  root.querySelector('#all').disabled=true;
  status.textContent='Confirm this download with your cloud credentials in the popup.';
- const ticket=await bridge.invokeMethodAsync('ApproveDownload',image.digest);if(!ticket){status.textContent='Download cancelled.';root.querySelector('#all').disabled=false;return;}
+ const ticket=await bridge.invokeMethodAsync('ApproveDownload',image.digest);if(controller.signal.aborted)return;if(!ticket){status.textContent='Download cancelled.';root.querySelector('#all').disabled=false;return;}
  form.querySelector('fieldset').disabled=true;status.textContent='Downloading and verifying signed image…';
- const response=await fetch('/api/factory-images/'+image.digest,{headers:{'X-PiDock-Download':ticket},cache:'no-store',credentials:'same-origin'});if(!response.ok)throw Error('Download authorization expired. Try again.');
+ const response=await fetch('/api/factory-images/'+image.digest,{headers:{'X-PiDock-Download':ticket},cache:'no-store',credentials:'same-origin',signal:controller.signal});if(!response.ok)throw Error('Download authorization expired. Try again.');
  const compressed=await response.arrayBuffer();if(compressed.byteLength!==image.manifest.compressedBytes||hex(await crypto.subtle.digest('SHA-256',compressed))!==image.manifest.compressedSha256)throw Error('Image verification failed.');
  status.textContent='Adding private setup in your browser…';
- const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(patchStream(image.manifest.provisioning,payload,image.manifest.imageBytes)).pipeThrough(new CompressionStream('gzip'));
- const blob=await new Response(stream).blob();payload.fill(0);bytes.fill(0);f.password.value='';f.confirm.value='';f.wifiPassword.value='';f.next.value='';if(expanded)f.enrollmentCode.value='';
+ const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(patchStream(image.manifest.provisioning,payload,image.manifest.imageBytes)).pipeThrough(new CompressionStream('gzip'),{signal:controller.signal});
+ const blob=await new Response(stream).blob();if(controller.signal.aborted)return;payload.fill(0);bytes.fill(0);f.password.value='';f.confirm.value='';f.wifiPassword.value='';f.next.value='';if(expanded)f.enrollmentCode.value='';
  const a=document.createElement('a');objectUrl=URL.createObjectURL(blob);a.href=objectUrl;a.download='pidockos-'+image.manifest.version+'-'+(node?'node':'main')+'-private.img.gz';a.textContent='Save configured image';root.querySelector('#download').replaceChildren(a);a.click();setTimeout(()=>{URL.revokeObjectURL(objectUrl);a.removeAttribute('href');},300000);
  root.querySelector('#secret').textContent='Setup complete';status.textContent=node?'Ready. Flash with OS customization off, connect the Node USB-C data port to a Main, then open USB nodes in the Main UI to adopt it. There is no standalone node owner login. Hardware USB/power acceptance is still required.': 'Ready. Flash using Raspberry Pi Imager → Use custom, with OS customization off. Boot and open https://pidock.local. Keep the authenticator entry; delete the private download after flashing.';
- }catch(error){status.textContent=error.message;form.querySelector('fieldset').disabled=false;}finally{active=false;}};
+ }catch(error){if(!controller.signal.aborted){status.textContent=error.message;form.querySelector('fieldset').disabled=false;}}finally{payload?.fill(0);active=false;}};
 }
