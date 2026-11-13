@@ -1,6 +1,6 @@
 # PiDockOS image and hardware integration
 
-The Pi 5 development image pipeline builds a signed, flashable ARM64 image with a dm-verity system, separate A/B boot and root slots, independent signed recovery, and persistent managed data. The current prepared image is **1.0.0-alpha.3**. It includes the reconciled agent/API implementation from the rc.4 source. This is a hardware-acceptance image, not a claim that secure boot has been provisioned on the board.
+The Pi 5 development image pipeline builds a signed, flashable ARM64 image with a dm-verity system, separate A/B boot and root slots, independent signed recovery, and persistent managed data. The current prepared image is **1.0.0-alpha.4**. It includes the reconciled agent/API implementation from the rc.4 source. This is a hardware-acceptance image, not a claim that secure boot has been provisioned on the board.
 
 ## Headless card preparation
 
@@ -25,3 +25,7 @@ The signed recovery ramdisk supports an optional attached physical console and s
 Physical acceptance still needs the actual Pi: Wi-Fi/Ethernet, trusted time, HTTPS sign-in, GPIO monitoring without output claims, signed A/B update health promotion, failed-update rollback, power loss and headless media recovery. The supplied image/tool checks do not substitute for those board tests. [Hardware procedure](../docs/Hardware-Testing.md).
 
 The older `os/systemd` units are compatibility templates for the Linux-hosted service installation. Whole-image units are under `os/buildroot`; see [signed service updates](../docs/PiDockOS-Updates.md) for the older updater's separate bootstrap and limits.
+
+Expanded setup uses schema 2, advertised in the signed factory manifest. Main supports separate Ethernet/Wi-Fi DHCP or static IPv4 settings, an optional HTTPS cloud URL and first-boot invitation, and independent remote container/interface consent. Node omits human ownership and external networking; it exposes an isolated USB ECM link for discovery/adoption in **Main → USB nodes**. The Main owner confirms adoption/configuration/release with fresh MFA. Device identity is pinned independently of interface names; no household addressing is required. Available node services are configuration and resource monitoring. USB image flashing from Main, workload placement and node I/O grants remain unavailable.
+
+The signed base enables the USB-C peripheral controller; Main leaves it unbound and uses its USB host ports for nodes. The Node-only gadget binds an ECM function. Host links receive scoped IPv6 link-local addresses and explicit firewall forwarding blocks. Hardware acceptance must verify the exact boards, data cables and powered dock; no power compatibility or successful physical adoption is inferred from software tests.

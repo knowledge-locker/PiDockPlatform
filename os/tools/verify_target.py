@@ -31,7 +31,8 @@ def verify(target):
     state=target/'var/lib/pidock'
     if state.exists() and any(p.is_file() for p in state.rglob('*')):raise ValueError('Public image contains per-device managed state')
     profile=json.loads((target/'etc/pidock/image-profile.json').read_text())
-    if profile.get('version')!='1.0.0-alpha.3' or profile.get('sequence')!=3 or not profile.get('development'):raise ValueError('Unexpected development image profile')
+    if profile.get('version')!='1.0.0-alpha.4' or profile.get('sequence')!=4 or not profile.get('development'):raise ValueError('Unexpected development image profile')
+    if profile.get('setupSchema')!=2 or profile.get('usbNodeProtocol')!=1:raise ValueError('Expanded setup and USB node protocol must be declared by the signed image')
     if len(profile.get('sourceCommit',''))!=40:raise ValueError('Image source revision is missing')
     return dict(serviceExecutables=len(checked),gpioOutputs='disabled',privateState='absent',profile=profile)
 

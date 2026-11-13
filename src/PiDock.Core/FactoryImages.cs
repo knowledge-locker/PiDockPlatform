@@ -8,7 +8,7 @@ namespace PiDock.Core;
 
 public sealed record FactoryPatch(long Offset,int Length);
 public sealed record FactoryManifest(int Schema,string Version,string Hardware,long Sequence,bool Development,string KeyId,
-    long ImageBytes,string ImageSha256,long CompressedBytes,string CompressedSha256,IReadOnlyList<FactoryPatch> Provisioning);
+    long ImageBytes,string ImageSha256,long CompressedBytes,string CompressedSha256,IReadOnlyList<FactoryPatch> Provisioning, int SetupSchema = 1);
 public sealed record FactoryImageInfo(string Digest,FactoryManifest Manifest);
 public static class FactoryImages
 {
@@ -17,7 +17,7 @@ public static class FactoryImages
     public static byte[] SigningBytes(byte[] manifest)=>[..Domain,..manifest];
     public static void Validate(FactoryManifest m)
     {
-        if(m.Schema!=1||m.Hardware!="raspberrypi5"||m.Sequence<=0||!IdentityRules.IsId(m.KeyId)||m.Version is not{Length:>0 and <=64}||
+        if(m.Schema!=1||m.SetupSchema is not (1 or 2)||m.Hardware!="raspberrypi5"||m.Sequence<=0||!IdentityRules.IsId(m.KeyId)||m.Version is not{Length:>0 and <=64}||
             !m.Version.All(c=>char.IsAsciiLetterOrDigit(c)||c is '.' or '-' or '+')||m.ImageBytes<=0||m.ImageBytes>MaximumExpanded||m.CompressedBytes<=0||m.CompressedBytes>MaximumCompressed||
             !OsUpdateRules.Digest(m.ImageSha256)||!OsUpdateRules.Digest(m.CompressedSha256)||m.Provisioning is not{Count:>0 and <=32})throw new InvalidDataException("Invalid factory image metadata.");
         long end=0,total=0;
@@ -28,7 +28,7 @@ public static class FactoryImages
         }
         if(total!=1<<20)throw new InvalidDataException("Factory image requires a bounded 1 MiB provisioning area.");
     }
-    public static FactoryImageInfo Create(string image,string output,string version,long sequence,bool development,string keyId,string privateKey,IReadOnlyList<FactoryPatch> patches)
+    public static FactoryImageInfo Create(string image,string output,string version,long sequence,bool development,string keyId,string privateKey,IReadOnlyList<FactoryPatch> patches, int setupSchema = 1)
     {
         string temporary=output+".payload-"+Guid.NewGuid().ToString("N");
         try {
@@ -40,7 +40,7 @@ public static class FactoryImages
                 using var gzip=new GZipStream(destination,CompressionLevel.SmallestSize);source.CopyTo(gzip);
             }
             string compressedHash;using(var source=File.OpenRead(temporary))compressedHash=Convert.ToHexStringLower(SHA256.HashData(source));
-            var manifest=new FactoryManifest(1,version,"raspberrypi5",sequence,development,keyId,size,imageHash,new FileInfo(temporary).Length,compressedHash,patches);Validate(manifest);
+            var manifest=new FactoryManifest(1,version,"raspberrypi5",sequence,development,keyId,size,imageHash,new FileInfo(temporary).Length,compressedHash,patches,setupSchema);Validate(manifest);
             var bytes=JsonSerializer.SerializeToUtf8Bytes(manifest,StateFiles.Json);
             using var key=ECDsa.Create();key.ImportFromPem(privateKey);
             if(key.KeySize!=256||key.ExportParameters(false).Curve.Oid.Value!="1.2.840.10045.3.1.7")throw new InvalidDataException("Factory signing requires P-256.");

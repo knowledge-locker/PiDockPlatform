@@ -9,8 +9,10 @@
 @inject AuthenticationStateProvider Authentication
 @inject RemoteInterfaceAgent RemoteInterface
 @inject IOsUpdater Updater
+@inject MediaCloudStatus MediaSetup
 <PageTitle>Cloud connection · PiDockOS</PageTitle>
 <p class="eyebrow">PIDOCKOS / CLOUD CONNECTION</p><h1>Connect to PiDockCloud</h1><p>Use your hosted or self-hosted server to monitor this appliance.</p>
+@if (!string.IsNullOrEmpty(MediaSetup.Status)) { <p role="status">@MediaSetup.Status</p> }
 @if (!Enrollment.Enabled) { <div class="notice">Isolated UI review. Device enrollment is available from a commissioned PiDockOS appliance.</div> }
 @if (connection is not null) {
 <section class="card"><h2>Registered with PiDockCloud</h2><dl><dt>Server</dt><dd>@connection.CloudUrl</dd><dt>Organization</dt><dd>@connection.TenantId</dd><dt>Device</dt><dd>@connection.DeviceId</dd><dt>Certificate expires (UTC)</dt><dd>@connection.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</dd><dt>Telemetry</dt><dd>@Monitoring.TransportStatus</dd></dl><p>Registration is saved. Check the overview for delivery receipts and the cloud fleet for live contact.</p>
@@ -36,8 +38,8 @@
     private ReauthenticationDialog confirmation = default!;
     private string server = "", enrollmentCode = "", caPem = "", message = ""; private bool busy, moving, isRemote, allowRemoteControl; private CloudConnection? connection;
     private readonly CancellationTokenSource stop = new(); private Task? refresh;
-    protected override async Task OnInitializedAsync() { connection = Enrollment.Connection; allowRemoteControl = Applications.Current.ControlEnabled; server = Settings["Enrollment:DefaultCloudUrl"] ?? "https://pidock.knowledgelocker.ai"; isRemote = (await Authentication.GetAuthenticationStateAsync()).User.HasClaim(c => c.Type == "pidock_remote"); refresh = Refresh(); }
-    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2)); while(await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(StateHasChanged); } catch(OperationCanceledException) { } }
+    protected override async Task OnInitializedAsync() { connection = Enrollment.Connection; allowRemoteControl = Applications.Current.ControlEnabled; server = MediaSetup.PreferredUrl ?? Settings["Enrollment:DefaultCloudUrl"] ?? "https://pidock.knowledgelocker.ai"; isRemote = (await Authentication.GetAuthenticationStateAsync()).User.HasClaim(c => c.Type == "pidock_remote"); refresh = Refresh(); }
+    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2)); while(await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(() => { if(connection is null && Enrollment.Connection is {} registered) { connection=registered;allowRemoteControl=Applications.Current.ControlEnabled; } StateHasChanged(); }); } catch(OperationCanceledException) { } }
     public async ValueTask DisposeAsync() { await stop.CancelAsync(); if(refresh is not null) await refresh; stop.Dispose(); }
     private void StartOver() { moving = false; enrollmentCode = ""; caPem = ""; message = "Cloud change cancelled. The existing registration is retained."; }
     private async Task BeginMove() {

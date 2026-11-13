@@ -1,0 +1,21 @@
+[Unit]
+Description=PiDock private USB node management link
+Requires=pidock-provision.service
+After=pidock-provision.service
+Before=pidock-network.service systemd-networkd.service
+ConditionPathExists=/var/lib/pidock/node-mode
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/pidock/usb-node-gadget.sh
+RemainAfterExit=yes
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+CapabilityBoundingSet=CAP_SYS_MODULE CAP_SYS_ADMIN CAP_NET_ADMIN
+PrivateTmp=true
+ReadWritePaths=/var/lib/pidock/node /sys/kernel/config
+StateDirectory=pidock/node
+UMask=0077
+[Install]
+WantedBy=multi-user.target

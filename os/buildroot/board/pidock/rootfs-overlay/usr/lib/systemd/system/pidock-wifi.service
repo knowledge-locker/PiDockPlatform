@@ -1,6 +1,7 @@
 [Unit]
-Requires=pidock-provision.service
-After=pidock-provision.service
+ConditionPathExists=!/var/lib/pidock/node-mode
+Requires=pidock-network.service
+After=pidock-network.service
 Description=PiDock headless wireless connection
 After=var.mount sys-subsystem-net-devices-wlan0.device
 Requires=var.mount
