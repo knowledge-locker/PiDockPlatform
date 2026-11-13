@@ -66,7 +66,7 @@ export function configure(host,image,bridge){
   if(!f.register.checked){f.remoteControl.checked=false;f.remoteUi.checked=false;}
  };
  if(expanded){f.cloudUrl.value=location.origin;for(const name of ['mode','ethernetEnabled','wirelessEnabled','ethernetMethod','wirelessMethod','cloudEnabled','register'])f[name].onchange=sync;}else f.network.onchange=sync;sync();
- form.onsubmit=async e=>{e.preventDefault();if(active)return;active=true;
+ form.onsubmit=async e=>{e.preventDefault();if(active)return;active=true;root.querySelector('#all').disabled=true;
  try{
  if(!isSecureContext||!globalThis.CompressionStream||!globalThis.DecompressionStream)throw Error('Use a current browser over HTTPS.');
  const node=expanded&&f.mode.value==='Node';
@@ -92,7 +92,7 @@ export function configure(host,image,bridge){
  status.textContent='Adding private setup in your browser…';
  const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(patchStream(image.manifest.provisioning,payload,image.manifest.imageBytes)).pipeThrough(new CompressionStream('gzip'));
  const blob=await new Response(stream).blob();payload.fill(0);bytes.fill(0);f.password.value='';f.confirm.value='';f.wifiPassword.value='';f.next.value='';if(expanded)f.enrollmentCode.value='';
- const a=document.createElement('a');objectUrl=URL.createObjectURL(blob);a.href=objectUrl;a.download='pidockos-'+image.manifest.version+'-private.img.gz';a.textContent='Save configured image';root.querySelector('#download').replaceChildren(a);a.click();setTimeout(()=>{URL.revokeObjectURL(objectUrl);a.removeAttribute('href');},300000);
+ const a=document.createElement('a');objectUrl=URL.createObjectURL(blob);a.href=objectUrl;a.download='pidockos-'+image.manifest.version+'-'+(node?'node':'main')+'-private.img.gz';a.textContent='Save configured image';root.querySelector('#download').replaceChildren(a);a.click();setTimeout(()=>{URL.revokeObjectURL(objectUrl);a.removeAttribute('href');},300000);
  root.querySelector('#secret').textContent='Setup complete';status.textContent=node?'Ready. Flash with OS customization off, connect the Node USB-C data port to a Main, then open USB nodes in the Main UI to adopt it. There is no standalone node owner login. Hardware USB/power acceptance is still required.': 'Ready. Flash using Raspberry Pi Imager → Use custom, with OS customization off. Boot and open https://pidock.local. Keep the authenticator entry; delete the private download after flashing.';
  }catch(error){status.textContent=error.message;form.querySelector('fieldset').disabled=false;}finally{active=false;}};
 }
