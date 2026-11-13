@@ -1,4 +1,7 @@
 [Unit]
+Requires=pidock-provision.service
+After=pidock-provision.service
+ConditionPathExists=!/var/lib/pidock/node-mode
 Description=PiDock restricted host broker
 After=docker.service
 Requires=docker.service
@@ -12,6 +15,7 @@ Environment=Broker__SocketPath=/run/pidock/broker.sock
 Environment=Broker__DockerSocket=/var/run/docker.sock
 Environment=Broker__EnableDeployments=false
 Environment=Broker__EnableLifecycle=true
+Environment=Nodes__StateDirectory=/var/lib/pidock/broker/nodes
 Environment=Gpio__PolicyPath=/var/lib/pidock/broker/gpio-policy.json
 StateDirectory=pidock/broker
 RuntimeDirectory=pidock

@@ -1,0 +1,45 @@
+@page "/nodes"
+@attribute [Authorize(Roles = "Owner")]
+@implements IAsyncDisposable
+@inject BrokerClient Broker
+@inject AuthenticationStateProvider Authentication
+<PageTitle>USB nodes · PiDockOS</PageTitle>
+<p class="eyebrow">PIDOCKOS / USB EXPANSION</p><h1>USB nodes</h1>
+<p>Connect a PiDockOS Node through its USB-C data port to this Main device’s USB host port or a suitable powered dock. Discovery uses an isolated USB link; no Wi-Fi, Ethernet address or node owner account is needed.</p>
+<p>Review the physical node and its identity before adoption. USB identity matching verifies the saved device key; it does not attest the board’s hardware. Adoption, configuration and release require fresh Main owner authentication. GPIO outputs stay disabled.</p>
+@if(!Broker.Configured) {<p class="notice">The connected host broker and a USB-capable Main image are required.</p>}
+else if(nodes.Length==0) {<section class="card"><h2>No USB nodes discovered</h2><p>A Node image must be running and connected with a data-capable USB cable. USB gadget and dock power compatibility still require physical acceptance on your boards.</p></section>}
+@foreach(var node in nodes) {
+<section class="card" @key="@(node.Device.Id+node.Interface)">
+<h2>@(node.Configuration?.Name ?? node.Device.Board)</h2><p>@node.Status</p>
+<dl><dt>Node</dt><dd>@node.Device.Id</dd><dt>Image</dt><dd>@node.Device.Version</dd><dt>USB attachment</dt><dd>@(node.Connected?node.Interface:"Disconnected")</dd><dt>Identity key fingerprint</dt><dd><code>@node.KeyFingerprint</code></dd></dl>
+@if(node.Adopted&&node.Connected&&node.Configuration is {} configuration) {
+<label>Name<input @bind="drafts[node.Device.Id].Name" maxlength="64" disabled="@busy" /></label>
+<label><input type="checkbox" style="width:auto" @bind="drafts[node.Device.Id].Monitoring" disabled="@busy" /> Monitor node resources</label>
+<label>Monitoring interval (seconds)<input type="number" min="5" max="300" @bind="drafts[node.Device.Id].SampleSeconds" disabled="@busy" /></label>
+<p>Available services: resource monitoring and node settings. Workload placement and hardware output grants are not exposed by this version.</p>
+@if(node.Measurement is {} measurement) {<p>@measurement.CpuCount logical CPUs · @Format.Bytes(measurement.MemoryBytes) RAM · @Format.Uptime(measurement.UptimeSeconds) uptime</p>}
+<button disabled="@busy" @onclick="()=>Configure(node)">Save node configuration</button><button class="secondary" disabled="@busy" @onclick="()=>Release(node)">Release node from this Main</button>
+} else if(node.Adopted&&node.Connected) {
+<button class="secondary" disabled="@busy" @onclick="()=>Release(node)">Confirm pending node release</button>
+} else if(!node.Adopted&&node.Connected) {
+<button disabled="@(busy||node.Status.StartsWith("Duplicate",StringComparison.Ordinal)||node.Status.Contains("another Main",StringComparison.Ordinal)||node.Status.Contains("Ownership changed",StringComparison.Ordinal))" @onclick="()=>Adopt(node)">Adopt this node</button>
+}
+</section>
+}
+<details class="card"><summary>Node audit</summary>@foreach(var entry in audit) {<p>@entry.At.ToString("u") · @entry.Actor · @entry.Action · @entry.Node · @entry.Outcome</p>}</details>
+<p role="status">@message</p><ReauthenticationDialog @ref="confirmation"/>
+@code {
+    private NodeView[] nodes=[];private NodeAudit[] audit=[];private string message="";private bool busy;private ReauthenticationDialog confirmation=default!;
+    private readonly Dictionary<string,Draft> drafts=[];private readonly CancellationTokenSource stop=new();private Task? refresh;
+    private sealed class Draft {public string Name {get;set;}="";public bool Monitoring {get;set;}public int SampleSeconds {get;set;}}
+    protected override async Task OnInitializedAsync(){await Read();refresh=Refresh();}
+    private async Task Read(){try {nodes=await Broker.Nodes(stop.Token);audit=await Broker.NodeAudit(stop.Token);foreach(var node in nodes.Where(n=>n.Configuration is not null))if(!drafts.ContainsKey(node.Device.Id))drafts[node.Device.Id]=new(){Name=node.Configuration!.Name,Monitoring=node.Configuration.Monitoring,SampleSeconds=node.Configuration.SampleSeconds};}catch(Exception e)when(e is IOException or HttpRequestException or OperationCanceledException){message="USB node inventory unavailable. Check the Main host broker.";}}
+    private async Task Refresh(){try{using var timer=new PeriodicTimer(TimeSpan.FromSeconds(5));while(await timer.WaitForNextTickAsync(stop.Token))await InvokeAsync(async()=>{if(!busy)await Read();StateHasChanged();});}catch(OperationCanceledException){}}
+    private async Task<NodeAction> Target(NodeView node)=>new(node.Device.Id,node.Interface,node.KeyFingerprint,(await Authentication.GetAuthenticationStateAsync()).User.Identity!.Name!);
+    private async Task Adopt(NodeView node)=>await Act("Adopt USB node",$"Trust the physically connected node {node.Device.Id} with key {node.KeyFingerprint}. This Main becomes its sole management authority.",async()=>{await Broker.AdoptNode(await Target(node),stop.Token);drafts.Remove(node.Device.Id);});
+    private async Task Configure(NodeView node){var draft=drafts[node.Device.Id];var settings=new NodeConfiguration(draft.Name,draft.Monitoring,draft.SampleSeconds);try{settings.Validate();}catch(ArgumentException e){message=e.Message;return;}await Act("Configure USB node",$"Apply settings to {node.Configuration?.Name}. Security remains under this Main; GPIO outputs remain disabled.",async()=>await Broker.ConfigureNode(new(await Target(node),Guid.NewGuid(),settings,node.Revision),stop.Token));}
+    private async Task Release(NodeView node)=>await Act("Release USB node",$"Remove this Main’s authority from {node.Configuration?.Name}. The node must be connected to acknowledge release; it will then be available for adoption by another Main.",async()=>{await Broker.ReleaseNode(new(await Target(node),Guid.NewGuid()),stop.Token);drafts.Remove(node.Device.Id);});
+    private async Task Act(string title,string detail,Func<Task> action){if(busy)return;busy=true;try{if(!await confirmation.Request(title,detail))return;await action();message="Node acknowledged the operation.";await Read();}catch(Exception e)when(e is IOException or HttpRequestException or InvalidOperationException or UnauthorizedAccessException or OperationCanceledException){message="The node operation was not confirmed. Refresh discovery and check the connected node; no alternative identity will be trusted automatically.";}finally{busy=false;}}
+    public async ValueTask DisposeAsync(){await stop.CancelAsync();if(refresh is not null)await refresh;stop.Dispose();}
+}

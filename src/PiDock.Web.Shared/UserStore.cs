@@ -109,12 +109,15 @@ public sealed class UserStore
                 Memberships = role == "Owner" ? state.Memberships : [.. state.Memberships, new(name, tenant, role)] });
         }
     }
-    internal void ImportInitialMediaOwner(MediaSetup setup)
+    internal string ImportInitialMediaOwner(MediaSetup setup)
     {
         MediaProvisioning.Validate(setup);
+        if(setup.Mode != "Main") throw new InvalidDataException("Only Main devices have a local owner.");
         lock(gate) {
             if(cloud||HasUsers)throw new InvalidOperationException("Initial media setup cannot replace an owner.");
-            Save(state with { Users=[new(setup.Username,setup.PasswordHash,setup.Secret,"local","Owner",Guid.NewGuid().ToString(),setup.LastStep)] });
+            string stamp = Guid.NewGuid().ToString();
+            Save(state with { Users=[new(setup.Username,setup.PasswordHash,setup.Secret,"local","Owner",stamp,setup.LastStep)] });
+            return stamp;
         }
     }
     private static void ValidateAccount(string name, string password)

@@ -46,10 +46,10 @@ if(args is ["verify-factory",var factoryPackage,var factoryTrust])
     var verified=FactoryImages.Verify(factoryPackage,factoryTrust);
     Console.WriteLine($"Verified factory {verified.Manifest.Version}: {verified.Digest}");return;
 }
-if(args is ["pack-factory",var factoryImage,var extentsFile,var factoryOutput,var factoryVersion,var factorySequence,var development,var factoryKeyId,var factoryKeyFile])
+if(args is [var factoryCommand,var factoryImage,var extentsFile,var factoryOutput,var factoryVersion,var factorySequence,var development,var factoryKeyId,var factoryKeyFile] && factoryCommand is "pack-factory" or "pack-factory-v2")
 {
     var patches=System.Text.Json.JsonSerializer.Deserialize<FactoryPatch[]>(File.ReadAllText(extentsFile),StateFiles.Json)??throw new InvalidDataException("Factory extents missing.");
-    var result=FactoryImages.Create(factoryImage,factoryOutput,factoryVersion,long.Parse(factorySequence,System.Globalization.CultureInfo.InvariantCulture),bool.Parse(development),factoryKeyId,File.ReadAllText(factoryKeyFile),patches);
+    var result=FactoryImages.Create(factoryImage,factoryOutput,factoryVersion,long.Parse(factorySequence,System.Globalization.CultureInfo.InvariantCulture),bool.Parse(development),factoryKeyId,File.ReadAllText(factoryKeyFile),patches,factoryCommand == "pack-factory-v2" ? 2 : 1);
     Console.WriteLine($"Signed factory {result.Manifest.Version}: {result.Digest}");return;
 }
 if (args is ["pack-image",var imageDirectory,var imageOutput,var imageVersion,var sequenceText,var minimumText,var imageKeyId,var imageKeyFile])

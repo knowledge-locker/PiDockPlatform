@@ -1,0 +1,2 @@
+# Descriptor matching selects an isolated link only; adoption still requires key review and fresh owner MFA.
+SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="1d6b", ATTRS{idProduct}=="0104", ATTRS{manufacturer}=="PiDock", ATTRS{product}=="PiDockOS Node", ENV{PIDOCK_USB_NODE}="1", NAME="pn$attr{ifindex}"

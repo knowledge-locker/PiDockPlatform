@@ -16,7 +16,10 @@ public sealed class FactoryImageTests
             using var key=ECDsa.Create(ECCurve.NamedCurves.nistP256);
             var trust=Path.Combine(directory,"trust");Directory.CreateDirectory(trust);var publicFile=Path.Combine(trust,"factory-test.pem");File.WriteAllText(publicFile,key.ExportSubjectPublicKeyInfoPem());
             string image=Path.Combine(directory,"image"),package=Path.Combine(directory,"factory.zip");File.WriteAllBytes(image,BlankImage());
-            var created=FactoryImages.Create(image,package,"1.0.0-test",1,true,"factory-test",key.ExportPkcs8PrivateKeyPem(),[new(1<<20,1<<20)]);
+            var created=FactoryImages.Create(image,package,"1.0.0-test",1,true,"factory-test",key.ExportPkcs8PrivateKeyPem(),[new(1<<20,1<<20)],setupSchema:2);
+            Assert.Equal(2,created.Manifest.SetupSchema);
+            var legacyJson=System.Text.Json.JsonSerializer.Serialize(created.Manifest,StateFiles.Json).Replace(",\"setupSchema\":2", "");
+            Assert.Equal(1,System.Text.Json.JsonSerializer.Deserialize<FactoryManifest>(legacyJson,StateFiles.Json)!.SetupSchema);
             Assert.Equal(created,FactoryImages.Verify(package,trust) with { Manifest=created.Manifest });
             using(var wrong=ECDsa.Create(ECCurve.NamedCurves.nistP256))File.WriteAllText(publicFile,wrong.ExportSubjectPublicKeyInfoPem());
             Assert.Throws<InvalidDataException>(()=>FactoryImages.Verify(package,trust));

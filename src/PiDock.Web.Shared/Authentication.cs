@@ -20,6 +20,7 @@ public static class Authentication
     {
         var directory = StateFiles.PrepareDirectory(builder.Configuration["PiDock:StateDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, "data"));
         builder.Services.AddSingleton(new StateDirectory(directory));
+        builder.Services.AddSingleton<MediaCloudStatus>();
         builder.Services.AddDataProtection().SetApplicationName("PiDock." + product).PersistKeysToFileSystem(new DirectoryInfo(StateFiles.PrepareDirectory(Path.Combine(directory, "keys"))));
         var clockSetting=builder.Configuration["PiDock:RequireTrustedClock"];
         if(clockSetting is not null&&!bool.TryParse(clockSetting,out _))throw new InvalidOperationException("PiDock:RequireTrustedClock must be true or false.");

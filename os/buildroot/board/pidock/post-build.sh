@@ -30,5 +30,5 @@ sequence=int(os.environ.get('PIDOCK_IMAGE_SEQUENCE',profile['sequence']))
 minimum=int(os.environ.get('PIDOCK_IMAGE_MINIMUM',profile['minimumSequence']))
 if not re.fullmatch(r'[A-Za-z0-9.+-]{1,64}',version) or sequence<=0 or not 0<=minimum<=sequence:
     raise SystemExit('Invalid image version policy')
-(root/'etc/pidock/image-profile.json').write_text(json.dumps(dict(schema=1,version=version,sequence=sequence,minimumSequence=minimum,development=True,sourceCommit=os.environ.get('PIDOCK_SOURCE_COMMIT','unknown')),separators=(',',':'))+'\n')
+(root/'etc/pidock/image-profile.json').write_text(json.dumps(dict(schema=1,version=version,sequence=sequence,minimumSequence=minimum,development=True,setupSchema=profile.get('setupSchema',1),usbNodeProtocol=profile.get('usbNodeProtocol',0),sourceCommit=os.environ.get('PIDOCK_SOURCE_COMMIT','unknown')),separators=(',',':'))+'\n')
 PY

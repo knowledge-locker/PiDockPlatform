@@ -23,10 +23,13 @@ public sealed class CloudEnrollmentClient
     }
     public Task<CloudConnection> ConnectAsync(string server, string code, string? serverCaPem = null, CancellationToken ct = default)
         => ConnectCore(server, code, serverCaPem, null, ct);
+    // First-boot owner consent is committed while holding the same gate as cloud changes.
+    public Task<CloudConnection> ConnectInitialAsync(string server, string code, Action<CloudConnection> commitInitialSettings, CancellationToken ct = default)
+        => ConnectCore(server,code,null,null,ct,commitInitialSettings ?? throw new ArgumentNullException(nameof(commitInitialSettings)));
     // Caller must obtain local-owner fresh MFA. Reset old cloud permissions before committing.
     public Task<CloudConnection> MoveAsync(string server, string code, Func<Task> revokePermissions, string? serverCaPem = null, CancellationToken ct = default)
         => ConnectCore(server, code, serverCaPem, revokePermissions ?? throw new ArgumentNullException(nameof(revokePermissions)), ct);
-    private async Task<CloudConnection> ConnectCore(string server, string code, string? serverCaPem, Func<Task>? revokePermissions, CancellationToken ct)
+    private async Task<CloudConnection> ConnectCore(string server, string code, string? serverCaPem, Func<Task>? revokePermissions, CancellationToken ct, Action<CloudConnection>? commitInitialSettings = null)
     {
         if (!Enabled) throw new InvalidOperationException("Enrollment is disabled in the isolated UI review.");
         if (!Uri.TryCreate(server.Trim(), UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.UserInfo.Length != 0 ||
@@ -82,6 +85,7 @@ public sealed class CloudEnrollmentClient
             catch { prepared.Dispose(); throw; }
             mqtt.ActivatePrepared(prepared, moving);
             try { File.Delete(pendingPath); } catch (IOException) { /* One bounded redundant key file can be cleaned up locally. */ }
+            commitInitialSettings?.Invoke(connection);
             return connection;
         }
         finally { gate.Release(); }

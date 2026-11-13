@@ -35,6 +35,8 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryDeliveryS
 builder.Services.AddSingleton(sp => new TelemetryPolicy(sp.GetRequiredService<StateDirectory>().Path));
 builder.Services.AddSingleton<MonitoringService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringService>());
+builder.Services.AddSingleton<MediaCloudService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<MediaCloudService>());
 var installedRelease = OsUpdateRules.Installed(AppContext.BaseDirectory);
 var app = builder.Build();
 if (MediaProvisioning.Import(app,args)) return;

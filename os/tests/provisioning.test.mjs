@@ -1,9 +1,9 @@
 import {readFileSync} from 'node:fs';
 import {webcrypto} from 'node:crypto';
 import assert from 'node:assert/strict';
-globalThis.crypto=webcrypto;
+if(!globalThis.crypto)globalThis.crypto=webcrypto;
 const source=readFileSync(new URL('../../src/PiDock.Cloud.Web/wwwroot/provisioning.js',import.meta.url));
-const {totp,passwordHash,patchStream,base32}=await import('data:text/javascript;base64,'+source.toString('base64'));
+const {totp,passwordHash,patchStream,base32,interfaceSetup,cloudSetup}=await import('data:text/javascript;base64,'+source.toString('base64'));
 assert.equal(await totp(new TextEncoder().encode('12345678901234567890'),1),'287082');
 assert.equal(base32(new TextEncoder().encode('12345678901234567890')),'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ');
 const hash=Buffer.from(await passwordHash('a long private password',new Uint8Array(16)),'base64');assert.equal(hash.length,61);assert.equal(hash.readUInt32BE(5),210000);
@@ -12,3 +12,15 @@ const output=new Uint8Array(await new Response(new Blob([input]).stream().pipeTh
 assert.deepEqual(output.subarray(0,128),input.subarray(0,128));assert.deepEqual(output.subarray(128,128+payload.length),payload);assert.equal(output[128+payload.length],32);assert.equal(output.at(-1),77);
 assert.throws(()=>patchStream([{offset:10,length:1048576},{offset:1,length:10}],payload,size));
 console.log('Browser password, authenticator and bounded streaming personalization checks passed.');
+
+assert.deepEqual(interfaceSetup(true,'dhcp'),{enabled:true,method:'dhcp'});
+assert.deepEqual(interfaceSetup(false,'static','bad'),{enabled:false,method:'dhcp'});
+assert.deepEqual(interfaceSetup(true,'static','192.168.5.20/24','192.168.5.1','1.1.1.1, 8.8.8.8'),{enabled:true,method:'static',address:'192.168.5.20/24',gateway:'192.168.5.1',dns:['1.1.1.1','8.8.8.8']});
+for(const address of ['192.168.1.0/24','192.168.1.255/24','127.0.0.2/24','192.168.1.4/24\nDNS=evil'])assert.throws(()=>interfaceSetup(true,'static',address));
+assert.throws(()=>interfaceSetup(true,'static','192.168.1.4/24','192.168.2.1'));
+assert.throws(()=>interfaceSetup(true,'static','192.168.1.4/24','','evil\nDNS=1.1.1.1'));
+assert.equal(cloudSetup(false,'',false,'',true,true),null);
+assert.deepEqual(cloudSetup(true,'https://cloud.example',true,'aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa',true,false),{url:'https://cloud.example/',enrollmentCode:'A'.repeat(32),remoteControl:true,remoteUi:false});
+for(const url of ['http://cloud.example','https://owner@cloud.example','https://cloud.example/path','https://cloud.example/?secret=1'])assert.throws(()=>cloudSetup(true,url,false,''));
+assert.throws(()=>cloudSetup(true,'https://cloud.example',false,'',true,false));
+console.log('Independent interface addressing and explicit cloud consent checks passed.');

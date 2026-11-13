@@ -28,6 +28,8 @@ public sealed class RemoteInterfaceAgent : BackgroundService
         path = Path.Combine(StateFiles.PrepareDirectory(directory), "remote-interface-policy.json"); audit = new(directory);
         allowed = File.Exists(path) && JsonSerializer.Deserialize<bool>(File.ReadAllText(path), StateFiles.Json);
     }
+    public void RecordImageConsent(string owner, CloudConnection connection, bool control, bool ui) =>
+        audit.Record("ImageProvisioningConsent",owner,connection.TenantId,connection.DeviceId,Guid.Empty,$"Container control: {control}; remote interface: {ui}");
     public void SetAllowed(bool enabled, string actor)
     {
         lock (gate) {

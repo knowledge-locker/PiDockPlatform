@@ -14,6 +14,20 @@ public sealed class BrokerClient(IConfiguration configuration) : IDisposable, IA
 {
     private readonly HttpClient? http = configuration["Broker:SocketPath"] is { Length: > 0 } path ? UnixHttp.Connect(path, TimeSpan.FromMinutes(3)) : null;
     public bool Configured => http is not null;
+    public async Task<NodeView[]> Nodes(CancellationToken ct=default)=>http is null?[]:await http.GetFromJsonAsync<NodeView[]>("/nodes",StateFiles.Json,ct)??[];
+    public async Task<NodeAudit[]> NodeAudit(CancellationToken ct=default)=>http is null?[]:await http.GetFromJsonAsync<NodeAudit[]>("/nodes/audit",StateFiles.Json,ct)??[];
+    public async Task AdoptNode(NodeAction request,CancellationToken ct=default) {
+        if(http is null)throw new InvalidOperationException("Host broker unavailable.");
+        using var response=await http.PostAsJsonAsync("/nodes/adopt",request,StateFiles.Json,ct);response.EnsureSuccessStatusCode();
+    }
+    public async Task ConfigureNode(NodeConfigureAction request,CancellationToken ct=default) {
+        if(http is null)throw new InvalidOperationException("Host broker unavailable.");
+        using var response=await http.PutAsJsonAsync("/nodes/configuration",request,StateFiles.Json,ct);response.EnsureSuccessStatusCode();
+    }
+    public async Task ReleaseNode(NodeReleaseAction request,CancellationToken ct=default) {
+        if(http is null)throw new InvalidOperationException("Host broker unavailable.");
+        using var response=await http.PostAsJsonAsync("/nodes/release",request,StateFiles.Json,ct);response.EnsureSuccessStatusCode();
+    }
     public async Task<DigitalIoStatus> DigitalStatus(CancellationToken ct = default) => http is null
         ? new(false, "Host broker is not connected.", null, [], [])
         : await http.GetFromJsonAsync<DigitalIoStatus>("/gpio", StateFiles.Json, ct) ?? throw new HttpRequestException("GPIO response unavailable.");

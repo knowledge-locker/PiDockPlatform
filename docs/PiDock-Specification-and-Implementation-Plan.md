@@ -81,7 +81,7 @@ Docker control is effectively privileged. Only the host broker may access the ru
 
 # USB-connected expansion nodes
 
-Status — agreed architecture, planned implementation. The engineering preview does not yet implement node adoption, USB image provisioning, remote service placement or expansion hardware access. Discovery must report these as planned/unavailable until their individual acceptance gates pass.
+Status — USB role provisioning, discovery, owner-confirmed adoption, pinned service identities, monitoring/configuration and release have software implementations for image hardware acceptance. Physical USB/power compatibility is not yet accepted. USB image provisioning from Main, remote service placement and expansion hardware access remain unavailable; discovery must preserve these capability boundaries until their individual acceptance gates pass.
 
 ## Appliance and node model
 
