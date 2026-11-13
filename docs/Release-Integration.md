@@ -2,11 +2,11 @@
 
 ## Reconciliation update — 2026-11-13
 
-PR #1 now reconciles the unique application-platform work against the release branch. The combined implementation includes authenticated discovery and versioned schemas, the local MCP stdio bridge, local-owner agent registrations, scoped shared app services and tenant/application-bound cloud publishing. Newer remembered sessions, trusted-clock enforcement, signed updates, secure remote access and isolated certificate signing are retained. Agent credential actions use the shared MFA popup, require a local current owner, and invalidate issued tokens after ownership recovery. Commissioning diagnostics retain clock metadata while redacting MFA values.
+PR #1, merged at `8322aa0c7b53117d7fb1532fcb5f7e666b396db0`, reconciles the unique application-platform work against the release branch. The combined implementation includes authenticated discovery and versioned schemas, the local MCP stdio bridge, local-owner agent registrations, scoped shared app services and tenant/application-bound cloud publishing. Newer remembered sessions, trusted-clock enforcement, signed updates, secure remote access and isolated certificate signing are retained. Agent credential actions use the shared MFA popup, require a local current owner, and invalidate issued tokens after ownership recovery. Commissioning diagnostics retain clock metadata while redacting MFA values.
 
 All 204 .NET tests and all five Linux image-tool checks pass locally. No vulnerable NuGet packages were reported by the configured sources. Existing production rc.3 and the prepared alpha.1 image remain older artifacts; the next release must be built from the combined main source and use a new immutable version. No production deployment, SD write, credential change or OTP programming is part of these PR merges. The original dirty main checkout remains untouched.
 
-The inventory below records the original audit and explains how the preserved source was accounted for. PR #1 is being finalized into the release branch before PR #2 consolidates that branch into main.
+The inventory below records the original audit and explains how the preserved source was accounted for. PR #1 is merged into the release branch. PR #2 consolidates that branch into main; the linked PR records the final merge status.
 
 
 All four local branches, all three active worktrees, remote refs, stashes, open PRs and recent publication history were reviewed. There were no staged changes and no stashes. The original main checkout held uncommitted work; it was not clean or safe to reset.
@@ -15,8 +15,8 @@ All four local branches, all three active worktrees, remote refs, stashes, open 
 | --- | --- | --- |
 | Production rc.3 provisioning and earlier signed updates/remote access | Source `ebdd38f`, release branch | Deployed; physical factory-image acceptance remains pending |
 | Workspace/Safari/rate-limit fixes, monitoring corrections and remote-interface summaries | Development branch through `367a867`; merged at `8a951f0` | Integrated with production source; 184 combined Release tests passed; merged source not yet deployed |
-| Canonical main integration | [PR #2](https://github.com/knowledge-locker/PiDockPlatform/pull/2) | Ready for review; incorporates both release histories, retains production security changes |
-| Uncommitted application-platform/agent work | Snapshot `3839684935198eff02bfd09683aab90baaaff61a`, pushed branch `codex/preserve-main-wip-20261112`; [draft PR #1](https://github.com/knowledge-locker/PiDockPlatform/pull/1) | Preserved for reconciliation; not a deployable release |
+| Canonical main integration | [PR #2](https://github.com/knowledge-locker/PiDockPlatform/pull/2) | Consolidates both release histories and reconciled agent/API work; retains production security changes |
+| Uncommitted application-platform/agent work | Snapshot `3839684935198eff02bfd09683aab90baaaff61a`, pushed branch `codex/preserve-main-wip-20261112`; [draft PR #1](https://github.com/knowledge-locker/PiDockPlatform/pull/1) | Reconciled through PR #1; original snapshot ancestry retained |
 
 The 88-file snapshot was built using a temporary Git index and a commit parented to the original main HEAD `6e3a5ba`. The original working files and index were left untouched. It excludes ignored runtime state, signing keys and prepared owner data. Against the combined release index, 22 changed files were already identical, 40 had overlapping/divergent implementations, and 26 existed only in the snapshot.
 
@@ -123,7 +123,7 @@ During reconciliation, the snapshot was not accepted wholesale: older overlappin
 
 ## Completion gates
 
-- Merge/review PR #2 through normal checks; it is not an automatic deployment.
-- Reconcile and validate draft PR #1 feature by feature, retaining newer security and release behavior; then include accepted work in a named release.
+- PR #2 is the canonical source consolidation; release publication remains a separate action with its own immutable version.
+- PR #1 is reconciled and validated: all 204 combined tests pass, and its completed features are included in PR #2 for the next release.
 - Keep preservation and development refs until their unique changes are integrated. Do not reset or clean the original main checkout until its preserved source has been accounted for and its owner is ready to move it forward.
 - A successful software merge does not complete physical Pi image boot, Wi-Fi, rollback, recovery or irreversible boot-key provisioning acceptance.
