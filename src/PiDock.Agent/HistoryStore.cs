@@ -14,14 +14,63 @@ public sealed class DriveCapacityProbe : ICapacityProbe
     }
 }
 public sealed record HistoryStatus(DataPolicy Policy, PolicyBudget Budget, long DeletedSegments, DateTimeOffset? LastPurge,
-    IReadOnlyDictionary<HistoryClass, long> ClassUsage, int PendingSegments = 0, long UnsentDropped = 0, long RejectedQueued = 0);
+    IReadOnlyDictionary<HistoryClass, long> ClassUsage, int PendingSegments = 0, long UnsentDropped = 0, long RejectedQueued = 0, long RejectedSourceWrites = 0);
 public sealed record PendingTelemetry(string RouteScope, TelemetryEnvelope Envelope, bool Pending = true,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] HostSnapshot? LocalSnapshot = null);
 internal sealed record HistoryMetadata(long Sequence = 0, long Deleted = 0, long UnsentDropped = 0,
-    long RejectedQueued = 0, DateTimeOffset? LastPurge = null);
+    long RejectedQueued = 0, DateTimeOffset? LastPurge = null, long RejectedSourceWrites = 0);
 
 public sealed class HistoryStore
 {
+    private sealed record SourceRecord<T>(string Format, string Source, T Payload);
+    private bool SourceMatches(FileInfo file, IReadOnlyCollection<string> sources)
+    {
+        if (file.Length > 65536) return false;
+        try
+        {
+            using var json = JsonDocument.Parse(File.ReadAllText(file.FullName));
+            return json.RootElement.ValueKind == JsonValueKind.Object && json.RootElement.TryGetProperty("format", out var format) &&
+                format.ValueKind == JsonValueKind.String && format.GetString() == "pidock-source-v1" &&
+                json.RootElement.TryGetProperty("source", out var source) && source.ValueKind == JsonValueKind.String && sources.Contains(source.GetString() ?? "");
+        }
+        catch (JsonException) { return false; }
+    }
+    public IReadOnlyList<T> ReadSources<T>(HistoryClass kind, IReadOnlyCollection<string> sources, int limit = 100)
+    {
+        if (limit is < 1 or > 256) throw new ArgumentOutOfRangeException(nameof(limit));
+        lock (gate)
+        {
+            var result = new List<T>();
+            foreach (var file in Segments().Where(f => f.Directory!.Name == kind.ToString()).OrderByDescending(f => f.Name, StringComparer.Ordinal))
+            {
+                if (!SourceMatches(file, sources)) continue;
+                try
+                {
+                    var record = JsonSerializer.Deserialize<SourceRecord<T>>(File.ReadAllText(file.FullName), StateFiles.Json);
+                    if (record is not null && record.Payload is { } payload) result.Add(payload);
+                }
+                catch (JsonException) { /* Corrupt records cannot escape source isolation. */ }
+                if (result.Count >= limit) break;
+            }
+            return result;
+        }
+    }
+    public bool AppendSource<T>(HistoryClass kind, string source, T payload)
+    {
+        if (!IdentityRules.IsId(source)) throw new ArgumentException("Invalid source identity.");
+        lock (gate)
+        {
+            if (AppendJson(kind, JsonSerializer.Serialize(new SourceRecord<T>("pidock-source-v1", source, payload), StateFiles.Json)) is null)
+            { metadata = metadata with { RejectedSourceWrites = metadata.RejectedSourceWrites + 1 }; SaveMetadata(); return false; }
+            // One noisy source cannot retain unlimited segments in a shared history class.
+            foreach (var file in Segments().Where(f => f.Directory!.Name == kind.ToString()).OrderByDescending(f => f.Name, StringComparer.Ordinal)
+                .Where(f => SourceMatches(f, [source])).Skip(128))
+            {
+                file.Delete(); metadata = metadata with { Deleted = metadata.Deleted + 1, LastPurge = DateTimeOffset.UtcNow };
+            }
+            SaveMetadata(); return true;
+        }
+    }
     private readonly object gate = new();
     private readonly string root, policyPath, metadataPath;
     private readonly ICapacityProbe probe;
@@ -71,7 +120,7 @@ public sealed class HistoryStore
             var budget = DataPolicyCalculator.Evaluate(policy, probe.Read(root, bytes));
             return new(policy, budget, metadata.Deleted, metadata.LastPurge,
                 Enum.GetValues<HistoryClass>().ToDictionary(k => k, k => files.Where(f => f.Directory!.Name == k.ToString()).Sum(f => f.Length)),
-                pending.Count, metadata.UnsentDropped, metadata.RejectedQueued);
+                pending.Count, metadata.UnsentDropped, metadata.RejectedQueued, metadata.RejectedSourceWrites);
         }
     }
     public PolicyBudget Preview(DataPolicy candidate)

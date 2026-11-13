@@ -1,4 +1,5 @@
 using PiDock.Core;
+using PiDock.Appliance.Web;
 using Microsoft.AspNetCore.Components.Authorization;
 using PiDock.Agent;
 using PiDock.Appliance.Web.Components;
@@ -6,6 +7,8 @@ using PiDock.Web.Shared;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddPiDockAuthentication("Appliance");
+builder.AddPlatformDiscovery();
+builder.AddSharedApplicationServices();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddScoped<AuthenticationStateProvider, SessionAuthenticationStateProvider>();
 builder.Services.AddSingleton<ICapacityProbe, DriveCapacityProbe>();
@@ -37,6 +40,10 @@ var app = builder.Build();
 if (MediaProvisioning.Import(app,args)) return;
 if (app.Commission(args, singleOwner: true)) return;
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error"); app.UseHsts(); app.UseHttpsRedirection(); }
+app.Use(async (context,next) => {
+    if(context.Request.Path.StartsWithSegments("/agent-access")) { context.Response.Headers.CacheControl="no-store";context.Response.Headers["Referrer-Policy"]="same-origin"; }
+    await next(context);
+});
 app.UseAuthentication();
 app.Use(async (context, next) => {
     var relay = context.RequestServices.GetRequiredService<RemoteInterfaceAgent>();
@@ -49,6 +56,8 @@ app.Use(async (context, next) => {
 });
 app.UseAuthorization(); app.UseRateLimiter(); app.UseAntiforgery();
 app.MapPiDockAuthentication("Appliance");
+app.MapPlatformDiscovery();
+app.MapSharedApplicationServices();
 app.MapStaticAssets();
 app.MapGet("/health/update", (MonitoringService monitor) => new OsUpdateHealth(installedRelease?.Digest,
     monitor.Current is { } current && DateTimeOffset.UtcNow - current.ObservedAt < TimeSpan.FromSeconds(15) && monitor.LastError is null));

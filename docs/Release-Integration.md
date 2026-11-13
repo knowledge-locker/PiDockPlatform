@@ -1,5 +1,14 @@
 # Release integration audit — 2026-11-12
 
+## Reconciliation update — 2026-11-13
+
+PR #1 now reconciles the unique application-platform work against the release branch. The combined implementation includes authenticated discovery and versioned schemas, the local MCP stdio bridge, local-owner agent registrations, scoped shared app services and tenant/application-bound cloud publishing. Newer remembered sessions, trusted-clock enforcement, signed updates, secure remote access and isolated certificate signing are retained. Agent credential actions use the shared MFA popup, require a local current owner, and invalidate issued tokens after ownership recovery. Commissioning diagnostics retain clock metadata while redacting MFA values.
+
+All 204 .NET tests and all five Linux image-tool checks pass locally. No vulnerable NuGet packages were reported by the configured sources. Existing production rc.3 and the prepared alpha.1 image remain older artifacts; the next release must be built from the combined main source and use a new immutable version. No production deployment, SD write, credential change or OTP programming is part of these PR merges. The original dirty main checkout remains untouched.
+
+The inventory below records the original audit and explains how the preserved source was accounted for. PR #1 is being finalized into the release branch before PR #2 consolidates that branch into main.
+
+
 All four local branches, all three active worktrees, remote refs, stashes, open PRs and recent publication history were reviewed. There were no staged changes and no stashes. The original main checkout held uncommitted work; it was not clean or safe to reset.
 
 | Work | Durable location | Status |
@@ -11,7 +20,7 @@ All four local branches, all three active worktrees, remote refs, stashes, open 
 
 The 88-file snapshot was built using a temporary Git index and a commit parented to the original main HEAD `6e3a5ba`. The original working files and index were left untouched. It excludes ignored runtime state, signing keys and prepared owner data. Against the combined release index, 22 changed files were already identical, 40 had overlapping/divergent implementations, and 26 existed only in the snapshot.
 
-The snapshot must not be merged wholesale: older overlapping authentication, updater and UI copies could regress released functionality. Its unique API/MCP discovery, registered-agent credentials, shared application services, catalog and associated tests need integration against current remembered sessions, clock checks, per-action MFA, remote-session restrictions and certificate-signer isolation. Draft PR #1 tracks this work explicitly.
+During reconciliation, the snapshot was not accepted wholesale: older overlapping authentication, updater and UI copies could regress released functionality. Its unique API/MCP discovery, registered-agent credentials, shared application services, catalog and associated tests were integrated against current remembered sessions, clock checks, per-action MFA, remote-session restrictions and certificate-signer isolation. PR #1 tracks this reconciliation explicitly.
 
 ## Snapshot file accounting
 

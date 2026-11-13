@@ -54,7 +54,7 @@ For the new **Add device → Cloud connection** workflow, see [device enrollment
 ```sh
 ./deploy/prepare-preview.sh
 docker compose --env-file .env -f deploy/compose.yaml up --build -d
-# Stop the web process before creating accounts, then restart to load them.
+# Stop the web process to establish the single platform Owner, then restart.
 docker compose --env-file .env -f deploy/compose.yaml stop cloud
 docker compose --env-file .env -f deploy/compose.yaml run --rm cloud --commission
 docker compose --env-file .env -f deploy/compose.yaml up -d cloud
@@ -71,6 +71,10 @@ Stop the preview services without erasing state:
 ```sh
 docker compose --env-file .env -f deploy/compose.yaml down
 ```
+
+## Application platform discovery
+
+Versioned platform discovery and an agent MCP stdio bridge are available. Use **Agent access** in PiDockOS to register third-party applications, generate encrypted/retrievable tokens, copy connection prompts and revoke access. See [agent access](docs/Agent-Access.md). Agents can inspect contract schemas, capability status and the saved registered PiDockCloud URL using a separate expiring discovery credential. Scoped shared logs, measurements and app alarms, plus tenant-scoped registry-reference cloud publishing, are now available in engineering preview. Hardware and package installation remain planned. See [shared services and cloud publishing](docs/Cloud-Publishing-and-App-Services.md). See [application platform setup and limits](docs/Application-Platform.md).
 
 ## Container applications
 

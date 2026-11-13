@@ -40,6 +40,7 @@ builder.Services.AddSingleton(sp => new CloudEnrollmentClient(state, sp.GetRequi
 builder.Services.AddSingleton<IDeviceCertificateIssuer, DeviceCertificateIssuer>();
 builder.Services.AddSingleton<EnrollmentStore>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton(sp => new RegisteredAgentStore(sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(), sp.GetRequiredService<StateDirectory>(), sp.GetRequiredService<UserStore>(), sp.GetRequiredService<TimeProvider>(), enabled: false));
 builder.Services.AddSingleton<AgentSession>();
 builder.Services.AddSingleton<DeliveryStatus>();
 builder.Services.AddSingleton(sp => new AlarmMonitor(state, sp.GetRequiredService<HistoryStore>(), sp.GetRequiredService<TimeProvider>(), builder.Configuration.GetSection("Alarms:Rules").Get<AlarmRule[]>()));

@@ -14,6 +14,7 @@ if (args.Contains("--certificate-signer")) {
     return;
 }
 builder.AddPiDockAuthentication("Cloud");
+builder.AddApplicationCatalog();
 builder.Services.AddHttpsRedirection(options => options.HttpsPort = 443);
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddScoped<AuthenticationStateProvider, SessionAuthenticationStateProvider>();
@@ -51,7 +52,7 @@ app.UseWebSockets();
 app.Use(RemoteAccessGateway.Handle);
 app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter(); app.UseAntiforgery();
 app.MapPiDockAuthentication("Cloud"); app.MapStaticAssets();
-app.MapDeviceEnrollment();
+app.MapDeviceEnrollment(); app.MapApplicationCatalog();
 app.MapOsUpdates(); app.MapFactoryImages(); app.MapRemoteAccess();
 app.MapGet("/api/devices", (System.Security.Claims.ClaimsPrincipal user, FleetStore store) => store.For(user)).RequireAuthorization();
 app.MapGet("/api/devices/{device}/history", (string device, System.Security.Claims.ClaimsPrincipal user, FleetStore store) => store.HistoryFor(user, device)).RequireAuthorization();

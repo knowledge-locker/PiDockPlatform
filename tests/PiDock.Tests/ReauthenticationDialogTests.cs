@@ -71,6 +71,23 @@ public sealed class ReauthenticationDialogTests
         Assert.Equal(approved, await request);
     }
 
+    [Fact]
+    public async Task CredentialActionRunsOnceWithFreshMfaAndIsRemovedAfterCancellation()
+    {
+        await using var fixture=new Fixture();await fixture.Mount();int actions=0;
+        bool Confirm(ClaimsPrincipal user,string password,string code) {
+            if(fixture.Users.Authenticate(user.Identity!.Name!,password,code,DateTimeOffset.UtcNow) is null)return false;
+            actions++;return true;
+        }
+        var request=await fixture.Request(Confirm);
+        var code=Totp.Code(fixture.Secret,DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30);
+        await fixture.Credentials(code);await fixture.Event("onsubmit");Assert.True(await request);Assert.Equal(1,actions);
+        var replay=await fixture.Request(Confirm);await fixture.Credentials(code);await fixture.Event("onsubmit");
+        Assert.False(replay.IsCompleted);Assert.Equal(1,actions);await fixture.Event("oncancel");Assert.False(await replay);
+        var cancelled=await fixture.Request((_,_,_)=>{actions++;return true;});await fixture.Event("oncancel");Assert.False(await cancelled);
+        var normal=await fixture.Request();await fixture.Credentials(Totp.Code(fixture.Secret,DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30+1));
+        await fixture.Event("onsubmit");Assert.True(await normal);Assert.Equal(1,actions);
+    }
     private sealed class Identity : AuthenticationStateProvider
     {
         public ClaimsPrincipal User { get; set; } = new();
@@ -103,11 +120,12 @@ public sealed class ReauthenticationDialogTests
         private readonly string directory = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pidock-reauth-" + Guid.NewGuid());
         private readonly ServiceProvider services;
         private readonly TestRenderer renderer;
+        public UserStore Users {get;}
         public string Secret { get; } = Totp.NewSecret();
         public Identity Identity { get; } = new();
         public Fixture(string role = "Owner")
         {
-            var users = new UserStore(new EphemeralDataProtectionProvider(), directory);
+            var users = Users = new UserStore(new EphemeralDataProtectionProvider(), directory);
             users.Add("test-owner", Password, Secret, "local", role, false, -1);
             var user = users.Authenticate("test-owner", Password, Totp.Code(Secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30 - 1), DateTimeOffset.UtcNow)!;
             Identity.User = new ClaimsPrincipal(new ClaimsIdentity([
@@ -117,7 +135,7 @@ public sealed class ReauthenticationDialogTests
             renderer = new(services, services.GetRequiredService<ILoggerFactory>());
         }
         public Task Mount(bool cloud = false) => renderer.Mount(cloud);
-        public async Task<Task<bool>> Request() { Task<bool>? result = null; await renderer.Dispatcher.InvokeAsync(() => { result = renderer.Component.Request("Test action", "Only this action is approved."); }); return result!; }
+        public async Task<Task<bool>> Request(Func<ClaimsPrincipal,string,string,bool>? action=null) { Task<bool>? result = null; await renderer.Dispatcher.InvokeAsync(() => { result = renderer.Component.Request("Test action", "Only this action is approved.",action); }); return result!; }
         public RenderTreeFrame[] Frames() => renderer.Frames();
         public Task Event(string name) => renderer.Event(name, EventArgs.Empty);
         public Task Input(string name, int index, string value) => renderer.Event(name, new ChangeEventArgs { Value = value }, index);

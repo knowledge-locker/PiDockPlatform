@@ -1,18 +1,22 @@
 # Implementation status
 
-Engineering preview v0.1 — November 10, 2026.
+Engineering preview v0.1 — updated November 11, 2026.
 
-The specification remains the production target. This increment establishes runnable appliance/cloud services and tests; it does not deliver a flashable or production-hardened OS.
+The specification remains the production target. The November 11, 2026 application platform expansion now includes API/MCP discovery, scoped shared app services and registry-reference cloud release publishing. Physical hardware, full package installation and cloud alarm/log delivery remain pending. See the [version 1.2 specification and gates](PiDock-Specification-and-Implementation-Plan.md#application-platform-api-and-development-contract). This increment establishes runnable appliance/cloud services and tests; it does not deliver a flashable or production-hardened OS.
 
 | Area | Implemented now | Remaining release work |
 | --- | --- | --- |
 | Accounts | Console commissioning, password/TOTP, replay persistence, throttling, protected accounts, CSRF, revocable remembered sessions and shared per-action MFA dialog | Physical-presence recovery, hardened clock gate, audited credential lifecycle, trusted local commissioning UX |
 | Appliance UI | Overview, storage policy, applications, live pin map, network counters | Files, network changes/rollback, raw diagnostics, complete error/status handling |
 | Containers | Separate Unix broker, constrained digest-pinned ARM64 deployment, start/stop, resource limits | Archive import, signature policy, persistence, secrets, Compose subset, hardware grants and update rollback |
+| Application platform | Versioned discovery/schemas, scoped expiring app credentials, typed .NET client, shared measurements and system reads | Hosted-app credential issuance/injection, full manifests/conformance, hardware leases, subscriptions and service exports |
+| Agent interface | Owner-managed encrypted/retrievable agent registrations, revocation/rotation, MCP discovery/resources and separate scoped cloud publishing | Full manifest/conformance validation, broader hosted-app grants and installation tools |
+| Shared logging/alarms | Structured app/PiDock host journal, UTC/boot/monotonic metadata, priorities 1–4, scoped queries, priority-granted conditions and durable raise/update/ack/clear | Docker/system log collection, coordinated verbosity, full rule UI, cloud forwarding/notifications and escalation |
+| App distribution | Tenant catalog, immutable registry-reference releases, package digests, publisher scopes and authorized version retrieval | Binary package uploads, image/signature verification, release withdrawal/channels, rollout tracking and approved local installation |
 | Storage | Percentage budget, protected reserve, per-class oldest-first cleanup, policy preview/save and persistent unsent-loss counters | Allocated-block accounting, application quotas, class/age editing, long-run SD testing |
 | I/O | Pi 5 RP1 GPIO v2 discovery, line direction/bias/consumer reporting, default-deny pin policy, exclusive timed maintenance claims, local owner/fresh MFA, per-page release and normal-release fallback; development simulation | Physical driver acceptance on Pi 5, electrical fallback/power-loss validation, exclusive application handoff, PWM, input simulation API and raw capture |
 | Telemetry | Independent sampling/delivery, mTLS, bounded durable queue, cloud persistence receipts, deduplicated replay, local resource alarms and bounded cloud archive | Remote audit/log sync, cloud incident workflow, notification delivery and PostgreSQL history |
-| Cloud users | Multiple console-provisioned users, tenant claim enforcement, Owner/Administrator-only enrollment with fresh MFA | Online user administration, fleet/device grant scopes, other privileged action policies, account recovery |
+| Cloud users | Single console-established platform Owner; Owner-gated account/workspace signup with TOTP; multiple workspace memberships and roles; single-use username-bound invitations; team management; workspace switching; support banner/audit; stale-session rejection and legacy-account migration | Fleet/device grant scopes, expanded role-specific incident policies, verified-email/recovery-code account recovery, email invitation delivery |
 | Enrollment | Single-use expiring codes, CSR validation, device-specific certificates, key-bound response recovery, local key generation and automatic MQTT activation | Isolated signing service, renewal, revocation, migration and production provisioning |
 | Persistence | Atomic protected account files, segmented local telemetry, atomic fleet JSON | PostgreSQL/RLS, migrations, historical queries, log/object storage, scheduled off-site backups |
 | Packaging | HTTPS cloud container, mTLS broker, local-only Compose package, non-root services | Complete release signing/CA lifecycle, public hosting, certificate provisioning, MQTT routing and PRX3MUS application installation |
@@ -23,10 +27,11 @@ The specification remains the production target. This increment establishes runn
 
 1. Validate the application stack on the available Pi 4 with a 64-bit OS, then the Pi 3B with its tighter memory budget. Use network time after boot for battery-free development. Validate Pi 5-specific kernel/RP1 I/O, RTC holdover and secure boot/update behavior separately when that board is available.
 2. Add hardware-backed commissioning/recovery flow and trusted-clock gating before allowing production authentication.
-3. Implement application manifests, persistent data and publisher policy; integrate the broker with narrow device grants.
-4. Extend the implemented local resource alarms and telemetry replay with remote audit/log synchronization, a cloud incident workflow and notification routing.
-5. Replace the cloud JSON store with PostgreSQL and RLS, then add durable alarms, user administration and notifications.
-6. Build and fault-test the signed image/update pipeline, complete independent security review, and validate PROX3MUS deployment.
+3. Complete runtime credential issuance/injection, manifest/conformance validation, named service exports and hardware leases. API/MCP discovery, scoped shared services and independently authorized cloud publishing are now implemented in preview; appliance registration alone still grants no publishing authority.
+4. Extend shared local services and pass full platform conformance before hosted product app development: scoped simulated/hardware I/O, authorized telemetry exchange, centralized host/app logging, common timestamps and diagnostic controls, priorities Critical=1 / Warning=2 / Alert=3 / Notice=4, and durable alarm lifecycle. Use small conformance fixtures to validate offline, restart, limits and isolation.
+5. Implement expanded manifests, persistence/secrets, publisher trust, direct application package upload and health rollback. Add PiDockCloud tenant catalog, immutable package publishing, artifact storage/downloads, publisher grants and registered-device distribution subject to local installation approval/policy. Cloud registration alone grants no publishing or installation authority.
+6. Extend monitoring/replay with selected shared logs/telemetry, correlated cloud incidents and notifications; replace the cloud JSON store with PostgreSQL/RLS and verify catalog/artifact/log backup and restore.
+7. Build and fault-test the signed image/update pipeline, complete independent security review, and validate PROX3MUS deployment. Continue independent hardware/security work alongside platform implementation; re-estimate delivery dates for the expanded scope.
 
 No DNS, public service, production credentials, firmware fuses or Raspberry Pi hardware were changed by this increment.
 
@@ -95,3 +100,8 @@ Production hosting: release candidate `0.1.0-rc.1` is deployed at `pidock.knowle
 ## Hosted workspace checklist acceptance — November 12, 2026
 
 Development release `0.1.0-dev.19` fixes shared authentication/workspace throttling and browser form-origin rejection found during real hosted testing. All 46 hosted assertions and 151 automated tests pass. Four temporary accounts, their sessions/memberships/invitations, two workspaces and two synthetic device records were removed with retained-account/key/device baseline verification. The original Owner context and enabled signup setting were restored. See [hosted acceptance details](Development-Cloud.md).
+
+
+## Application platform reconciliation — November 13, 2026
+
+The preserved API/MCP and shared-services increment has been reconciled with the signed-update and production release source. Discovery and shared APIs require HTTPS and scoped bearer credentials; browser owners cannot use their cookie as a publishing/app credential. Owner-managed discovery registrations are local-only, encrypted/retrievable, individually expiring and revocable, and use the shared action-specific MFA popup. Tokens are invalidated by owner recovery and pause during loss of required clock trust. The MCP bridge retains pinned registered-cloud matching and separate publisher credentials. Cloud catalog routes enforce tenant/application identity and immutable registry-reference releases. App GPIO/hardware grants, archive installation and automatic publisher provisioning remain separate unimplemented gates. All 204 combined tests and five Linux image-tool tests pass; production and prepared media have not been redeployed by reconciliation. See [release accounting](Release-Integration.md).

@@ -229,6 +229,11 @@ public sealed class UserStore
             return new(new ClaimsIdentity(claims, "Cookies"));
         }
     }
+    internal bool IsLocalOwnerStampCurrent(string name,string stamp)
+    {
+        if(cloud||!clockAllowed()||string.IsNullOrEmpty(stamp))return false;
+        lock(gate)return state.Users.Any(u=>u.Username==name&&u.Role=="Owner"&&u.Stamp==stamp);
+    }
     public bool IsCurrent(ClaimsPrincipal principal) => IsCurrent(principal, DateTimeOffset.UtcNow);
     internal bool IsCurrent(ClaimsPrincipal principal, DateTimeOffset now)
     {

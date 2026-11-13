@@ -29,9 +29,13 @@
     private string action = "", description = "", password = "", otp = "", error = "";
     private bool show, submitting, disposed;
 
-    public Task<bool> Request(string title, string detail)
+    // Trusted server actions may perform their own credential check to avoid consuming one TOTP twice.
+    // Never use this callback for an action that does not independently authenticate the supplied credentials.
+    private Func<System.Security.Claims.ClaimsPrincipal,string,string,bool>? confirmAction;
+    public Task<bool> Request(string title, string detail, Func<System.Security.Claims.ClaimsPrincipal,string,string,bool>? actionWithCredentials = null)
     {
         if (disposed || pending is not null) return Task.FromResult(false);
+        confirmAction=actionWithCredentials;
         action = title; description = detail; password = ""; otp = ""; error = "";
         pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
         var result = pending.Task;
@@ -55,13 +59,15 @@
         try {
             var user = (await Authentication.GetAuthenticationStateAsync()).User;
             bool allowed = user.IsInRole("Owner") || (Cloud && user.IsInRole("Administrator"));
-            if (!Users.IsCurrent(user) || !allowed || Users.Authenticate(user.Identity!.Name!, password, otp, DateTimeOffset.UtcNow) is null) {
+            if (!Users.IsCurrent(user) || !allowed || !(confirmAction is not null ? confirmAction(user,password,otp) : Users.Authenticate(user.Identity!.Name!, password, otp, DateTimeOffset.UtcNow) is not null)) {
                 error = "Confirmation failed. Check your password and use a new authenticator code. If your session expired, sign in again.";
                 return;
             }
             await Close(true);
         }
-        catch (IOException) { error = "Confirmation could not be completed. Please try again."; }
+        catch (UnauthorizedAccessException) { error="Confirmation failed. Check your password and use a new authenticator code."; }
+        catch (Exception e) when(e is ArgumentException or InvalidOperationException) { error=e.Message; }
+        catch (Exception e) when(e is IOException or System.Security.Cryptography.CryptographicException) { error = "Confirmation could not be completed. Please try again."; }
         finally { password = ""; otp = ""; submitting = false; }
     }
     private Task Cancel() => submitting ? Task.CompletedTask : Close(false);
@@ -73,7 +79,7 @@
     }
     private void Finish(bool confirmed)
     {
-        var completion = pending; pending = null; show = false;
+        var completion = pending; pending = null; show = false; confirmAction=null;
         password = ""; otp = ""; error = ""; action = ""; description = "";
         completion?.TrySetResult(confirmed);
     }
