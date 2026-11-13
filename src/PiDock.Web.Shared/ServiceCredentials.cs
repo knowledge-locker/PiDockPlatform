@@ -65,12 +65,12 @@ public sealed class ServiceCredentialOptions : AuthenticationSchemeOptions
     public bool Cloud { get; set; }
 }
 public sealed class ServiceCredentialHandler(IOptionsMonitor<ServiceCredentialOptions> options, ILoggerFactory logger,
-    UrlEncoder encoder, IConfiguration configuration, TimeProvider clock, IEnumerable<RegisteredAgentStore> registeredAgents)
+    UrlEncoder encoder, IConfiguration configuration, TimeProvider clock, IEnumerable<RegisteredAgentStore> registeredAgents, ClockTrust clockTrust)
     : AuthenticationHandler<ServiceCredentialOptions>(options, logger, encoder)
 {
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        if (!Request.IsHttps || Request.Headers.Authorization.Count != 1) return Fail();
+        if (!clockTrust.Allowed || !Request.IsHttps || Request.Headers.Authorization.Count != 1) return Fail();
         var value = Request.Headers.Authorization.ToString();
         if (!value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) || value.Length != 71 || !value[7..].All(char.IsAsciiHexDigit)) return Fail();
         if (!Options.Cloud)

@@ -1,0 +1,17 @@
+[Unit]
+Description=PiDock attached keyboard and display setup console
+After=var.mount systemd-tmpfiles-setup.service pidock-time.service
+Requires=var.mount
+Conflicts=getty@tty1.service
+[Service]
+ExecStart=/usr/lib/pidock/console.sh
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+RestartSec=2
+[Install]
+WantedBy=multi-user.target

@@ -58,7 +58,7 @@ public sealed class FleetStore
                 if (previous.BootId != Guid.Empty && previous.BootId != envelope.BootId) retired = retired.Append(previous.BootId).TakeLast(16).ToArray();
             }
             var record = new StoredDevice(envelope.TenantId, envelope.DeviceId, envelope.MessageId, DateTimeOffset.UtcNow,
-                envelope.Snapshot, envelope.BootId, envelope.Sequence, retired, live ? envelope.Alarms ?? [] : [], live, live ? envelope.Applications : null, live ? envelope.OsUpdates : null);
+                envelope.Snapshot, envelope.BootId, envelope.Sequence, retired, live ? envelope.Alarms ?? [] : [], live, live ? envelope.Applications : null, live ? envelope.OsUpdates : null, live ? envelope.RemoteInterfaceEnabled : null);
             var updated = devices.ToList(); if (index >= 0) updated[index] = record; else updated.Add(record);
             StateFiles.WriteAtomic(path, JsonSerializer.Serialize(updated, StateFiles.Json));
             devices.Clear(); devices.AddRange(updated); return new(true, true);
@@ -75,7 +75,7 @@ public sealed class FleetStore
                 envelope.Applications.Status is { Length: <= 256 } && apps.All(a => a is not null && a.Id is { Length: 64 } && a.Id.All(char.IsAsciiHexDigit) &&
                     a.Names is { Length: <= 4 } && a.Names.All(n => n is { Length: <= 128 }) && a.Image is { Length: <= 512 } && a.State is { Length: <= 32 } && a.Status is { Length: <= 256 }) &&
                 results.All(r => r is not null && r.Id != Guid.Empty && r.State is "Completed" or "Rejected" or "Failed" or "Unknown" && r.Message is { Length: <= 256 }))) &&
-            (envelope.OsUpdates is null || (envelope.OsUpdates.Runtime is { Length: <= 64 } && envelope.OsUpdates.Status is { Length: <= 256 } &&
+            (envelope.OsUpdates is null || (envelope.OsUpdates.UpdateKind is ("services" or "image") && envelope.OsUpdates.Runtime is { Length: <= 64 } && envelope.OsUpdates.Status is { Length: <= 256 } &&
                 (envelope.OsUpdates.Operation is null || (envelope.OsUpdates.Operation.Message is { Length: <= 256 } && envelope.OsUpdates.Operation.Version is { Length: <= 64 } &&
                 envelope.OsUpdates.Operation.State is { Length: <= 32 } && OsUpdateRules.Digest(envelope.OsUpdates.Operation.Digest))))) &&
             sample.Interfaces.All(i => i is not null && i.Name is { Length: <= 128 } && i.State is { Length: <= 64 } && i.Kind is { Length: <= 64 }) &&

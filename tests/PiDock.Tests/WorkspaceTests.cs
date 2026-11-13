@@ -136,6 +136,26 @@ public sealed class WorkspaceTests : IDisposable
         Assert.Throws<ArgumentException>(() => Store().Accept(users.Principal(bob), invitation.Token));
     }
     [Fact]
+    public async Task CloudFormsRetainTheirOriginWithoutDisclosingInvitationPaths()
+    {
+        using var factory = new WorkspaceFactory(); using var client = factory.Client();
+        var users = factory.Services.GetRequiredService<UserStore>();
+        var secret = Totp.NewSecret(); users.Add("owner", Password, secret, "local", "Owner", false, -1);
+        using var page = await client.GetAsync("/auth/login?invite=" + new string('A', 64));
+        Assert.Equal("strict-origin", page.Headers.GetValues("Referrer-Policy").Single());
+        Assert.True(page.Headers.CacheControl!.NoStore);
+        string html = await page.Content.ReadAsStringAsync();
+        var form = new Dictionary<string, string> { ["username"] = "owner", ["password"] = Password,
+            ["code"] = Code(secret), ["__RequestVerificationToken"] = Field(html, "__RequestVerificationToken") };
+        client.DefaultRequestHeaders.Add("Origin", "null");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/auth/login", new FormUrlEncodedContent(form))).StatusCode);
+        client.DefaultRequestHeaders.Remove("Origin"); client.DefaultRequestHeaders.Add("Origin", "https://localhost");
+        Assert.Equal(HttpStatusCode.Redirect, (await client.PostAsync("/auth/login", new FormUrlEncodedContent(form))).StatusCode);
+        using var team = await client.GetAsync("/workspaces");
+        Assert.Equal(HttpStatusCode.OK, team.StatusCode);
+        Assert.Equal("strict-origin", team.Headers.GetValues("Referrer-Policy").Single());
+    }
+    [Fact]
     public async Task HttpSignupGateMfaCsrfAndTeamAuthorizationWorkTogether()
     {
         using var factory = new WorkspaceFactory(); using var client = factory.Client();
@@ -276,12 +296,77 @@ public sealed class WorkspaceTests : IDisposable
         Assert.Null(users.SignupInvitation(invite.Token));
         var ownerPage = await ownerClient.GetStringAsync("/workspaces"); Assert.Contains("Single workspace", ownerPage); Assert.DoesNotContain("Injected workspace", ownerPage);
     }
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void WorkspaceChangesPreserveBrowserSessionLifetimeAndRevokeOldContexts(bool remember)
+    {
+        var users = Store(); Bootstrap(users);
+        var alice = Register(users, "alice", "Alice"); var bob = Register(users, "bob", "Bob");
+        var now = DateTimeOffset.UtcNow;
+        var session = users.CreateSession(alice, remember, now);
+        var original = users.Principal(alice, session: session);
+        var joined = users.Accept(original, users.Invite(users.Principal(bob), "alice", "Viewer").Token);
+        Assert.False(users.IsCurrent(original)); Assert.True(users.IsCurrent(joined));
+        Assert.Equal(session.Id, joined.FindFirstValue("session"));
+        Assert.Equal(session.ExpiresAt.ToUnixTimeSeconds().ToString(), joined.FindFirstValue("expires"));
+        var switched = users.Switch(joined, alice.TenantId);
+        Assert.False(users.IsCurrent(joined)); Assert.True(users.IsCurrent(switched));
+        Assert.True(Store().IsCurrent(switched, now.AddMinutes(16)));
+        Assert.False(Store().IsCurrent(switched, session.ExpiresAt));
+        users.RevokeSession(switched);
+        Assert.False(Store().IsCurrent(switched));
+    }
+    [Fact]
+    public async Task WorkspaceActionsDoNotExhaustSharedIpSignInBudgetAndRemainBoundedPerUser()
+    {
+        using var factory = new WorkspaceFactory(); using var admin = factory.Client(); using var newcomer = factory.Client();
+        var users = factory.Services.GetRequiredService<UserStore>(); Bootstrap(users);
+        var secret = Totp.NewSecret(); users.Add("rate-admin", Password, secret, "alpha", "Administrator", false, -1);
+        var login = await admin.GetStringAsync("/auth/login");
+        var signedIn = await admin.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string,string> {
+            ["username"]="rate-admin", ["password"]=Password, ["code"]=Code(secret), ["__RequestVerificationToken"]=Field(login,"__RequestVerificationToken") }));
+        Assert.Equal(HttpStatusCode.Redirect,signedIn.StatusCode);
+        var csrf = Field(await admin.GetStringAsync("/workspaces"),"__RequestVerificationToken");
+        for(int i=0;i<60;i++)
+        {
+            var response = await admin.PostAsync("/workspaces/signup-settings",new FormUrlEncodedContent(new Dictionary<string,string> { ["enabled"]="true", ["__RequestVerificationToken"]=csrf }));
+            Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode); // Real role checks still apply to every action.
+        }
+        var throttled = await admin.PostAsync("/workspaces/signup-settings",new FormUrlEncodedContent(new Dictionary<string,string> { ["enabled"]="true", ["__RequestVerificationToken"]=csrf }));
+        Assert.Equal(HttpStatusCode.TooManyRequests,throttled.StatusCode);
+        Assert.Equal(HttpStatusCode.OK,(await newcomer.GetAsync("/auth/signup")).StatusCode);
+    }
+    [Fact]
+    public async Task BrowserFormsPreserveTheirOriginAndOpaqueOrForeignOriginsRemainBlocked()
+    {
+        using var factory = new WorkspaceFactory(); using var client = factory.Client();
+        Bootstrap(factory.Services.GetRequiredService<UserStore>());
+        var response = await client.GetAsync("/auth/signup");
+        Assert.Equal("strict-origin",response.Headers.GetValues("Referrer-Policy").Single());
+        var signup=await response.Content.ReadAsStringAsync();
+        var secret=Regex.Match(signup,"class=\"setup-key\">([^<]+)").Groups[1].Value;
+        var fields=new Dictionary<string,string> { ["username"]="browser-user", ["password"]=Password,["confirmPassword"]=Password,["workspace"]="Browser team",["code"]=Code(secret),["setup"]=Field(signup,"setup"),["__RequestVerificationToken"]=Field(signup,"__RequestVerificationToken") };
+        foreach(var rejected in new[]{"null","https://foreign.example.test"})
+        {
+            client.DefaultRequestHeaders.Remove("Origin");client.DefaultRequestHeaders.Add("Origin",rejected);
+            Assert.Equal(HttpStatusCode.Forbidden,(await client.PostAsync("/auth/signup",new FormUrlEncodedContent(fields))).StatusCode);
+        }
+        client.DefaultRequestHeaders.Remove("Origin");client.DefaultRequestHeaders.Add("Origin","https://localhost");
+        Assert.Equal(HttpStatusCode.Redirect,(await client.PostAsync("/auth/signup",new FormUrlEncodedContent(fields))).StatusCode);
+        var workspace=await client.GetAsync("/workspaces");
+        Assert.Equal("strict-origin",workspace.Headers.GetValues("Referrer-Policy").Single());
+        var html=await workspace.Content.ReadAsStringAsync();
+        var action=await client.PostAsync("/workspaces/role",new FormUrlEncodedContent(new Dictionary<string,string>{["username"]="browser-user",["role"]="Viewer",["__RequestVerificationToken"]=Field(html,"__RequestVerificationToken")}));
+        Assert.Equal(HttpStatusCode.BadRequest,action.StatusCode); // Reaches the last-Administrator guard, rather than origin rejection.
+    }
     private static string Field(string html, string name) => WebUtility.HtmlDecode(Regex.Match(html, "name=[\"']" + name + "[\"'] value=[\"']([^\"']*)").Groups[1].Value);
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
     private sealed class WorkspaceFactory : WebApplicationFactory<CloudMarker>
     {
         private readonly string directory = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pidock-workspace-http-" + Guid.NewGuid());
-        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Development").UseSetting("PiDock:StateDirectory", directory).UseSetting("Mqtt:Enabled", "false").UseSetting("Logging:LogLevel:Default", "Warning");
+        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Development").UseSetting("PiDock:StateDirectory", directory).UseSetting("Mqtt:Enabled", "false").UseSetting("Logging:LogLevel:Default", "Warning")
+            .UseSetting("RemoteAccess:CloudOrigin", "https://localhost").UseSetting("RemoteAccess:Domain", "access.example.test");
         public HttpClient Client() => CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         protected override void Dispose(bool disposing) { base.Dispose(disposing); if (disposing && Directory.Exists(directory)) Directory.Delete(directory, true); }
     }

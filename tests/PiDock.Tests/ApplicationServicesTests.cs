@@ -161,15 +161,28 @@ public sealed class ApplicationServicesTests
         public StorageCapacity Read(string path, long bytes) => new(32L << 30, Full ? 0 : (16L << 30) - bytes, bytes);
     }
 
-    private sealed class ServiceFactory<T>(bool cloud) : WebApplicationFactory<T> where T : class
+    [Fact]
+    public async Task TrustedClockRequirementAppliesToConfiguredBearerCredentials()
+    {
+        using var appliance=new ServiceFactory<PiDock.Appliance.Web.ApplianceMarker>(false,requireClock:true);
+        using var client=appliance.Client("publisher");
+        Assert.True(appliance.Services.GetRequiredService<ClockTrust>().Required);
+        Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/apps/v1/system")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/platform/v1/discovery")).StatusCode);
+    }
+    private sealed class ServiceFactory<T>(bool cloud, bool requireClock=false) : WebApplicationFactory<T> where T : class
     {
         public string Root { get; } = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pidock-app-api-" + Guid.NewGuid());
         private readonly Dictionary<string, string> tokens = new() { ["publisher"] = NewToken(), ["reader"] = NewToken(), ["other"] = NewToken() };
         private static string NewToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
-            builder.UseEnvironment("Development").UseSetting("PiDock:StateDirectory", Root).UseSetting("Logging:LogLevel:Default", "Warning").UseSetting("AllowedHosts", "localhost;cloud.example.test");
-            var settings = new Dictionary<string, string?>(); int index = 0;
+            builder.UseEnvironment("Development").UseSetting("PiDock:StateDirectory", Root).UseSetting("PiDock:RequireTrustedClock",requireClock.ToString()).UseSetting("Logging:LogLevel:Default", "Warning").UseSetting("AllowedHosts", "localhost;cloud.example.test");
+            var settings = new Dictionary<string, string?> { ["PiDock:RequireTrustedClock"]=requireClock.ToString() }; int index = 0;
+            if(!cloud) {
+                settings["PiDock:Discovery:TokenSha256"]=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tokens["publisher"])));
+                settings["PiDock:Discovery:ExpiresAt"]=DateTimeOffset.UtcNow.AddHours(1).ToString("O");
+            }
             foreach (var (id, token) in tokens)
             {
                 var prefix = (cloud ? "PiDock:Publishing:Credentials:" : "PiDock:Apps:Credentials:") + index++ + ":";

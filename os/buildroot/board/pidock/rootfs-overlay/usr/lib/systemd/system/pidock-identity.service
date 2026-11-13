@@ -1,0 +1,21 @@
+[Unit]
+Requires=pidock-provision.service
+After=pidock-provision.service
+Description=PiDock per-device local HTTPS identity
+After=var.mount systemd-tmpfiles-setup.service
+Requires=var.mount
+Before=pidock-appliance.service
+[Service]
+Type=oneshot
+RemainAfterExit=true
+User=root
+UMask=0077
+ExecStart=/usr/lib/pidock/create-local-identity.sh
+TimeoutStartSec=infinity
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/pidock/identity
+[Install]
+WantedBy=multi-user.target

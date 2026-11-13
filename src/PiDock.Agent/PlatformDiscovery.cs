@@ -12,7 +12,7 @@ public sealed class PlatformDiscovery(CloudEnrollmentClient enrollment, GpioSimu
         [
             new("platform.discovery", CapabilityState.Available, "Read-only target and registered-cloud context.", ["discovery.read"]),
             new("platform.contracts", CapabilityState.Available, "Versioned schemas and authoring guidance.", ["contracts.read"]),
-            new("gpio.control", CapabilityState.Planned, "Physical GPIO and app leases are not implemented.", []),
+            new("gpio.control", CapabilityState.Planned, "Local-owner Pi 5 GPIO maintenance is separate; GPIO access and leases for apps are not implemented.", []),
             new("gpio.simulation", gpio.Enabled ? CapabilityState.Simulated : CapabilityState.Planned,
                 gpio.Enabled ? "Development UI simulation enabled; no app I/O endpoint." : "Development simulation is disabled.", []),
             new("hardware.buses", CapabilityState.Planned, "App I2C/SPI/PWM/serial/USB interfaces are not implemented.", []),

@@ -5,7 +5,7 @@
 @inject AlarmMonitor Alarms
 <PageTitle>Overview · PiDockOS</PageTitle>
 <div class="page-heading"><div><p class="eyebrow">APPLIANCE / OVERVIEW</p><h1>Device overview</h1><p>Live host health, managed storage, and device interfaces.</p></div><span class="pill">● Live · 2 second refresh</span></div>
-<div class="notice">Engineering preview · Real host measurements. Physical GPIO, verified boot and trusted-clock checks are pending. Container controls require a connected host broker.</div>
+<div class="notice">Host measurements are live. Open Live I/O for detected header configuration and locally approved maintenance controls. Verified boot and trusted-clock protection are not yet validated. Application controls require a connected host broker.</div>
 @if (Monitoring.Current is { } host)
 {
     <div class="metrics">

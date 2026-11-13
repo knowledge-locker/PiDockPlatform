@@ -292,7 +292,7 @@ Network settings include hostname, Ethernet/Wi-Fi, DHCP/static addressing, DNS, 
 
 The host firewall defaults to deny inbound traffic except explicitly permitted management access and approved application ports. Enforce container port policy in the actual Docker packet path, not just the host input chain. Cloud connections are outbound. LAN access is not treated as proof of trust.
 
-HTTPS is mandatory for management. Provision a unique local certificate and physically verifiable fingerprint; support a user-managed certificate or local CA. Certificate changes are audited. A VPN or deliberate firewall rule can permit remote browser administration, but PiDock does not automatically expose or relay its management interface through the cloud.
+HTTPS is mandatory for management. Provision a unique local certificate and physically verifiable fingerprint; support a user-managed certificate or local CA. Certificate changes are audited. A VPN can permit remote browser administration. Optional PiDockCloud interface relay now requires an independent local-owner permission (default off), an enrolled-device outbound connection, fresh cloud MFA and a five-minute session on a per-device isolated HTTPS origin. Appliance authentication and action checks remain required. See [Remote interface access](Remote-Interface-Access.md); enabling its trusted cloud relay is a deliberate expansion of the local management trust boundary.
 
 # Live GPIO and interface diagnostics
 

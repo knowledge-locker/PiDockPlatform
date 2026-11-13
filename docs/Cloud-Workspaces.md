@@ -14,7 +14,7 @@ The platform Owner can open **Workspaces & team â†’ Workspace signup settings â†
 
 When disabled, public workspace signup and creation of additional workspaces by ordinary users are blocked on the server as well as hidden in the interface. A signup form opened before the setting changed cannot bypass the restriction. The Owner can still create a workspace, so an invitation-only installation can be established even before its first team exists. Existing workspaces, memberships, switching and device registrations remain available.
 
-Team invitations continue to work in both modes. A new invited user creates an account with password and authenticator verification, joins only the invited workspace with the assigned role, and does not create another workspace. Existing users sign in and accept the invitation normally. Invalid, expired, revoked or already-used invitations cannot authorize account creation.
+Team invitations continue to work in both modes. Authenticated workspace actions use a separate per-user limit of 60 actions per minute; public sign-in/signup retain their 10-per-minute IP limit. Browser pages preserve only their origin in referrer headers, so invitation/setup paths remain private while same-origin form posts pass validation. A new invited user creates an account with password and authenticator verification, joins only the invited workspace with the assigned role, and does not create another workspace. Existing users sign in and accept the invitation normally. Invalid, expired, revoked or already-used invitations cannot authorize account creation.
 
 ## Create an account and workspace
 
@@ -28,7 +28,7 @@ In the selected workspace, an Administrator chooses the invited username and rol
 
 Recipients sign in through the invitation link. New recipients use **Create your invited account**, choose a password and complete authenticator setup using the invited username. Their account and invited membership are created together and the invitation is consumed; no personal workspace is created. Existing recipients sign in and accept the team invitation. Acceptance selects the invited workspace. Other memberships and roles are preserved.
 
-Administrators can change member roles and remove users from the current workspace. A workspace's last Administrator cannot be demoted or removed. Team management never grants the platform Owner role. Changes invalidate the affected user's existing sessions, requiring sign-in again. Removing or demoting an Administrator also cancels their outstanding invitations in that workspace. Selecting another workspace also invalidates earlier sessions/tabs to prevent old interactive pages from retaining access.
+Administrators can change member roles and remove users from the current workspace. A workspace's last Administrator cannot be demoted or removed. Team management never grants the platform Owner role. Changes invalidate the affected user's existing sessions, requiring sign-in again. Removing or demoting an Administrator also cancels their outstanding invitations in that workspace. Selecting another workspace also invalidates earlier sessions/tabs to prevent old interactive pages from retaining access. The selected browser retains its existing remembered-sign-in setting and original expiry; switching does not extend its session lifetime.
 
 | Role | Current permissions |
 | --- | --- |

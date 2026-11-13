@@ -62,14 +62,14 @@ public static class PlatformDiscoveryEndpoints
 // A locally provisioned, expiring credential for this read-only policy only. It is not an owner,
 // deployment, cloud publishing, or app credential and cannot authenticate other appliance routes.
 public sealed class DiscoveryTokenHandler(IOptionsMonitor<AuthenticationSchemeOptions> options,
-    ILoggerFactory logger, UrlEncoder encoder, IConfiguration configuration, TimeProvider clock, PiDock.Web.Shared.RegisteredAgentStore agents)
+    ILoggerFactory logger, UrlEncoder encoder, IConfiguration configuration, TimeProvider clock, PiDock.Web.Shared.RegisteredAgentStore agents, ClockTrust clockTrust)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "PlatformDiscoveryToken";
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         var header = Request.Headers.Authorization;
-        if (!Request.IsHttps || header.Count != 1) return Failed();
+        if (!clockTrust.Allowed || !Request.IsHttps || header.Count != 1) return Failed();
         var value = header.ToString();
         if (!value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return Failed();
         var token = value[7..];

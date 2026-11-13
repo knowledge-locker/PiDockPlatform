@@ -1,0 +1,28 @@
+[Unit]
+Description=PiDockOS signed A/B image updater
+After=var.mount pidock-appliance.service pidock-broker.service
+Requires=var.mount
+Wants=pidock-appliance.service pidock-broker.service
+[Service]
+User=root
+Group=pidock
+WorkingDirectory=/usr/lib/pidock/updater
+ExecStart=/usr/lib/pidock/updater/PiDock.Updater
+Environment=ASPNETCORE_ENVIRONMENT=Production
+RuntimeDirectory=pidock-updater pidock-image
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=restart
+StateDirectory=pidock/updater
+UMask=0007
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/pidock/updater /run/pidock-updater /run/pidock-image /boot/control
+[Install]
+WantedBy=multi-user.target

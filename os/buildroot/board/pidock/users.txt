@@ -1,0 +1,1 @@
+pidock 1654 pidock 1654 * /var/lib/pidock /bin/false - PiDock appliance

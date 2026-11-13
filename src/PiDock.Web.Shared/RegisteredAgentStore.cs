@@ -8,13 +8,13 @@ using PiDock.Core;
 namespace PiDock.Web.Shared;
 
 public sealed record RegisteredAgentSummary(Guid Id, string Name, string DiscoveryUrl, string[] Scopes,
-    DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, DateTimeOffset? RevokedAt);
+    DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, DateTimeOffset? RevokedAt, bool OwnerCurrent=true);
 public sealed record AgentConnectionDetails(RegisteredAgentSummary Application, string Token, string Prompt);
 
 public sealed class RegisteredAgentStore
 {
     private sealed record Registration(Guid Id, string Name, string Origin, string Token, string[] Scopes,
-        string CreatedBy, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, DateTimeOffset? RevokedAt = null);
+        string CreatedBy, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, DateTimeOffset? RevokedAt = null,string OwnerStamp = "");
     private readonly object gate = new();
     private readonly string path;
     private readonly IDataProtector protector;
@@ -32,7 +32,7 @@ public sealed class RegisteredAgentStore
     }
     private void RequireOwner(ClaimsPrincipal user)
     {
-        if (!users.IsCurrent(user) || !user.IsInRole("Owner")) throw new UnauthorizedAccessException("A current appliance owner session is required.");
+        if (!users.IsCurrent(user) || !user.IsInRole("Owner") || user.HasClaim(c=>c.Type=="pidock_remote")) throw new UnauthorizedAccessException("A current appliance owner session is required.");
     }
     private void Confirm(ClaimsPrincipal user, string password, string code)
     {
@@ -53,13 +53,13 @@ public sealed class RegisteredAgentStore
         lock (gate)
         {
             Confirm(owner, password, code);
-            if (entries.Count(e => e.RevokedAt is null && e.ExpiresAt > clock.GetUtcNow()) >= 96) throw new InvalidOperationException("Revoke an unused registration before adding another.");
-            if (entries.Any(e => e.RevokedAt is null && e.ExpiresAt > clock.GetUtcNow() && e.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            if (entries.Count(Active) >= 96) throw new InvalidOperationException("Revoke an unused registration before adding another.");
+            if (entries.Any(e => Active(e) && e.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
                 throw new ArgumentException("An active application already uses that name.");
             var now = clock.GetUtcNow();
             var entry = new Registration(Guid.NewGuid(), name, origin, NewToken(), systemRead ? ["platform.discovery.read", "system.read"] : ["platform.discovery.read"],
-                owner.Identity!.Name!, now, now.AddDays(lifetimeDays));
-            var retained = entries.OrderByDescending(e => e.RevokedAt is null && e.ExpiresAt > now).ThenByDescending(e => e.CreatedAt).Take(127);
+                owner.Identity!.Name!, now, now.AddDays(lifetimeDays), OwnerStamp:owner.FindFirstValue("stamp")!);
+            var retained = entries.OrderByDescending(Active).ThenByDescending(e => e.CreatedAt).Take(127);
             Save(retained.Append(entry).ToArray()); return Details(entry);
         }
     }
@@ -95,12 +95,13 @@ public sealed class RegisteredAgentStore
         {
             var match = entries.FirstOrDefault(e => e.RevokedAt is null && e.ExpiresAt > clock.GetUtcNow() && e.Token.Length == 64 &&
                 CryptographicOperations.FixedTimeEquals(hash, SHA256.HashData(Encoding.UTF8.GetBytes(e.Token))));
-            if (match is null) return null;
+            if (match is null || !users.IsLocalOwnerStampCurrent(match.CreatedBy,match.OwnerStamp)) return null;
             var identity = "agent-" + match.Id.ToString("N");
             return new(identity, Convert.ToHexString(hash), match.ExpiresAt, identity, match.Scopes.ToArray());
         }
     }
-    private Registration FindActive(Guid id) => entries.FirstOrDefault(e => e.Id == id && e.RevokedAt is null && e.ExpiresAt > clock.GetUtcNow())
+    private bool Active(Registration entry)=>entry.RevokedAt is null&&entry.ExpiresAt>clock.GetUtcNow()&&users.IsLocalOwnerStampCurrent(entry.CreatedBy,entry.OwnerStamp);
+    private Registration FindActive(Guid id) => entries.FirstOrDefault(e => e.Id == id && Active(e))
         ?? throw new ArgumentException("Registration is expired, revoked or unavailable. Create a new registration if necessary.");
     private static string NewToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     public static string ValidateOrigin(string origin)
@@ -110,9 +111,9 @@ public sealed class RegisteredAgentStore
             throw new ArgumentException("Enter the appliance HTTPS address without a path, credentials, query or fragment.");
         return uri.AbsoluteUri;
     }
-    private static RegisteredAgentSummary Summary(Registration e) => new(e.Id, e.Name, new Uri(new Uri(e.Origin), PlatformContracts.ApiRoot + "/discovery").AbsoluteUri,
-        e.Scopes.ToArray(), e.CreatedAt, e.ExpiresAt, e.RevokedAt);
-    private static AgentConnectionDetails Details(Registration entry)
+    private RegisteredAgentSummary Summary(Registration e) => new(e.Id, e.Name, new Uri(new Uri(e.Origin), PlatformContracts.ApiRoot + "/discovery").AbsoluteUri,
+        e.Scopes.ToArray(), e.CreatedAt, e.ExpiresAt, e.RevokedAt,users.IsLocalOwnerStampCurrent(e.CreatedBy,e.OwnerStamp));
+    private AgentConnectionDetails Details(Registration entry)
     {
         var summary = Summary(entry);
         var prompt = $"""

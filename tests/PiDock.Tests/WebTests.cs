@@ -25,7 +25,7 @@ public sealed class WebTests
         var result = await Login(client, "test-owner", code);
         Assert.Equal(HttpStatusCode.Redirect, result.StatusCode); Assert.Equal("/", result.Headers.Location!.OriginalString);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/status")).StatusCode);
-        foreach (var route in new[] { "/", "/storage", "/gpio", "/interfaces", "/applications", "/cloud", "/updates" })
+        foreach (var route in new[] { "/", "/storage", "/gpio", "/interfaces", "/applications", "/cloud", "/updates", "/remote-access" })
         {
             var page = await client.GetAsync(route); Assert.Equal(HttpStatusCode.OK, page.StatusCode);
             Assert.Contains("PiDock", await page.Content.ReadAsStringAsync());
@@ -35,6 +35,24 @@ public sealed class WebTests
         // Same valid code cannot create a second authenticated session.
         using var other = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         var replay = await Login(other, "test-owner", code); Assert.Contains("failed=1", replay.Headers.Location!.OriginalString);
+    }
+    [Fact]
+    public async Task RemoteApplianceConnectionCannotEnableItsOwnRemotePermission()
+    {
+        using var factory = new PreviewFactory<PiDock.Appliance.Web.ApplianceMarker>();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
+        var secret = Totp.NewSecret(); factory.Services.GetRequiredService<UserStore>().Add("local-owner", "integration-test-password", secret, "local", "Owner", true, -1);
+        await Login(client, "local-owner", Totp.Code(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30));
+        var remote = factory.Services.GetRequiredService<PiDock.Agent.RemoteInterfaceAgent>();
+        client.DefaultRequestHeaders.Add("X-PiDock-Remote-Proof", "invalid");
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/remote-access")).StatusCode);
+        client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Proof");
+        remote.SetAllowed(true, "local-owner");
+        client.DefaultRequestHeaders.Add("X-PiDock-Remote-Proof", remote.LocalProof); client.DefaultRequestHeaders.Add("X-PiDock-Remote-Id", Guid.NewGuid().ToString());
+        var html = await client.GetStringAsync("/remote-access"); Assert.Contains("only be changed through a local connection", html); Assert.DoesNotContain("Save remote interface permission", html);
+        var cloud = await client.GetStringAsync("/cloud"); Assert.DoesNotContain("Connect this appliance", cloud); Assert.DoesNotContain("Move to this cloud", cloud);
+        client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Proof"); client.DefaultRequestHeaders.Remove("X-PiDock-Remote-Id");
+        Assert.Contains("Save remote interface permission", await client.GetStringAsync("/remote-access"));
     }
     [Fact]
     public async Task EnrollmentRedemptionRequiresHttpsAndIsRateLimitedWhileManagementRequiresLogin()
@@ -124,12 +142,37 @@ public sealed class WebTests
             "/api/telemetry/export?format=csv&from=" + Uri.EscapeDataString(now.AddDays(-32).ToString("O")) + "&to=" + Uri.EscapeDataString(now.ToString("O"))
         }) Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(invalid)).StatusCode);
     }
-    private static async Task<HttpResponseMessage> Login(HttpClient client, string username, string code)
+    [Fact]
+    public Task CloudRememberedSessionIsPersistentAndSignOutRejectsCookieReplay() => VerifySessionCookie<PiDock.Cloud.Web.CloudMarker>(true, "/api/devices");
+    [Fact]
+    public Task ApplianceSessionWithoutRememberIsNotSavedAcrossBrowserRestarts() => VerifySessionCookie<PiDock.Appliance.Web.ApplianceMarker>(false, "/api/status");
+    private static async Task VerifySessionCookie<T>(bool remember, string protectedRoute) where T : class
+    {
+        using var factory = new PreviewFactory<T>();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
+        var secret = Totp.NewSecret(); factory.Services.GetRequiredService<UserStore>().Add("session-owner", "integration-test-password", secret, "local", "Owner", true, -1);
+        var login = await Login(client, "session-owner", Totp.Code(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30), remember);
+        Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
+        var header = login.Headers.GetValues("Set-Cookie").Single(h => h.StartsWith("PiDock.", StringComparison.Ordinal));
+        Assert.Equal(remember, header.Contains("expires=", StringComparison.OrdinalIgnoreCase));
+        if (remember) Assert.InRange(Microsoft.Net.Http.Headers.SetCookieHeaderValue.Parse(header).Expires!.Value - DateTimeOffset.UtcNow, TimeSpan.FromDays(7).Subtract(TimeSpan.FromMinutes(1)), TimeSpan.FromDays(7));
+        Assert.Contains("httponly", header.ToLowerInvariant()); Assert.Contains("samesite=strict", header.ToLowerInvariant());
+        var cookie = header.Split(';')[0];
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(protectedRoute)).StatusCode);
+        var html = await client.GetStringAsync("/auth/login");
+        var token = WebUtility.HtmlDecode(Regex.Match(html, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value);
+        var logout = await client.PostAsync("/auth/logout", new FormUrlEncodedContent(new Dictionary<string,string> { ["__RequestVerificationToken"] = token }));
+        Assert.Equal(HttpStatusCode.Redirect, logout.StatusCode);
+        using var replay = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false, BaseAddress = new Uri("https://localhost") });
+        replay.DefaultRequestHeaders.Add("Cookie", cookie);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await replay.GetAsync(protectedRoute)).StatusCode);
+    }
+    private static async Task<HttpResponseMessage> Login(HttpClient client, string username, string code, bool remember = false)
     {
         var html = await client.GetStringAsync("/auth/login");
         var token = WebUtility.HtmlDecode(Regex.Match(html, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value);
         Assert.NotEmpty(token);
-        return await client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string> { ["username"] = username, ["password"] = "integration-test-password", ["code"] = code, ["__RequestVerificationToken"] = token }));
+        return await client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string> { ["username"] = username, ["password"] = "integration-test-password", ["code"] = code, ["remember"] = remember ? "true" : "false", ["__RequestVerificationToken"] = token }));
     }
     [Fact]
     public async Task ProductionHttpOnlyServesLivenessAndDoesNotTrustSpoofedProxyHeaders()

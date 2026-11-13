@@ -1,0 +1,5 @@
+[Unit]
+Description=Revert an unpromoted PiDockOS image trial
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/pidock/check-trial.sh

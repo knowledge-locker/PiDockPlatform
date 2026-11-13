@@ -1,30 +1,25 @@
 @page "/applications"
 @inject BrokerClient Broker
-@inject AuthenticationStateProvider Authentication
-@inject UserStore Users
 <PageTitle>Applications · PiDockOS</PageTitle>
 <p class="eyebrow">APPLIANCE / APPLICATIONS</p><h1>Applications</h1><p>Run digest-pinned Linux ARM64 images through the restricted host broker.</p>
 <div class="notice">Preview deployments use a non-root user, read-only filesystem, isolated network, CPU/memory/process limits and loopback-only ports. Image signature verification, archive upload and persistent volumes are not yet available. Deploy only images you trust.</div>
-<section class="card"><div class="section-heading"><h2>Managed applications</h2><button class="secondary" @onclick="Load">Refresh</button></div>@if(!Broker.Configured){<p>Host broker is not connected. Configure Broker:SocketPath to enable runtime access.</p>}<table><thead><tr><th>Name</th><th>State</th><th>Image</th><th>Control</th></tr></thead><tbody>@foreach(var app in applications){<tr><td>@string.Join(", ",app.Names)</td><td>@app.Status</td><td><small>@app.Image</small></td><td><button class="secondary" @onclick="()=>Control(app.Id,app.State != Running)">@(app.State=="running"?"Stop":"Start")</button></td></tr>}</tbody></table></section>
+<section class="card"><div class="section-heading"><h2>Managed applications</h2><button class="secondary" @onclick="Load">Refresh</button></div>@if(!Broker.Configured){<p>Host broker is not connected. Configure Broker:SocketPath to enable runtime access.</p>}<table><thead><tr><th>Name</th><th>State</th><th>Image</th><th>Control</th></tr></thead><tbody>@foreach(var app in applications){<tr><td>@string.Join(", ",app.Names)</td><td>@app.Status</td><td><small>@app.Image</small></td><td><button class="secondary" disabled="@busy" @onclick="()=>Control(app.Id,app.State != Running)">@(app.State=="running"?"Stop":"Start")</button></td></tr>}</tbody></table></section>
 <div class="columns"><section class="card"><h2>Deploy application</h2><label>Name<input @bind="name" maxlength="40" /></label><label>Image with sha256 digest<input @bind="image" placeholder="registry/image@@sha256:…" /></label><label>Memory limit (MiB)<input type="number" @bind="memory" /></label><label>CPU cores<input type="number" step="0.1" @bind="cpu" /></label><button disabled="@(!Broker.Configured || busy)" @onclick="Deploy">Pull and deploy</button><p>Ports and data mounts will be exposed through the manifest editor in a later increment. The broker supports an optional loopback port pair.</p></section>
-<section class="card"><h2>Confirm owner credentials</h2><p>Each runtime change requires your password and a fresh authenticator code.</p><label>Password<input type="password" @bind="password" autocomplete="current-password" /></label><label>Authenticator code<input @bind="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" /></label><p role="status">@message</p></section></div>
+</div><p role="status">@message</p>
+<ReauthenticationDialog @ref="confirmation" />
 @code {
+    private ReauthenticationDialog confirmation = default!;
     private const string Running = "running";
-    private ApplicationSummary[] applications=[]; private string name="", image="",password="",code="";private int memory=128;private double cpu=.5;private bool busy;private string? message;
+    private ApplicationSummary[] applications=[]; private string name="", image="";private int memory=128;private double cpu=.5;private bool busy;private string? message;
     protected override Task OnInitializedAsync()=>Load();
     private async Task Load(){try{applications=await Broker.List();}catch(HttpRequestException){message="Runtime unavailable. Check broker socket and Docker engine.";}}
-    private async Task<bool> Confirm()
-    {
-        var user=(await Authentication.GetAuthenticationStateAsync()).User;
-        bool valid=Users.IsCurrent(user)&&user.IsInRole("Owner")&&Users.Authenticate(user.Identity!.Name!,password,code,DateTimeOffset.UtcNow) is not null;
-        password="";code="";if(!valid)message="Fresh owner password and authenticator code required.";return valid;
-    }
+
     private async Task Deploy()
     {
-        if(busy)return;
-        try{var manifest=new ApplicationManifest(name,image,memory,cpu);manifest.Validate();if(!await Confirm())return;busy=true;await Broker.Deploy(manifest);message="Application deployed.";await Load();}
+        if(busy)return; busy=true;
+        try{var manifest=new ApplicationManifest(name,image,memory,cpu);manifest.Validate();if(!await confirmation.Request("Deploy application", $"Deploy {name} from image {image} on this appliance."))return;busy=true;await Broker.Deploy(manifest);message="Application deployed.";await Load();}
         catch(Exception e) when(e is ArgumentException or HttpRequestException or InvalidOperationException){message=e is ArgumentException?e.Message:"Deployment unavailable. Check broker logs and image compatibility.";}
         finally{busy=false;}
     }
-    private async Task Control(string id,bool start){if(!await Confirm())return;try{await Broker.ChangeState(id,start);await Load();}catch(HttpRequestException){message="Runtime operation failed.";}}
+    private async Task Control(string id,bool start) { if(busy)return; busy=true; try { if(!await confirmation.Request(start ? "Start application" : "Stop application", $"Change the state of container {id} on this appliance."))return; await Broker.ChangeState(id,start); await Load(); } catch(HttpRequestException) { message="Runtime operation failed."; } finally { busy=false; } }
 }

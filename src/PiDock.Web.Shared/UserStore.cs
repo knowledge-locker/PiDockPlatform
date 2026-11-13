@@ -9,6 +9,7 @@ namespace PiDock.Web.Shared;
 
 public sealed record LoginUser(string Username, string PasswordHash, string Secret, string TenantId, string Role,
     string Stamp, long LastStep = -1, int Failures = 0, DateTimeOffset? LockedUntil = null);
+public sealed record BrowserSession(string Id, string Username, string Stamp, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt);
 public sealed record Workspace(string Id, string Name);
 public sealed record WorkspaceMembership(string Username, string WorkspaceId, string Role);
 public sealed record WorkspaceAccess(string Id, string Name, string Role);
@@ -26,12 +27,20 @@ public sealed class UserStore
     private readonly IDataProtector protector;
     private readonly PasswordHasher<string> hasher = new();
     private readonly bool cloud;
+    private readonly Func<bool> clockAllowed;
+    private readonly string sessionPath;
+    private readonly IDataProtector sessionProtector;
+    private BrowserSession[] sessions;
     private AccountState state = new([], [], [], [], []);
-    public UserStore(IDataProtectionProvider provider, string directory, bool cloud = false)
+    public UserStore(IDataProtectionProvider provider, string directory, bool cloud = false, Func<bool>? clockAllowed = null)
     {
         this.cloud = cloud;
+        this.clockAllowed = clockAllowed ?? (() => true);
         path = Path.Combine(StateFiles.PrepareDirectory(directory), "accounts.protected");
         protector = provider.CreateProtector("PiDock.Accounts.v1");
+        sessionPath = Path.Combine(directory, "sessions.protected");
+        sessionProtector = provider.CreateProtector("PiDock.Sessions.v1");
+        sessions = File.Exists(sessionPath) ? JsonSerializer.Deserialize<BrowserSession[]>(sessionProtector.Unprotect(File.ReadAllText(sessionPath)), StateFiles.Json) ?? throw new IOException("Invalid browser session state.") : [];
         if (!File.Exists(path)) return;
         var json = protector.Unprotect(File.ReadAllText(path));
         if (json.TrimStart().StartsWith('['))
@@ -100,11 +109,38 @@ public sealed class UserStore
                 Memberships = role == "Owner" ? state.Memberships : [.. state.Memberships, new(name, tenant, role)] });
         }
     }
+    internal void ImportInitialMediaOwner(MediaSetup setup)
+    {
+        MediaProvisioning.Validate(setup);
+        lock(gate) {
+            if(cloud||HasUsers)throw new InvalidOperationException("Initial media setup cannot replace an owner.");
+            Save(state with { Users=[new(setup.Username,setup.PasswordHash,setup.Secret,"local","Owner",Guid.NewGuid().ToString(),setup.LastStep)] });
+        }
+    }
     private static void ValidateAccount(string name, string password)
     {
         if (!IdentityRules.IsId(name) || name.Length > 64 || password.Length is < 14 or > 256)
             throw new ArgumentException("Use a username with ASCII letters, digits or hyphens (up to 64 characters), and a 14–256 character password.");
     }
+    internal void RecoverLocalOwner(PhysicalPresence presence, string name, string password, string secret, long lastStep)
+    {
+        ArgumentNullException.ThrowIfNull(presence);
+        if (cloud) throw new InvalidOperationException("Physical appliance recovery cannot change cloud accounts.");
+        ValidateAccount(name,password);
+        lock (gate)
+        {
+            // Revoke every remembered session before replacing credentials. A crash leaves old credentials
+            // usable only with their old MFA, never partially publishes a new owner's password or secret.
+            SaveSessions([]);
+            var owner=new LoginUser(name,hasher.HashPassword(name,password),secret,"local","Owner",Guid.NewGuid().ToString(),lastStep);
+            Save(state with { Users=[owner], Memberships=[], Invitations=[] });
+            string auditPath=Path.Combine(Path.GetDirectoryName(path)!,"physical-recovery-audit.json");
+            if(File.Exists(auditPath)&&new FileInfo(auditPath).Length>65536)throw new IOException("Credentials saved, but physical recovery audit requires local repair.");
+            var events=File.Exists(auditPath)?JsonSerializer.Deserialize<RecoveryAudit[]>(File.ReadAllText(auditPath),StateFiles.Json)??[]:[];
+            StateFiles.WriteAtomic(auditPath,JsonSerializer.Serialize(events.Append(new RecoveryAudit(Guid.NewGuid(),DateTimeOffset.UtcNow,"OwnerCredentialsReplaced",name)).TakeLast(128).ToArray(),StateFiles.Json));
+        }
+    }
+    private sealed record RecoveryAudit(Guid Id,DateTimeOffset At,string Action,string Username);
     private static string WorkspaceName(string name)
     {
         name = name.Trim();
@@ -130,6 +166,7 @@ public sealed class UserStore
     }
     public LoginUser? Authenticate(string username, string password, string code, DateTimeOffset now)
     {
+        if (!clockAllowed()) return null;
         lock (gate)
         {
             int i = Array.FindIndex(state.Users, x => Same(x.Username, username));
@@ -149,7 +186,34 @@ public sealed class UserStore
             Save(state with { Users = users }); return users[i];
         }
     }
-    public ClaimsPrincipal Principal(LoginUser user, string? workspaceId = null)
+    public BrowserSession CreateSession(LoginUser user, bool remember, DateTimeOffset now)
+    {
+        lock (gate)
+        {
+            if (!state.Users.Any(u => u.Username == user.Username && u.Stamp == user.Stamp)) throw new InvalidOperationException("Account is no longer current.");
+            var session = new BrowserSession(Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), user.Username, user.Stamp, now,
+                now.Add(remember ? TimeSpan.FromDays(7) : TimeSpan.FromHours(12)));
+            var active = sessions.Where(s => s.ExpiresAt > now).ToArray();
+            var keep = active.Where(s => s.Username != user.Username)
+                .Concat(active.Where(s => s.Username == user.Username).OrderByDescending(s => s.CreatedAt).Take(19));
+            SaveSessions(keep.Append(session).ToArray());
+            return session;
+        }
+    }
+    private void SaveSessions(BrowserSession[] next)
+    {
+        StateFiles.WriteAtomic(sessionPath, sessionProtector.Protect(JsonSerializer.Serialize(next, StateFiles.Json)));
+        sessions = next;
+    }
+    public void RevokeSession(ClaimsPrincipal principal)
+    {
+        lock (gate)
+        {
+            var id = principal.FindFirstValue("session");
+            if (id is not null) SaveSessions(sessions.Where(s => s.Id != id || s.Username != principal.Identity?.Name).ToArray());
+        }
+    }
+    public ClaimsPrincipal Principal(LoginUser user, string? workspaceId = null, BrowserSession? session = null)
     {
         lock (gate)
         {
@@ -159,22 +223,44 @@ public sealed class UserStore
             string role = user.Role;
             if (cloud && role != "Owner") role = workspaceId == "" && !state.Memberships.Any(m => m.Username == user.Username) ? "Viewer" : state.Memberships.Single(m => m.Username == user.Username && m.WorkspaceId == workspaceId).Role;
             if (cloud && workspaceId.Length > 0 && !state.Workspaces.Any(w => w.Id == workspaceId)) throw new UnauthorizedAccessException();
-            return new(new ClaimsIdentity([new(ClaimTypes.Name, user.Username), new(ClaimTypes.Role, role), new("tenant", workspaceId),
-                new("stamp", user.Stamp), new("expires", DateTimeOffset.UtcNow.AddMinutes(15).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture))], "Cookies"));
+            var claims = new List<Claim> { new(ClaimTypes.Name, user.Username), new(ClaimTypes.Role, role), new("tenant", workspaceId),
+                new("stamp", user.Stamp), new("expires", (session?.ExpiresAt ?? DateTimeOffset.UtcNow.AddMinutes(15)).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)) };
+            if (session is not null) claims.Add(new("session", session.Id));
+            return new(new ClaimsIdentity(claims, "Cookies"));
         }
     }
-    public bool IsCurrent(ClaimsPrincipal principal)
+    internal bool IsLocalOwnerStampCurrent(string name,string stamp)
     {
+        if(cloud||!clockAllowed()||string.IsNullOrEmpty(stamp))return false;
+        lock(gate)return state.Users.Any(u=>u.Username==name&&u.Role=="Owner"&&u.Stamp==stamp);
+    }
+    public bool IsCurrent(ClaimsPrincipal principal) => IsCurrent(principal, DateTimeOffset.UtcNow);
+    internal bool IsCurrent(ClaimsPrincipal principal, DateTimeOffset now)
+    {
+        if (!clockAllowed()) return false;
         lock (gate)
         {
-            if (principal.Identity?.IsAuthenticated != true || !long.TryParse(principal.FindFirstValue("expires"), out var expiry) || expiry <= DateTimeOffset.UtcNow.ToUnixTimeSeconds()) return false;
+            if (principal.Identity?.IsAuthenticated != true || !long.TryParse(principal.FindFirstValue("expires"), out var expiry) || expiry <= now.ToUnixTimeSeconds()) return false;
             var user = state.Users.SingleOrDefault(u => u.Username == principal.Identity.Name && u.Stamp == principal.FindFirstValue("stamp"));
             if (user is null) return false;
             var tenant = principal.FindFirstValue("tenant"); var role = principal.FindFirstValue(ClaimTypes.Role);
-            if (!cloud) return user.TenantId == tenant && user.Role == role;
-            if (user.Role == "Owner") return role == "Owner" && (tenant == "" || state.Workspaces.Any(w => w.Id == tenant));
-            return (tenant == "" && role == "Viewer" && !state.Memberships.Any(m => m.Username == user.Username)) || state.Memberships.Any(m => m.Username == user.Username && m.WorkspaceId == tenant && m.Role == role);
+            bool valid = !cloud ? user.TenantId == tenant && user.Role == role
+                : user.Role == "Owner" ? role == "Owner" && (tenant == "" || state.Workspaces.Any(w => w.Id == tenant))
+                : (tenant == "" && role == "Viewer" && !state.Memberships.Any(m => m.Username == user.Username)) || state.Memberships.Any(m => m.Username == user.Username && m.WorkspaceId == tenant && m.Role == role);
+            if (!valid) return false;
+            var id = principal.FindFirstValue("session");
+            return id is null || sessions.Any(s => s.Id == id && s.Username == user.Username && s.Stamp == user.Stamp && s.ExpiresAt > now && expiry == s.ExpiresAt.ToUnixTimeSeconds());
         }
+    }
+    private ClaimsPrincipal WorkspacePrincipal(LoginUser updated, string workspaceId, ClaimsPrincipal previous)
+    {
+        var session = sessions.FirstOrDefault(s => s.Id == previous.FindFirstValue("session") && s.Username == updated.Username && s.Stamp == previous.FindFirstValue("stamp"));
+        if (session is not null)
+        {
+            session = session with { Stamp = updated.Stamp };
+            SaveSessions(sessions.Select(s => s.Id == session.Id ? session : s).ToArray());
+        }
+        return Principal(updated, workspaceId, session);
     }
     private LoginUser RequireCurrent(ClaimsPrincipal principal)
     {
@@ -207,7 +293,7 @@ public sealed class UserStore
             var updated = user with { Stamp = Guid.NewGuid().ToString(), TenantId = workspaceId.Length > 0 ? workspaceId : user.TenantId };
             Save(WithAudit(state with { Users = state.Users.Select(u => u.Username == user.Username ? updated : u).ToArray() }, user.Username, workspaceId,
                 user.Role == "Owner" ? "Owner support context changed" : "Workspace switched", workspaceId));
-            return Principal(updated, workspaceId);
+            return WorkspacePrincipal(updated, workspaceId, principal);
         }
     }
     public ClaimsPrincipal CreateWorkspace(ClaimsPrincipal principal, string name)
@@ -221,7 +307,7 @@ public sealed class UserStore
             var updated = user with { Stamp = Guid.NewGuid().ToString(), TenantId = workspace.Id };
             Save(WithAudit(state with { Users = state.Users.Select(u => u.Username == user.Username ? updated : u).ToArray(),
                 Workspaces = [.. state.Workspaces, workspace], Memberships = [.. state.Memberships, new(user.Username, workspace.Id, "Administrator")] }, user.Username, workspace.Id, "Workspace created", workspace.Id));
-            return Principal(updated, workspace.Id);
+            return WorkspacePrincipal(updated, workspace.Id, principal);
         }
     }
     public WorkspaceMembership[] Members(ClaimsPrincipal principal)
@@ -259,7 +345,7 @@ public sealed class UserStore
             Save(WithAudit(state with { Users = state.Users.Select(u => u.Username == user.Username ? updated : u).ToArray(),
                 Memberships = [.. state.Memberships, new(user.Username, invite.WorkspaceId, invite.Role)], Invitations = state.Invitations.Where(i => i.Id != invite.Id).ToArray() },
                 user.Username, invite.WorkspaceId, "Invitation accepted", user.Username));
-            return Principal(updated, invite.WorkspaceId);
+            return WorkspacePrincipal(updated, invite.WorkspaceId, principal);
         }
     }
     public void CancelInvitation(ClaimsPrincipal principal, string id)

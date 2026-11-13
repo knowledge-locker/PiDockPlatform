@@ -29,13 +29,14 @@ public static class CloudWorkspaceEndpoints
     private static bool Token(string value) => value.Length == 64 && value.All(char.IsAsciiHexDigit);
     public static void MapCloudWorkspaces(this WebApplication app)
     {
-        // Setup secrets and invitation responses must never enter browser/shared caches or referrer headers.
+        // Keep setup paths, invitation tokens and response bodies out of caches/referrers.
+        // Form navigation must retain its origin for the remote gateway's CSRF boundary.
         app.Use(async (context, next) =>
         {
             if (context.Request.Path.StartsWithSegments("/auth") || context.Request.Path.StartsWithSegments("/workspaces"))
             {
                 context.Response.Headers.CacheControl = "no-store";
-                context.Response.Headers["Referrer-Policy"] = "no-referrer";
+                context.Response.Headers["Referrer-Policy"] = "strict-origin";
                 context.Response.Headers["X-Content-Type-Options"] = "nosniff";
             }
             await next(context);
@@ -85,7 +86,8 @@ public static class CloudWorkspaceEndpoints
                 var user = setup.Invite.Length > 0
                     ? users.RegisterInvitedAccount(form["username"].ToString(), form["password"].ToString(), setup.Secret, form["code"].ToString(), setup.Invite)
                     : users.RegisterWorkspace(form["username"].ToString(), form["password"].ToString(), setup.Secret, form["code"].ToString(), form["workspace"].ToString());
-                await context.SignInAsync(users.Principal(user), new AuthenticationProperties { IsPersistent = false });
+                var session = users.CreateSession(user, false, DateTimeOffset.UtcNow);
+                await context.SignInAsync(users.Principal(user, session: session), new AuthenticationProperties { IsPersistent = false, ExpiresUtc = session.ExpiresAt, AllowRefresh = false });
                 return Results.Redirect("/");
             }
             catch (AntiforgeryValidationException) { return Results.BadRequest(); }
@@ -163,7 +165,7 @@ public static class CloudWorkspaceEndpoints
                     case "cancel": users.CancelInvitation(context.User, form["id"].ToString()); break;
                     default: return Results.NotFound();
                 }
-                if (next is not null) await context.SignInAsync(next, new AuthenticationProperties { IsPersistent = false });
+                if (next is not null) await context.SignInAsync(next, (await context.AuthenticateAsync()).Properties ?? new AuthenticationProperties { IsPersistent = false });
                 return Results.Redirect(next is not null ? "/" : "/workspaces");
             }
             catch (AntiforgeryValidationException) { return Results.BadRequest(); }
@@ -173,6 +175,6 @@ public static class CloudWorkspaceEndpoints
                 context.Response.StatusCode = 400;
                 return Html("Workspace action", $"<h1>Workspace action incomplete</h1><p role='alert'>{E(ex.Message)}</p><a href='/workspaces'>Return to workspaces</a>");
             }
-        }).RequireRateLimiting("login").RequireAuthorization();
+        }).RequireRateLimiting("workspace-management").RequireAuthorization();
     }
 }
