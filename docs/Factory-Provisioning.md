@@ -30,3 +30,12 @@ PiDock.Updater verify-factory PACKAGE TRUST_DIRECTORY
 Publication and download authorization require action-specific MFA. A download ticket expires after five minutes, is consumed once, and is bound to the cloud user, workspace and artifact. It travels in a request header, never a URL. The audit retains actor, workspace, image digest, action and timestamp, without local setup values or download tokens. Personalized images are not stored on the cloud.
 
 Large downloads and browser compression require a current desktop browser and sufficient memory. The cloud distributes a prebuilt signed base; personalization runs locally. New-card hardware boot, Wi-Fi, trusted time, health rollback and recovery must be accepted on a physical Pi before claiming production image readiness. Firmware OTP provisioning is a separate irreversible step; a signed development image does not establish hardware-enforced verified boot by itself.
+
+
+## Alpha.2 headless SD acceptance preparation — November 13, 2026
+
+The credential-free **1.0.0-alpha.2** factory package, SHA-256 `79f9f770edce573d4337b0c01840ccb181be0220a29be4f62a8fe05f1d636974`, is prepared and verifies against the production release public key. The signed system was built from `104d1e350f04470497d16a63e6b1f3b4d6fd3d93`, including the reconciled rc.4 agent/API source and image-specific broker/data-growth fixes. The boot signature uses the existing development RSA key; no hardware trust/OTP provisioning has occurred.
+
+A private copy was personalized for the identified new 64 GB SDXC card. Encrypted owner state/key-ring bytes and local CA were preserved exactly; privately entered Wi-Fi was included with root-only permissions. Signed system/boot ranges matched the public image. Only data/container partition metadata and private data changed. The new data range is prepared for approximately 59.18 GB, with ext4 expansion at first boot; a separate filesystem growth/check preserved the owner bundle. GPIO output grants and cloud permissions remain off.
+
+The operator authorized the raw write privately in macOS. The 8,392,802,304-byte prepared prefix was written, the complete raw readback matched its recorded checksum, and the card was safely ejected. Private image/checksum/flash receipts remain in protected operator state, not in the shared factory package. Physical Pi boot, Wi-Fi/NTS, local sign-in, A/B health/rollback and headless recovery acceptance remain pending. Preserve the old Pi media during those tests.
