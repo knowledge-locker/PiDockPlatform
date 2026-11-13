@@ -10,8 +10,8 @@
 <p>Prepare a new headless Raspberry Pi 5. Choose a signed image and Main or Node mode. Main setup includes its local owner, Ethernet/Wi-Fi addressing and optional cloud registration with separate remote permissions.</p>
 <section class="card"><h2>1. Choose an image</h2>
 @if(images.Length==0) { <p>No signed factory images have been published in this workspace.</p> }
-else { <label>PiDockOS image<select @bind="digest" disabled="@busy"><option value="">Choose an image</option>@foreach(var image in images) { <option value="@image.Image.Digest">@image.Image.Manifest.Version · Raspberry Pi 5 @(image.Image.Manifest.Development?"· Development boot key":"")</option> }</select></label> }
-<p>Use an SD card of at least 16 GB. Flashing erases the selected card. GPIO outputs stay disabled. Cloud permissions default to off and require explicit setup choices.</p>
+else { <label>PiDockOS image<select @bind="digest" @bind:after="ResetConfiguration" disabled="@busy"><option value="">Choose an image</option>@foreach(var image in images) { <option value="@image.Image.Digest">@image.Image.Manifest.Version · Raspberry Pi 5 @(image.Image.Manifest.Development?"· Development boot key":"")</option> }</select></label> }
+<p>Changing the image clears unsaved setup. Use an SD card of at least 16 GB. Flashing erases the selected card. GPIO outputs stay disabled. Cloud permissions default to off and require explicit setup choices.</p>
 <button @onclick="Configure" disabled="@(busy||string.IsNullOrEmpty(digest))">Configure image</button>
 </section>
 <section class="card"><h2>2. Set up and download</h2><p>The form below runs in your browser. The local password, authenticator secret, Wi-Fi credentials and enrollment code are never submitted to PiDockCloud. Your download contains private device setup; keep it secure and delete it after flashing.</p><div @ref="host"></div></section>
@@ -21,12 +21,19 @@ else { <label>PiDockOS image<select @bind="digest" disabled="@busy"><option valu
 @code {
     private PublishedFactory[] images=[];private string digest="",message="";private bool busy;
     private IBrowserFile? file;private ElementReference host;private ReauthenticationDialog confirmation=default!;
+    private int configurationEpoch;
     private IJSObjectReference? module;private DotNetObjectReference<Provisioning>? reference;
     protected override async Task OnInitializedAsync()=>images=Store.List((await Authentication.GetAuthenticationStateAsync()).User);
+    private async Task ResetConfiguration() {
+        configurationEpoch++;
+        if(module is not null)await module.InvokeVoidAsync("clear",host);
+    }
     private async Task Configure() {
+        var epoch=++configurationEpoch;
         try {
             var image=images.Single(x=>x.Image.Digest==digest).Image;
             module??=await JS.InvokeAsync<IJSObjectReference>("import","./provisioning.js");reference??=DotNetObjectReference.Create(this);
+            if(epoch!=configurationEpoch)return;
             await module.InvokeVoidAsync("configure",host,image,reference);message="";
         }catch(Exception e) when(e is JSException or InvalidOperationException) { message="Image configuration is unavailable. Refresh and use a current browser with secure download support."; }
     }
