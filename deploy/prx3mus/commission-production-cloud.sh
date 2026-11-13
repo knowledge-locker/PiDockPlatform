@@ -22,7 +22,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 docker stop --time 20 "$cloud" >/dev/null
-printf '%s\n' 'Choose your own cloud username/password. Use tenant local and role Owner.' 
+printf '%s\n' 'Choose your own cloud username/password. Use tenant local and role Owner.'
 printf '%s\n' 'Add the displayed setup secret to your external authenticator, then enter two consecutive generated codes.'
 docker run --rm -it --name "$setup" --log-driver none --network none --read-only \
     --user 1654:1654 --cap-drop ALL --security-opt no-new-privileges:true \
