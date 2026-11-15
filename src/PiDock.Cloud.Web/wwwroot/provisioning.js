@@ -106,10 +106,18 @@ export function publicationFile(input) {
     if (!file || !/\.(pidockfactory|zip)$/i.test(file.name) || file.size <= 0 || file.size > 2147483648) return null;
     return file.name;
 }
-export function publishFactory(input, status, ticket) {
+export function publishFactory(input, ui, ticket) {
     const file = input.files?.[0];
     if (!publicationFile(input)) return Promise.resolve("Choose a signed factory package of at most 2 GiB.");
-    status.textContent = "Uploading signed factory image: 0%. Keep this tab open.";
+    ui.panel.hidden = false;
+    ui.button.setAttribute("aria-busy", "true");
+    ui.panel.dataset.state = "uploading";
+    ui.heading.textContent = "Uploading factory image";
+    ui.status.textContent = "0% uploaded";
+    ui.progress.value = 0;
+    ui.button.textContent = "Uploading…";
+    ui.explanation.textContent = "Image selection, configuration and publication buttons are temporarily disabled while this package uploads and verifies. Keep this tab open and do not refresh it.";
+    ui.panel.scrollIntoView({behavior: "smooth", block: "center"});
     return new Promise(resolve => {
         const request = new XMLHttpRequest();
         request.open("POST", "/api/factory-images");
@@ -117,18 +125,42 @@ export function publishFactory(input, status, ticket) {
         request.setRequestHeader("Content-Type", "application/octet-stream");
         request.setRequestHeader("X-Requested-With", "XMLHttpRequest");
         request.setRequestHeader("X-PiDock-Publish", ticket);
-        const finish = message => { status.textContent = ""; resolve(message); };
+        const finish = (message, success = false) => {
+            ui.button.setAttribute("aria-busy", "false");
+            ui.panel.dataset.state = success ? "complete" : "failed";
+            ui.heading.textContent = success ? "Factory image published" : "Publication was not confirmed";
+            ui.status.textContent = message;
+            ui.progress.value = success ? 100 : 0;
+            ui.progress.hidden = !success;
+            ui.button.textContent = "Publish factory image";
+            ui.explanation.textContent = success
+                ? "The buttons are available again. Select the published image to review all settings and prepare your download."
+                : "The buttons are available again. Check the image list before starting another upload.";
+            resolve(message);
+        };
+        ui.progress.hidden = false;
+        let lastPercent = -1;
         request.upload.onprogress = event => {
-            if (event.lengthComputable) status.textContent = event.loaded < event.total
-                ? `Uploading signed factory image: ${Math.floor(event.loaded * 100 / event.total)}%. Keep this tab open.`
-                : "Upload complete. Verifying signature and image contents; this can take several minutes.";
+            if (!event.lengthComputable) { ui.progress.removeAttribute("value"); return; }
+            const percent = Math.floor(event.loaded * 100 / event.total);
+            ui.progress.value = percent;
+            if (event.loaded < event.total) {
+                if (percent !== lastPercent) ui.status.textContent = `${percent}% uploaded · ${(event.loaded / 1048576).toFixed(1)} of ${(event.total / 1048576).toFixed(1)} MiB`;
+                lastPercent = percent;
+            } else {
+                ui.panel.dataset.state = "verifying";
+                ui.heading.textContent = "Verifying factory image";
+                ui.status.textContent = "Upload complete. Checking the signature and image contents; this can take several minutes.";
+                ui.progress.removeAttribute("value");
+                ui.button.textContent = "Verifying…";
+            }
         };
         request.onload = () => {
-            if (request.status === 200) { input.value = ""; finish("Signed factory image published."); }
+            if (request.status === 200) { input.value = ""; finish("Signed factory image published.", true); }
             else if ([401, 403].includes(request.status)) finish("Publication authorization expired. Sign in if needed, then publish again with fresh authentication.");
             else finish("Publication failed. Check the signed package, trust key, immutable version and available storage, then try again.");
         };
         request.onerror = request.ontimeout = request.onabort = () => finish("Publication interrupted. Refresh to check whether the image was published before trying again.");
-        request.send(file);
+        try { request.send(file); } catch { finish("Publication could not start. Choose the package again and retry."); }
     });
 }
