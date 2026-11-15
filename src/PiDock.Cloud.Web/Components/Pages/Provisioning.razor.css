@@ -13,3 +13,5 @@
 .factory-upload-status progress[hidden] { display: none; }
 .factory-upload-status[data-state="complete"] { border-color: #237344; background: #f0faf4; }
 .factory-upload-status[data-state="failed"] { border-color: #a13a24; background: #fff5ee; }
+
+.provisioning-steps[hidden], .provisioning-steps [hidden] { display: none !important; }
