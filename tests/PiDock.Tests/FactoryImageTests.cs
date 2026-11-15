@@ -54,6 +54,24 @@ public sealed class FactoryImageTests
             Assert.Null(store.Download(User("beta"),signed.Digest,ticket));
             Assert.NotNull(store.Download(User(),signed.Digest,ticket));Assert.Null(store.Download(User(),signed.Digest,ticket));
             var catalog=File.ReadAllText(Path.Combine(directory,"factory-images/catalog.json"));Assert.Contains("DownloadAuthorized",catalog);Assert.DoesNotContain(ticket,catalog);
+            var preparedDirectory=StateFiles.PrepareDirectory(Path.Combine(directory,"factory-images","prepared"));
+            var preparedPackage=Path.Combine(preparedDirectory,signed.Digest+".pidockfactory");File.Copy(package,preparedPackage);
+            var metadataPath=Path.Combine(preparedDirectory,signed.Digest+".json");
+            var metadata=new PiDock.Cloud.Web.PreparedFactory(signed.Digest,signed.Manifest.Version,new FileInfo(package).Length);
+            File.WriteAllText(metadataPath,System.Text.Json.JsonSerializer.Serialize(metadata,StateFiles.Json));
+            Assert.Single(store.Prepared(User()));
+            Assert.Throws<UnauthorizedAccessException>(()=>store.Prepared(User(role:"Viewer")));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>store.PublishPrepared(User(),"../outside"));
+            await store.PublishPrepared(User(),signed.Digest);Assert.Single(store.List(User()));
+            File.WriteAllText(metadataPath,System.Text.Json.JsonSerializer.Serialize(metadata with { Version="wrong-version" },StateFiles.Json));
+            await Assert.ThrowsAsync<InvalidDataException>(()=>store.PublishPrepared(User(),signed.Digest));
+            File.WriteAllText(metadataPath,System.Text.Json.JsonSerializer.Serialize(metadata,StateFiles.Json));
+            var differentPackage=Path.Combine(directory,"different.zip");
+            FactoryImages.Create(file,differentPackage,signed.Manifest.Version,1,true,"factory-test",key.ExportPkcs8PrivateKeyPem(),[new(1<<20,1<<20)]);
+            File.Copy(differentPackage,preparedPackage,true);
+            await Assert.ThrowsAsync<InvalidDataException>(()=>store.PublishPrepared(User(),signed.Digest));
+            File.Delete(preparedPackage);File.CreateSymbolicLink(preparedPackage,package);
+            Assert.Empty(store.Prepared(User()));
         }finally { Directory.Delete(directory,true); }
     }
     [Fact] public void PublicationApprovalIsScopedSingleUseAndExpires()

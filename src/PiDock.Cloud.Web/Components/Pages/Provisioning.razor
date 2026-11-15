@@ -23,13 +23,37 @@ else { <label>PiDockOS image<select @bind="digest" @bind:after="ResetConfigurati
 <section class="card"><h2>2. Set up and download</h2><p>The form below runs in your browser. The local password, authenticator secret, Wi-Fi credentials and enrollment code are never submitted to PiDockCloud. Your download contains private device setup; keep it secure and delete it after flashing.</p><div @ref="host"></div></section>
 <p role="status">@message</p>
 <details class="card"><summary>Publish a signed factory image</summary><p>Upload a credential-free factory package signed by a trusted release key. Publication requires fresh cloud authentication.</p><input @ref="uploadInput" type="file" accept=".pidockfactory,.zip" disabled="@busy"/><button @ref="publishButton" @onclick="Publish" disabled="@busy">Publish factory image</button></details>
+@if(prepared.Length>0) {
+<section class="card"><h2>Prepared release package</h2><p>A release package is already on this server. Publication still requires fresh authentication and full signature verification; another browser upload is not needed.</p>
+<label>Prepared factory image<select @bind="preparedDigest" disabled="@busy"><option value="">Choose a prepared package</option>@foreach(var item in prepared) { <option value="@item.Digest">@item.Version</option> }</select></label>
+<button @ref="preparedButton" @onclick="PublishPrepared" disabled="@(busy||string.IsNullOrEmpty(preparedDigest))">Publish prepared factory image</button></section>
+}
 <ReauthenticationDialog @ref="confirmation" Cloud="true"/>
 @code {
+    private PreparedFactory[] prepared=[];private string preparedDigest="";
     private PublishedFactory[] images=[];private string digest="",message="";private bool busy;
-    private ElementReference uploadInput,uploadStatus,uploadPanel,uploadHeading,uploadProgress,uploadExplanation,publishButton;private ElementReference host;private ReauthenticationDialog confirmation=default!;
+    private ElementReference uploadInput,uploadStatus,uploadPanel,uploadHeading,uploadProgress,uploadExplanation,publishButton,preparedButton;private ElementReference host;private ReauthenticationDialog confirmation=default!;
     private int configurationEpoch;
     private IJSObjectReference? module;private DotNetObjectReference<Provisioning>? reference;
-    protected override async Task OnInitializedAsync()=>images=Store.List((await Authentication.GetAuthenticationStateAsync()).User);
+    protected override async Task OnInitializedAsync() { var user=(await Authentication.GetAuthenticationStateAsync()).User;images=Store.List(user);prepared=Store.Prepared(user); }
+    private object ProgressUi(ElementReference button)=>new { panel=uploadPanel,heading=uploadHeading,status=uploadStatus,progress=uploadProgress,explanation=uploadExplanation,button };
+    private async Task PublishPrepared() {
+        if(busy||!prepared.Any(x=>x.Digest==preparedDigest))return;busy=true;
+        var ui=ProgressUi(preparedButton);
+        try {
+            var item=prepared.Single(x=>x.Digest==preparedDigest);
+            if(!await confirmation.Request("Publish factory image",$"Verify and publish the prepared {item.Version} package for this workspace."))return;
+            module??=await JS.InvokeAsync<IJSObjectReference>("import","./provisioning.js");
+            await module.InvokeVoidAsync("verifyPreparedFactory",ui);
+            var user=(await Authentication.GetAuthenticationStateAsync()).User;
+            await Store.PublishPrepared(user,item.Digest);
+            images=Store.List(user);message="Signed factory image published.";
+            await module.InvokeVoidAsync("preparedFactoryResult",ui,true,message);
+        }catch(Exception e) when(e is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException or JSException or System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException) {
+            message="Publication was not confirmed. Check the image list, package identity, signature and available storage.";
+            if(module is not null)try { await module.InvokeVoidAsync("preparedFactoryResult",ui,false,message); }catch(JSException){}
+        }finally { busy=false; }
+    }
     private async Task ResetConfiguration() {
         configurationEpoch++;
         if(module is not null)await module.InvokeVoidAsync("clear",host);
@@ -60,7 +84,7 @@ else { <label>PiDockOS image<select @bind="digest" @bind:after="ResetConfigurati
             var user=(await Authentication.GetAuthenticationStateAsync()).User;
             var ticket=Store.AuthorizeUpload(user);
             // The package travels over HTTP, independently of the interactive circuit.
-            message=await module.InvokeAsync<string>("publishFactory",CancellationToken.None,uploadInput,new { panel=uploadPanel,heading=uploadHeading,status=uploadStatus,progress=uploadProgress,explanation=uploadExplanation,button=publishButton },ticket);
+            message=await module.InvokeAsync<string>("publishFactory",CancellationToken.None,uploadInput,ProgressUi(publishButton),ticket);
             images=Store.List(user);
         }catch(Exception e) when(e is IOException or InvalidOperationException or UnauthorizedAccessException or JSException or OperationCanceledException or TimeoutException) {
             message="Publication interrupted. Refresh to check whether the image was published, then choose the package and try again if needed.";

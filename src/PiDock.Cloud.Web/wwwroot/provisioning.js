@@ -121,7 +121,7 @@ export function publishFactory(input, ui, ticket) {
     return new Promise(resolve => {
         const request = new XMLHttpRequest();
         request.open("POST", "/api/factory-images");
-        request.timeout = 30 * 60 * 1000;
+        request.timeout = 2 * 60 * 60 * 1000;
         request.setRequestHeader("Content-Type", "application/octet-stream");
         request.setRequestHeader("X-Requested-With", "XMLHttpRequest");
         request.setRequestHeader("X-PiDock-Publish", ticket);
@@ -163,4 +163,21 @@ export function publishFactory(input, ui, ticket) {
         request.onerror = request.ontimeout = request.onabort = () => finish("Publication interrupted. Refresh to check whether the image was published before trying again.");
         try { request.send(file); } catch { finish("Publication could not start. Choose the package again and retry."); }
     });
+}
+
+export function verifyPreparedFactory(ui) {
+    ui.panel.hidden = false; ui.panel.dataset.state = "verifying";
+    ui.button.setAttribute("aria-busy", "true"); ui.button.textContent = "Verifying…";
+    ui.heading.textContent = "Verifying prepared factory image";
+    ui.status.textContent = "Checking the signature and image contents; this can take several minutes.";
+    ui.progress.hidden = false; ui.progress.removeAttribute("value");
+    ui.explanation.textContent = "Image selection, configuration and publication buttons are temporarily disabled during verification. Keep this tab open.";
+    ui.panel.scrollIntoView({behavior: "smooth", block: "center"});
+}
+export function preparedFactoryResult(ui, success, message) {
+    ui.button.setAttribute("aria-busy", "false");ui.button.textContent = "Publish prepared factory image";
+    ui.panel.dataset.state = success ? "complete" : "failed";
+    ui.heading.textContent = success ? "Factory image published" : "Publication was not confirmed";
+    ui.status.textContent = message; ui.progress.value = success ? 100 : 0; ui.progress.hidden = !success;
+    ui.explanation.textContent = "The buttons are available again. Check the image list to continue.";
 }
