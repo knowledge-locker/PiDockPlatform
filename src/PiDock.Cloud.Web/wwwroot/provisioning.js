@@ -55,15 +55,15 @@ export function configure(host,image,bridge){
  <p class="help">The image also contains your authenticator secret and, if configured, a Wi-Fi network key derived in this browser instead of the plaintext Wi-Fi password. The setup area in the download is not encrypted. Keep the configured image private and delete it after flashing.</p>
  <p>Add a new PiDockOS entry to your authenticator with this setup key:</p><code id="secret"></code>
  <div class="credential-pair"><div><label>Current authenticator code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off"></label><button id="verify" type="button" disabled>Verify first code</button><output id="verification" role="status"></output></div>
- <div><label>Next authenticator code<input name="next" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" aria-describedby="nextCodeHelp" disabled required></label><p id="nextCodeHelp" class="help">Verify the first code, then wait for the next 30-second code before entering it here.</p></div></div>
+ <div><label>Next authenticator code<input name="next" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" aria-describedby="nextCodeHelp" disabled required></label><button id="verifyNext" type="button" disabled>Verify second code</button><output id="nextVerification" role="status"></output><p id="nextCodeHelp" class="help">Verify the first code, then wait for the next 30-second code before entering it here.</p></div></div>
  ${expanded?interfaceForm('ethernet','Ethernet',true)+interfaceForm('wireless','Wi-Fi',true):''}
  <div ${expanded?'hidden':''}><label>Network<select name="network"><option value="wifi">Wi-Fi</option><option value="ethernet">Ethernet</option></select></label></div><div id="wifi">
  <label>Wi-Fi network name<input name="ssid" maxlength="32" autocomplete="off"></label><label>Wi-Fi password<input name="wifiPassword" type="password" autocomplete="off"></label><label>Country code<input name="country" value="US" maxlength="2" pattern="[A-Z]{2}"></label></div>
  ${expanded?`<fieldset class="interface"><legend>PiDockCloud (optional)</legend><label class="check"><input name="cloudEnabled" type="checkbox" aria-describedby="cloudDefault">Configure PiDockCloud</label><p id="cloudDefault"></p><p id="cloudSuggestion"></p><fieldset id="cloudSettings" disabled hidden><label>Cloud URL<input name="cloudUrl" type="url" autocomplete="off" maxlength="512"></label><label class="check"><input name="register" type="checkbox">Register on first boot</label><fieldset id="registrationSettings" disabled hidden><label>Single-use enrollment code<input name="enrollmentCode" autocomplete="off" maxlength="64" spellcheck="false"></label><p>Generate an invitation in the chosen cloud shortly before creating the image. It must still be valid when the Pi first connects. An expired invitation can be replaced locally after boot.</p><label class="check"><input name="remoteControl" type="checkbox">Allow remote container control</label><label class="check"><input name="remoteUi" type="checkbox">Allow remote PiDockOS interface access</label><p>These are separate local permissions, off by default. They take effect only after this registration succeeds. Cloud actions still require fresh MFA; remote UI sessions also require PiDockOS sign-in. Cloud-managed OS updates remain off.</p></fieldset></fieldset></fieldset>`:'<p>Cloud enrollment and remote permissions are approved separately after first boot.</p>'}</fieldset><button type="submit">Create and download image</button></fieldset><output id="status" role="status"></output><div id="download"></div></form>`;
- const form=root.querySelector('form'),f=form.elements,status=root.querySelector('#status'),bytes=crypto.getRandomValues(new Uint8Array(20)),secret=base32(bytes);let first=-1,active=false,objectUrl,payload;
+ const form=root.querySelector('form'),f=form.elements,status=root.querySelector('#status'),bytes=crypto.getRandomValues(new Uint8Array(20)),secret=base32(bytes);let first=-1,second=-1,active=false,objectUrl,payload;
  controller.signal.addEventListener('abort',()=>{bytes.fill(0);payload?.fill(0);if(objectUrl)URL.revokeObjectURL(objectUrl);f.password.value='';f.confirm.value='';f.wifiPassword.value='';if(expanded)f.enrollmentCode.value='';},{once:true});
  root.querySelector('#secret').textContent=secret;
- const verify=root.querySelector('#verify'),confirmationHelp=root.querySelector('#confirmationHelp');
+ const verify=root.querySelector('#verify'),verifyNext=root.querySelector('#verifyNext'),confirmationHelp=root.querySelector('#confirmationHelp');
  const passwordState=()=>{
   const error=passwordRequirement(f.password.value),ready=!error;
   f.password.setCustomValidity(error);f.confirm.disabled=!ready;
@@ -77,14 +77,28 @@ export function configure(host,image,bridge){
  };
  f.password.addEventListener('input',passwordState);f.password.addEventListener('change',passwordState);f.confirm.addEventListener('input',passwordState);f.confirm.addEventListener('change',passwordState);
  for(const toggle of root.querySelectorAll('[data-reveal]'))toggle.onclick=()=>{const input=f[toggle.dataset.reveal],show=input.type==='password';input.type=show?'text':'password';toggle.textContent=show?'Hide':'Show';toggle.setAttribute('aria-pressed',String(show));toggle.setAttribute('aria-label',(show?'Hide ':'Show ')+(toggle.dataset.reveal==='password'?'appliance password':'password confirmation'));};
- const resetCodes=()=>{first=-1;f.next.value='';f.next.disabled=true;verify.disabled=!/^[0-9]{6}$/.test(f.code.value);root.querySelector('#verification').textContent='';};
+ const resetCodes=()=>{first=-1;second=-1;f.next.value='';f.next.disabled=true;f.next.required=true;verifyNext.disabled=true;root.querySelector('#nextVerification').textContent='';root.querySelector('#nextCodeHelp').textContent='Verify the first code, then wait for the next 30-second code before entering it here.';verify.disabled=!/^[0-9]{6}$/.test(f.code.value);root.querySelector('#verification').textContent='';};
  f.code.addEventListener('input',resetCodes);f.code.addEventListener('change',resetCodes);
+ f.next.addEventListener('input',()=>{second=-1;f.next.required=true;verifyNext.disabled=first<0||!/^[0-9]{6}$/.test(f.next.value);root.querySelector('#nextVerification').textContent='';});
  verify.onclick=async()=>{
   const candidate=f.code.value,s=Math.floor(Date.now()/30000);
   if(!/^[0-9]{6}$/.test(candidate)){resetCodes();return;}
   const expected=await totp(bytes,s);if(controller.signal.aborted||f.code.value!==candidate)return;
-  if(candidate===expected){first=s;f.code.value='';verify.disabled=true;f.next.disabled=false;root.querySelector('#verification').textContent='First code verified. Wait for the next code.';f.next.focus();}
+  if(candidate===expected){first=s;second=-1;f.next.required=true;verifyNext.disabled=true;root.querySelector('#nextVerification').textContent='';f.code.value='';verify.disabled=true;f.next.disabled=false;root.querySelector('#verification').textContent='First code verified. Wait for the next code.';f.next.focus();}
   else{first=-1;f.next.value='';f.next.disabled=true;root.querySelector('#verification').textContent='Enter the current code from the new authenticator entry.';}
+ };
+ verifyNext.onclick=async()=>{
+  const candidate=f.next.value,step=Math.floor(Date.now()/30000),originalFirst=first;
+  if(originalFirst<0||!/^[0-9]{6}$/.test(candidate))return;
+  if(step<=originalFirst){root.querySelector('#nextVerification').textContent='Wait until your authenticator shows its next code, then verify it.';return;}
+  if(step!==originalFirst+1){resetCodes();root.querySelector('#nextVerification').textContent='The verification window expired. Verify a new first code, then its next code.';f.code.focus();return;}
+  const expected=await totp(bytes,step);
+  if(controller.signal.aborted||first!==originalFirst||f.next.value!==candidate)return;
+  if(candidate!==expected){root.querySelector('#nextVerification').textContent='That code did not match. Enter the next code from the new PiDockOS authenticator entry.';return;}
+  second=step;f.next.value='';f.next.required=false;f.next.disabled=true;verifyNext.disabled=true;
+  root.querySelector('#verification').textContent='First code verified.';
+  root.querySelector('#nextVerification').textContent='Second code verified. Authenticator setup is complete.';
+  root.querySelector('#nextCodeHelp').textContent='Both codes are verified. You can finish the remaining settings before downloading.';
  };
  passwordState();
 
@@ -106,7 +120,7 @@ export function configure(host,image,bridge){
  const node=expanded&&f.mode.value==='Node';
  if(!node&&passwordRequirement(f.password.value))throw Error(passwordRequirement(f.password.value));
  if(!node&&f.password.value!==f.confirm.value)throw Error('Passwords do not match.');
- const step=Math.floor(Date.now()/30000);if(!node&&(first<0||step!==first+1||f.next.value!==await totp(bytes,step)))throw Error('Verify two consecutive codes. Start again with a current first code if needed.');
+ const step=second;if(!node&&(first<0||second!==first+1))throw Error('Verify the first code and then click Verify second code before creating the image.');
  let wifi=null;if(!node&&(expanded?f.wirelessEnabled.checked:f.network.value==='wifi')){const ssid=enc.encode(f.ssid.value),pass=f.wifiPassword.value;if(ssid.length<1||ssid.length>32||!/^[\x20-\x7e]{8,63}$/.test(pass)||!/^[A-Z]{2}$/.test(f.country.value))throw Error('Enter a Wi-Fi name (1–32 bytes), password (8–63 printable characters) and country code.');const key=await crypto.subtle.importKey('raw',enc.encode(pass),'PBKDF2',false,['deriveBits']);wifi={ssid:hex(ssid),psk:hex(await crypto.subtle.deriveBits({name:'PBKDF2',salt:ssid,iterations:4096,hash:'SHA-1'},key,256)),country:f.country.value};}
  let network=null,cloud=null;
  if(expanded){
