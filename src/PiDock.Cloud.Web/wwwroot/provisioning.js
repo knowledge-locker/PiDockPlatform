@@ -99,3 +99,36 @@ export function configure(host,image,bridge){
  root.querySelector('#secret').textContent='Setup complete';status.textContent=node?'Ready. Flash with OS customization off, connect the Node USB-C data port to a Main, then open USB nodes in the Main UI to adopt it. There is no standalone node owner login. Hardware USB/power acceptance is still required.': 'Ready. Flash using Raspberry Pi Imager → Use custom, with OS customization off. Boot and open https://pidock.local. Keep the authenticator entry; delete the private download after flashing.';
  }catch(error){if(!controller.signal.aborted){status.textContent=error.message;form.querySelector('fieldset').disabled=false;}}finally{payload?.fill(0);active=false;}};
 }
+
+// Factory packages use an ordinary streaming HTTP upload, never the Blazor circuit.
+export function publicationFile(input) {
+    const file = input.files?.[0];
+    if (!file || !/\.(pidockfactory|zip)$/i.test(file.name) || file.size <= 0 || file.size > 2147483648) return null;
+    return file.name;
+}
+export function publishFactory(input, status, ticket) {
+    const file = input.files?.[0];
+    if (!publicationFile(input)) return Promise.resolve("Choose a signed factory package of at most 2 GiB.");
+    status.textContent = "Uploading signed factory image: 0%. Keep this tab open.";
+    return new Promise(resolve => {
+        const request = new XMLHttpRequest();
+        request.open("POST", "/api/factory-images");
+        request.timeout = 30 * 60 * 1000;
+        request.setRequestHeader("Content-Type", "application/octet-stream");
+        request.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+        request.setRequestHeader("X-PiDock-Publish", ticket);
+        const finish = message => { status.textContent = ""; resolve(message); };
+        request.upload.onprogress = event => {
+            if (event.lengthComputable) status.textContent = event.loaded < event.total
+                ? `Uploading signed factory image: ${Math.floor(event.loaded * 100 / event.total)}%. Keep this tab open.`
+                : "Upload complete. Verifying signature and image contents; this can take several minutes.";
+        };
+        request.onload = () => {
+            if (request.status === 200) { input.value = ""; finish("Signed factory image published."); }
+            else if ([401, 403].includes(request.status)) finish("Publication authorization expired. Sign in if needed, then publish again with fresh authentication.");
+            else finish("Publication failed. Check the signed package, trust key, immutable version and available storage, then try again.");
+        };
+        request.onerror = request.ontimeout = request.onabort = () => finish("Publication interrupted. Refresh to check whether the image was published before trying again.");
+        request.send(file);
+    });
+}

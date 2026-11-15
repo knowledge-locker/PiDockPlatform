@@ -3,7 +3,7 @@ import {webcrypto} from 'node:crypto';
 import assert from 'node:assert/strict';
 if(!globalThis.crypto)globalThis.crypto=webcrypto;
 const source=readFileSync(new URL('../../src/PiDock.Cloud.Web/wwwroot/provisioning.js',import.meta.url));
-const {totp,passwordHash,patchStream,base32,interfaceSetup,cloudSetup}=await import('data:text/javascript;base64,'+source.toString('base64'));
+const {totp,passwordHash,patchStream,base32,interfaceSetup,cloudSetup,publicationFile,publishFactory}=await import('data:text/javascript;base64,'+source.toString('base64'));
 assert.equal(await totp(new TextEncoder().encode('12345678901234567890'),1),'287082');
 assert.equal(base32(new TextEncoder().encode('12345678901234567890')),'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ');
 const hash=Buffer.from(await passwordHash('a long private password',new Uint8Array(16)),'base64');assert.equal(hash.length,61);assert.equal(hash.readUInt32BE(5),210000);
@@ -24,3 +24,32 @@ assert.deepEqual(cloudSetup(true,'https://cloud.example',true,'aaaa-aaaa-aaaa-aa
 for(const url of ['http://cloud.example','https://owner@cloud.example','https://cloud.example/path','https://cloud.example/?secret=1'])assert.throws(()=>cloudSetup(true,url,false,''));
 assert.throws(()=>cloudSetup(true,'https://cloud.example',false,'',true,false));
 console.log('Independent interface addressing and explicit cloud consent checks passed.');
+
+assert.equal(publicationFile({files:[]}),null);
+assert.equal(publicationFile({files:[{name:'image.pidockfactory',size:100}]}),'image.pidockfactory');
+assert.equal(publicationFile({files:[{name:'image.pidockfactory',size:2147483649}]}),null);
+class UploadRequest {
+    static response=200;static networkError=false;upload={};
+    open(method,url) { assert.equal(method,'POST');assert.equal(url,'/api/factory-images'); }
+    setRequestHeader(name,value) { if(name==='X-PiDock-Publish')assert.equal(value,'approved-once'); }
+    send(file) {
+        assert.equal(file.name,'image.pidockfactory');
+        this.upload.onprogress({lengthComputable:true,loaded:50,total:100});
+        assert.match(status.textContent,/50%/);
+        this.upload.onprogress({lengthComputable:true,loaded:100,total:100});
+        assert.match(status.textContent,/Verifying signature/);
+        this.status=UploadRequest.response;
+        if(UploadRequest.networkError)this.onerror();else this.onload();
+    }
+}
+globalThis.XMLHttpRequest=UploadRequest;
+const status={textContent:''};
+const fileInput={files:[{name:'image.pidockfactory',size:100}],value:'selected'};
+assert.match(await publishFactory(fileInput,status,'approved-once'),/published/);
+assert.equal(fileInput.value,'');assert.equal(status.textContent,'');
+UploadRequest.response=403;
+assert.match(await publishFactory(fileInput,status,'approved-once'),/authorization expired/);
+UploadRequest.networkError=true;
+assert.match(await publishFactory(fileInput,status,'approved-once'),/interrupted/);
+assert.equal(status.textContent,'');
+console.log('HTTP publication progress, success, authorization failure and retry recovery checks passed.');
