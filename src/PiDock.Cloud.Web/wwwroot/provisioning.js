@@ -25,6 +25,7 @@ async function clearExpiredImages(){
   if(match&&Date.now()-Number(match[1])>86400000)await removeImageTemporaryFiles(name);
  }
 }
+if(typeof window!=='undefined')clearExpiredImages().catch(()=>{});
 export function prepareFactoryImage(url,ticket,payload,manifest,onUpdate,signal,attempt){
  return new Promise((resolve,reject)=>{
   if(signal.aborted){reject(new DOMException('Image preparation cancelled.','AbortError'));return;}
