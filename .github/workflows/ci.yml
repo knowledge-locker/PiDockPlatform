@@ -25,3 +25,4 @@ jobs:
         with:
           node-version: 24
       - run: node os/tests/provisioning.test.mjs
+      - run: node os/tests/provisioning-image.test.mjs
