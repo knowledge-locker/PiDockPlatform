@@ -40,7 +40,7 @@ class UploadRequest {
     send(file) {
         assert.equal(file.name,'image.pidockfactory');
         assert.equal(ui.panel.hidden,false);assert.equal(ui.button['aria-busy'],'true');
-        assert.match(ui.explanation.textContent,/buttons are temporarily disabled/);
+        assert.match(ui.explanation.textContent,/temporarily disabled and hidden/);
         assert.equal(ui.button.textContent,'Uploading…');
         this.upload.onprogress({lengthComputable:false});assert.equal(ui.progress.value,undefined);
         this.upload.onprogress({lengthComputable:true,loaded:50,total:100});

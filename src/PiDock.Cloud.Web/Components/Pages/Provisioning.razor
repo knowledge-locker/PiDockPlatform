@@ -7,31 +7,33 @@
 @inject IJSRuntime JS
 <PageTitle>Create PiDockOS image · PiDockCloud</PageTitle>
 <p class="eyebrow">PIDOCKCLOUD / PROVISIONING</p><h1>Create an SD image</h1>
-<p>Prepare a new headless Raspberry Pi 5. Choose a signed image and Main or Node mode. Main setup includes its local owner, Ethernet/Wi-Fi addressing and optional cloud registration with separate remote permissions.</p>
+<p hidden="@publishing">Prepare a new headless Raspberry Pi 5. Choose a signed image and Main or Node mode. Main setup includes its local owner, Ethernet/Wi-Fi addressing and optional cloud registration with separate remote permissions.</p>
 <section @ref="uploadPanel" class="factory-upload-status" hidden aria-labelledby="factory-upload-title">
 <h2 @ref="uploadHeading" id="factory-upload-title">Uploading factory image</h2>
 <p @ref="uploadStatus" role="status" aria-live="polite"></p>
 <progress @ref="uploadProgress" max="100" value="0" aria-label="Factory image upload progress"></progress>
 <p @ref="uploadExplanation"></p>
 </section>
-<section class="card"><h2>1. Choose an image</h2>
-@if(images.Length==0) { <p>No signed factory images have been published in this workspace.</p> }
-else { <label>PiDockOS image<select @bind="digest" @bind:after="ResetConfiguration" disabled="@busy"><option value="">Choose an image</option>@foreach(var image in images) { <option value="@image.Image.Digest">@image.Image.Manifest.Version · Raspberry Pi 5 @(image.Image.Manifest.Development?"· Development boot key":"")</option> }</select></label> }
+<div class="provisioning-steps" hidden="@publishing">
+@if(images.Length==0) { <p>First, publish a signed factory image below. Image selection and setup become available after verification succeeds.</p> }
+<section class="card" hidden="@(images.Length==0)"><h2>1. Choose an image</h2>
+<label>PiDockOS image<select @bind="digest" @bind:after="ResetConfiguration" disabled="@busy"><option value="">Choose an image</option>@foreach(var image in images) { <option value="@image.Image.Digest">@image.Image.Manifest.Version · Raspberry Pi 5 @(image.Image.Manifest.Development?"· Development boot key":"")</option> }</select></label>
 <p>Changing the image clears unsaved setup. Use an SD card of at least 16 GB. Flashing erases the selected card. GPIO outputs stay disabled. Cloud permissions default to off and require explicit setup choices.</p>
 <button @onclick="Configure" disabled="@(busy||string.IsNullOrEmpty(digest))">Configure image</button>
 </section>
-<section class="card"><h2>2. Set up and download</h2><p>The form below runs in your browser. The local password, authenticator secret, Wi-Fi credentials and enrollment code are never submitted to PiDockCloud. Your download contains private device setup; keep it secure and delete it after flashing.</p><div @ref="host"></div></section>
+<section class="card" hidden="@(!configurationReady)"><h2>2. Set up and download</h2><p>The form below runs in your browser. The local password, authenticator secret, Wi-Fi credentials and enrollment code are never submitted to PiDockCloud. Your download contains private device setup; keep it secure and delete it after flashing.</p><div @ref="host"></div></section>
 <p role="status">@message</p>
-<details class="card"><summary>Publish a signed factory image</summary><p>Upload a credential-free factory package signed by a trusted release key. Publication requires fresh cloud authentication.</p><input @ref="uploadInput" type="file" accept=".pidockfactory,.zip" disabled="@busy"/><button @ref="publishButton" @onclick="Publish" disabled="@busy">Publish factory image</button></details>
+<details class="card" open="@(images.Length==0)"><summary>Publish a signed factory image</summary><p>Upload a credential-free factory package signed by a trusted release key. Publication requires fresh cloud authentication.</p><input @ref="uploadInput" type="file" accept=".pidockfactory,.zip" disabled="@busy"/><button @ref="publishButton" @onclick="Publish" disabled="@busy">Publish factory image</button></details>
 @if(prepared.Length>0) {
-<section class="card"><h2>Prepared release package</h2><p>A release package is already on this server. Publication still requires fresh authentication and full signature verification; another browser upload is not needed.</p>
+<section class="card" hidden="@prepared.All(x=>images.Any(y=>y.Image.Digest==x.Digest))"><h2>Prepared release package</h2><p>A release package is already on this server. Publication still requires fresh authentication and full signature verification; another browser upload is not needed.</p>
 <label>Prepared factory image<select @bind="preparedDigest" disabled="@busy"><option value="">Choose a prepared package</option>@foreach(var item in prepared) { <option value="@item.Digest">@item.Version</option> }</select></label>
 <button @ref="preparedButton" @onclick="PublishPrepared" disabled="@(busy||string.IsNullOrEmpty(preparedDigest))">Publish prepared factory image</button></section>
 }
+</div>
 <ReauthenticationDialog @ref="confirmation" Cloud="true"/>
 @code {
     private PreparedFactory[] prepared=[];private string preparedDigest="";
-    private PublishedFactory[] images=[];private string digest="",message="";private bool busy;
+    private PublishedFactory[] images=[];private string digest="",message="";private bool busy,publishing,configurationReady;
     private ElementReference uploadInput,uploadStatus,uploadPanel,uploadHeading,uploadProgress,uploadExplanation,publishButton,preparedButton;private ElementReference host;private ReauthenticationDialog confirmation=default!;
     private int configurationEpoch;
     private IJSObjectReference? module;private DotNetObjectReference<Provisioning>? reference;
@@ -44,6 +46,7 @@ else { <label>PiDockOS image<select @bind="digest" @bind:after="ResetConfigurati
             var item=prepared.Single(x=>x.Digest==preparedDigest);
             if(!await confirmation.Request("Publish factory image",$"Verify and publish the prepared {item.Version} package for this workspace."))return;
             module??=await JS.InvokeAsync<IJSObjectReference>("import","./provisioning.js");
+            publishing=true;await InvokeAsync(StateHasChanged);
             await module.InvokeVoidAsync("verifyPreparedFactory",ui);
             var user=(await Authentication.GetAuthenticationStateAsync()).User;
             await Store.PublishPrepared(user,item.Digest);
@@ -52,10 +55,10 @@ else { <label>PiDockOS image<select @bind="digest" @bind:after="ResetConfigurati
         }catch(Exception e) when(e is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException or JSException or System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException) {
             message="Publication was not confirmed. Check the image list, package identity, signature and available storage.";
             if(module is not null)try { await module.InvokeVoidAsync("preparedFactoryResult",ui,false,message); }catch(JSException){}
-        }finally { busy=false; }
+        }finally { publishing=false;busy=false; }
     }
     private async Task ResetConfiguration() {
-        configurationEpoch++;
+        configurationEpoch++;configurationReady=false;
         if(module is not null)await module.InvokeVoidAsync("clear",host);
     }
     private async Task Configure() {
@@ -64,7 +67,7 @@ else { <label>PiDockOS image<select @bind="digest" @bind:after="ResetConfigurati
             var image=images.Single(x=>x.Image.Digest==digest).Image;
             module??=await JS.InvokeAsync<IJSObjectReference>("import","./provisioning.js");reference??=DotNetObjectReference.Create(this);
             if(epoch!=configurationEpoch)return;
-            await module.InvokeVoidAsync("configure",host,image,reference);message="";
+            await module.InvokeVoidAsync("configure",host,image,reference);if(epoch==configurationEpoch)configurationReady=true;message="";
         }catch(Exception e) when(e is JSException or InvalidOperationException) { message="Image configuration is unavailable. Refresh and use a current browser with secure download support."; }
     }
     [JSInvokable] public async Task<string?> ApproveDownload(string imageDigest) {
@@ -83,13 +86,14 @@ else { <label>PiDockOS image<select @bind="digest" @bind:after="ResetConfigurati
             if(!await confirmation.Request("Publish factory image",$"Verify and publish {filename} for this workspace."))return;
             var user=(await Authentication.GetAuthenticationStateAsync()).User;
             var ticket=Store.AuthorizeUpload(user);
+            publishing=true;await InvokeAsync(StateHasChanged);
             // The package travels over HTTP, independently of the interactive circuit.
             message=await module.InvokeAsync<string>("publishFactory",CancellationToken.None,uploadInput,ProgressUi(publishButton),ticket);
             images=Store.List(user);
         }catch(Exception e) when(e is IOException or InvalidOperationException or UnauthorizedAccessException or JSException or OperationCanceledException or TimeoutException) {
             message="Publication interrupted. Refresh to check whether the image was published, then choose the package and try again if needed.";
         }
-        finally { busy=false; }
+        finally { publishing=false;busy=false; }
     }
 
     public async ValueTask DisposeAsync() { reference?.Dispose();if(module is not null)try { await module.InvokeVoidAsync("clear",host);await module.DisposeAsync(); }catch(JSDisconnectedException){} }
