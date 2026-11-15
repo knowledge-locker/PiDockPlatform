@@ -8,6 +8,22 @@ Device passwords, authenticator seeds and wireless credentials stay in the brows
 
 The signed first-boot importer accepts only bounded, typed owner/network settings at a fixed boot-partition location. It protects the imported account using the appliance's own key ring, writes Wi-Fi settings with root-only permissions, and removes the consumed boot file. It never replaces an existing owner or enables cloud permissions. An interrupted import can resume without resetting an existing account. Initial provisioning is not an ownership-recovery API.
 
+## Install a downloaded image on an SD card
+
+Use a separate SD card of at least 16 GB for each Main or Node. **No pre-formatting or filesystem choice is required.** The image supplies its own partition table, boot filesystems and Linux filesystems. Do not format it as APFS, exFAT or FAT32 first, and do not copy the `.img.gz` file onto a mounted card.
+
+1. Open [Raspberry Pi Imager](https://www.raspberrypi.com/software/) on macOS, Windows or Linux and insert the intended card. Check its name/capacity carefully; writing erases that card.
+2. Choose **Use custom** and select the configured `-main-private.img.gz` or `-node-private.img.gz`. The compressed image can be selected directly.
+3. Choose the intended card as storage. Skip OS customization if offered: PiDockCloud has already included the appliance settings. Do not apply Imager owner, Wi-Fi or SSH settings.
+4. Write and leave verification enabled. Wait for both operations to finish, then safely eject. If macOS offers to initialize an unreadable Linux partition, dismiss that prompt without initializing it.
+5. Power off the Pi before inserting the card. Preserve the old installation media until hardware acceptance succeeds.
+
+For **Main**, connect the selected network and power on. Allow network/trusted-time initialization, then open `https://pidock.local` or the configured static address. Review the appliance certificate and use the local owner/authenticator entry created for this particular download. Optional first-boot cloud registration follows the choices in that image.
+
+For **Node**, flash its separate download to another card, boot with suitable power, connect its supported USB-C data interface to the Main using a data-capable connection, and adopt it under **Main → USB nodes**. It has no standalone owner or cloud sign-in. Physical USB/power acceptance remains required for the supported hardware.
+
+GPIO outputs remain disabled. Configured images contain private setup; keep them secure and remove unneeded copies after successful installation. The cloud’s **Clear temporary image** control removes the browser preparation copy, not the saved download. See also [Raspberry Pi’s official image-writing instructions](https://www.raspberrypi.com/documentation/computers/getting-started.html).
+
 ## Release preparation
 
 The Buildroot image pipeline is under `os/buildroot`, with pinned sources in `os/build/sources.json`. Build and sign boot/root components offline. No private signing key or prepared owner state belongs in a shared factory image. Development boot keys must not be programmed into OTP.
