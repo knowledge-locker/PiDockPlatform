@@ -4,6 +4,9 @@ using System.Security.Cryptography;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using PiDock.Core;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Hosting;
+using System.Net;
 using PiDock.Web.Shared;
 namespace PiDock.Tests;
 public sealed class FactoryImageTests
@@ -52,6 +55,66 @@ public sealed class FactoryImageTests
             Assert.NotNull(store.Download(User(),signed.Digest,ticket));Assert.Null(store.Download(User(),signed.Digest,ticket));
             var catalog=File.ReadAllText(Path.Combine(directory,"factory-images/catalog.json"));Assert.Contains("DownloadAuthorized",catalog);Assert.DoesNotContain(ticket,catalog);
         }finally { Directory.Delete(directory,true); }
+    }
+    [Fact] public void PublicationApprovalIsScopedSingleUseAndExpires()
+    {
+        var directory=StateFiles.PrepareDirectory(Path.Combine(OperatingSystem.IsMacOS()?"/private/tmp":Path.GetTempPath(),"pidock-upload-"+Guid.NewGuid()));
+        try {
+            var state=new StateDirectory(directory);var clock=new PublicationClock();
+            var store=new PiDock.Cloud.Web.FactoryImageStore(state,new PiDock.Cloud.Web.FleetStore(state),clock,new ConfigurationBuilder().Build());
+            static System.Security.Claims.ClaimsPrincipal User(string tenant="alpha",string name="owner",string role="Owner") => new(new System.Security.Claims.ClaimsIdentity([new(System.Security.Claims.ClaimTypes.Name,name),new(System.Security.Claims.ClaimTypes.Role,role),new("tenant",tenant)],"test"));
+            Assert.Throws<UnauthorizedAccessException>(()=>store.AuthorizeUpload(User(role:"Viewer")));
+            var ticket=store.AuthorizeUpload(User());
+            Assert.False(store.ConsumeUpload(User(name:"other"),ticket));
+            Assert.False(store.ConsumeUpload(User("beta"),ticket));
+            Assert.True(store.ConsumeUpload(User(),ticket));Assert.False(store.ConsumeUpload(User(),ticket));
+            ticket=store.AuthorizeUpload(User());clock.Now=clock.Now.AddMinutes(5);
+            Assert.False(store.ConsumeUpload(User(),ticket));
+        } finally { Directory.Delete(directory,true); }
+    }
+    private sealed class PublicationClock : TimeProvider { public DateTimeOffset Now=DateTimeOffset.UtcNow;public override DateTimeOffset GetUtcNow()=>Now; }
+    [Fact] public async Task HttpPublicationRequiresCurrentLoginApprovalAndValidSignature()
+    {
+        var directory=StateFiles.PrepareDirectory(Path.Combine(OperatingSystem.IsMacOS()?"/private/tmp":Path.GetTempPath(),"pidock-upload-http-"+Guid.NewGuid()));
+        try {
+            var trust=StateFiles.PrepareDirectory(Path.Combine(directory,"trust"));
+            using var key=ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            File.WriteAllText(Path.Combine(trust,"factory-test.pem"),key.ExportSubjectPublicKeyInfoPem());
+            var raw=Path.Combine(directory,"raw");File.WriteAllBytes(raw,BlankImage());var package=Path.Combine(directory,"image.zip");
+            FactoryImages.Create(raw,package,"1.0.0-upload-test",1,true,"factory-test",key.ExportPkcs8PrivateKeyPem(),[new(1<<20,1<<20)]);
+            using var factory=new PublicationFactory(directory,trust);
+            using var client=factory.CreateClient(new() { BaseAddress=new("https://localhost"),AllowAutoRedirect=false });
+            client.DefaultRequestHeaders.Add("X-Requested-With","XMLHttpRequest");
+            async Task<HttpResponseMessage> Upload(string? ticket,byte[] bytes) {
+                using var request=new HttpRequestMessage(HttpMethod.Post,"/api/factory-images") { Content=new ByteArrayContent(bytes) };
+                request.Content.Headers.ContentType=new("application/octet-stream");
+                if(ticket is not null)request.Headers.Add("X-PiDock-Publish",ticket);
+                return await client.SendAsync(request);
+            }
+            Assert.Equal(HttpStatusCode.Unauthorized,(await Upload(null,[1])).StatusCode);
+            var users=factory.Services.GetRequiredService<UserStore>();var secret=Totp.NewSecret();
+            users.Add("owner","integration-test-password",secret,"alpha","Administrator",false,-1);
+            var previousStep=DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30-1;
+            var account=users.Authenticate("owner","integration-test-password",Totp.Code(secret,previousStep),DateTimeOffset.FromUnixTimeSeconds(previousStep*30))!;
+            var login=await client.GetStringAsync("/auth/login");
+            var csrf=System.Text.RegularExpressions.Regex.Match(login,"name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+            // Login HTML uses single quotes for hidden fields.
+            if(csrf.Length==0)csrf=System.Text.RegularExpressions.Regex.Match(login,"name='__RequestVerificationToken' value='([^']+)'").Groups[1].Value;
+            await client.PostAsync("/auth/login",new FormUrlEncodedContent(new Dictionary<string,string> { ["username"]="owner",["password"]="integration-test-password",["code"]=Totp.Code(secret,DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30),["__RequestVerificationToken"]=csrf }));
+            var user=users.Principal(account);
+            var store=factory.Services.GetRequiredService<PiDock.Cloud.Web.FactoryImageStore>();
+            Assert.Equal(HttpStatusCode.Forbidden,(await Upload(null,[1])).StatusCode);
+            var bad=store.AuthorizeUpload(user);Assert.Equal(HttpStatusCode.BadRequest,(await Upload(bad,[1])).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden,(await Upload(bad,[1])).StatusCode);
+            var token=store.AuthorizeUpload(user);Assert.Equal(HttpStatusCode.OK,(await Upload(token,File.ReadAllBytes(package))).StatusCode);
+            Assert.Single(store.List(user));Assert.Equal(HttpStatusCode.Forbidden,(await Upload(token,File.ReadAllBytes(package))).StatusCode);
+            await using var input=File.OpenRead(package);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>store.Publish(user,input,isCurrent:()=>false));
+        } finally { Directory.Delete(directory,true); }
+    }
+    private sealed class PublicationFactory(string directory,string trust) : Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<PiDock.Cloud.Web.CloudMarker>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Development").UseSetting("PiDock:StateDirectory",directory).UseSetting("Updates:TrustDirectory",trust).UseSetting("Logging:LogLevel:Default","Warning");
     }
     [Fact] public void MediaOwnerIsInitialOnlyAndPasswordHashWorksWithExistingMfa()
     {

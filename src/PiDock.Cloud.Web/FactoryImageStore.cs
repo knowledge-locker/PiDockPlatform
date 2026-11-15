@@ -16,6 +16,7 @@ public sealed class FactoryImageStore
     private readonly FleetStore fleet;
     private readonly TimeProvider clock;
     private FactoryCatalog catalog;
+    private readonly Dictionary<string,(string User,string Tenant,DateTimeOffset Until)> uploadTickets = [];
     private readonly Dictionary<string,(string User,string Tenant,string Digest,DateTimeOffset Until)> tickets = [];
     public FactoryImageStore(StateDirectory directory, FleetStore fleet, TimeProvider clock, IConfiguration settings)
     {
@@ -28,7 +29,24 @@ public sealed class FactoryImageStore
     public PublishedFactory[] List(ClaimsPrincipal user) { var tenant=Tenant(user);lock(gate)return catalog.Images.Where(x=>x.Tenant==tenant).OrderByDescending(x=>x.At).ToArray(); }
     private void Save(FactoryCatalog value) { StateFiles.WriteAtomic(path,JsonSerializer.Serialize(value,StateFiles.Json));catalog=value; }
     private FactoryCatalog Audit(FactoryCatalog value,ClaimsPrincipal user,string action,string digest) => value with { Audit=value.Audit.Append(new(Tenant(user),user.Identity!.Name!,action,digest,clock.GetUtcNow())).TakeLast(1000).ToArray() };
-    public async Task Publish(ClaimsPrincipal user,Stream input,CancellationToken ct=default)
+    // Minted only by the action-specific MFA dialog. Opaque header tokens also prevent CSRF.
+    public string AuthorizeUpload(ClaimsPrincipal user)
+    {
+        var tenant=Tenant(user);lock(gate) {
+            foreach(var expired in uploadTickets.Where(x=>x.Value.Until<=clock.GetUtcNow()).Select(x=>x.Key).ToArray())uploadTickets.Remove(expired);
+            if(uploadTickets.Count>=128)throw new InvalidOperationException("Too many publication requests.");
+            var token=Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+            uploadTickets[token]=(user.Identity!.Name!,tenant,clock.GetUtcNow().AddMinutes(5));return token;
+        }
+    }
+    public bool ConsumeUpload(ClaimsPrincipal user,string token)
+    {
+        var tenant=Tenant(user);lock(gate) {
+            if(!uploadTickets.TryGetValue(token,out var ticket)||ticket.Until<=clock.GetUtcNow()||ticket.User!=user.Identity!.Name||ticket.Tenant!=tenant)return false;
+            uploadTickets.Remove(token);return true;
+        }
+    }
+    public async Task Publish(ClaimsPrincipal user,Stream input,CancellationToken ct=default,Func<bool>? isCurrent=null)
     {
         var tenant=Tenant(user);
         if(!await uploads.WaitAsync(0,ct))throw new InvalidOperationException("Another factory upload is running.");
@@ -45,6 +63,7 @@ public sealed class FactoryImageStore
             var image=await Task.Run(()=>FactoryImages.Verify(incoming,trust,compressed),ct);
             lock(gate) {
                 Tenant(user);
+                if(isCurrent is not null&&!isCurrent())throw new UnauthorizedAccessException();
                 var previous=catalog.Images.FirstOrDefault(x=>x.Tenant==tenant&&x.Image.Manifest.Version==image.Manifest.Version);
                 if(previous is not null) { if(previous.Image.Digest!=image.Digest)throw new InvalidOperationException("Factory versions are immutable.");return; }
                 var destination=Path.Combine(root,image.Digest+".gz");if(!File.Exists(destination))File.Move(compressed,destination);
@@ -74,10 +93,30 @@ public sealed class FactoryImageStore
 }
 public static class FactoryImageEndpoints
 {
-    public static void MapFactoryImages(this WebApplication app) => app.MapGet("/api/factory-images/{digest}",(string digest,HttpContext context,FactoryImageStore store,UserStore users)=> {
-        context.Response.Headers.CacheControl="no-store";
-        if(!users.IsCurrent(context.User)||!OsUpdateRules.Digest(digest))return Results.Unauthorized();
-        try { var path=store.Download(context.User,digest,context.Request.Headers["X-PiDock-Download"].ToString());return path is null?Results.NotFound():Results.File(path,"application/gzip"); }
-        catch(UnauthorizedAccessException) { return Results.Forbid(); }
-    }).RequireAuthorization();
+    public static void MapFactoryImages(this WebApplication app)
+    {
+        app.MapPost("/api/factory-images",async (HttpContext context,FactoryImageStore store,UserStore users)=> {
+            context.Response.Headers.CacheControl="no-store";
+            if(!users.IsCurrent(context.User))return Results.Unauthorized();
+            try {
+                if(!store.ConsumeUpload(context.User,context.Request.Headers["X-PiDock-Publish"].ToString()))return Results.Forbid();
+                if(context.Request.ContentType!="application/octet-stream"||context.Request.ContentLength is not >0||context.Request.ContentLength>FactoryImages.MaximumCompressed)return Results.BadRequest();
+                var limit=context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+                if(limit is not null&&!limit.IsReadOnly)limit.MaxRequestBodySize=FactoryImages.MaximumCompressed;
+                using var timeout=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+                timeout.CancelAfter(TimeSpan.FromMinutes(30));
+                await store.Publish(context.User,context.Request.Body,timeout.Token,()=>users.IsCurrent(context.User));
+                return Results.Ok();
+            }
+            catch(UnauthorizedAccessException) { return Results.Forbid(); }
+            catch(OperationCanceledException) { return Results.StatusCode(408); }
+            catch(Exception e) when(e is IOException or InvalidDataException or InvalidOperationException or ArgumentException or System.Security.Cryptography.CryptographicException or JsonException) { return Results.BadRequest(); }
+        }).RequireAuthorization();
+        app.MapGet("/api/factory-images/{digest}",(string digest,HttpContext context,FactoryImageStore store,UserStore users)=> {
+            context.Response.Headers.CacheControl="no-store";
+            if(!users.IsCurrent(context.User)||!OsUpdateRules.Digest(digest))return Results.Unauthorized();
+            try { var path=store.Download(context.User,digest,context.Request.Headers["X-PiDock-Download"].ToString());return path is null?Results.NotFound():Results.File(path,"application/gzip"); }
+            catch(UnauthorizedAccessException) { return Results.Forbid(); }
+        }).RequireAuthorization();
+    }
 }

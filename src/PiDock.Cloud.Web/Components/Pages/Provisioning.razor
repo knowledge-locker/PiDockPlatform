@@ -16,11 +16,11 @@ else { <label>PiDockOS image<select @bind="digest" @bind:after="ResetConfigurati
 </section>
 <section class="card"><h2>2. Set up and download</h2><p>The form below runs in your browser. The local password, authenticator secret, Wi-Fi credentials and enrollment code are never submitted to PiDockCloud. Your download contains private device setup; keep it secure and delete it after flashing.</p><div @ref="host"></div></section>
 <p role="status">@message</p>
-<details class="card"><summary>Publish a signed factory image</summary><p>Upload a credential-free factory package signed by a trusted release key. Publication requires fresh cloud authentication.</p><InputFile OnChange="e=>file=e.File" accept=".pidockfactory,.zip" disabled="@busy"/><button @onclick="Publish" disabled="@(busy||file is null)">Publish factory image</button></details>
+<details class="card"><summary>Publish a signed factory image</summary><p>Upload a credential-free factory package signed by a trusted release key. Publication requires fresh cloud authentication.</p><input @ref="uploadInput" type="file" accept=".pidockfactory,.zip" disabled="@busy"/><button @onclick="Publish" disabled="@busy">Publish factory image</button><p @ref="uploadStatus" role="status" aria-live="polite"></p></details>
 <ReauthenticationDialog @ref="confirmation" Cloud="true"/>
 @code {
     private PublishedFactory[] images=[];private string digest="",message="";private bool busy;
-    private IBrowserFile? file;private ElementReference host;private ReauthenticationDialog confirmation=default!;
+    private ElementReference uploadInput,uploadStatus;private ElementReference host;private ReauthenticationDialog confirmation=default!;
     private int configurationEpoch;
     private IJSObjectReference? module;private DotNetObjectReference<Provisioning>? reference;
     protected override async Task OnInitializedAsync()=>images=Store.List((await Authentication.GetAuthenticationStateAsync()).User);
@@ -45,14 +45,22 @@ else { <label>PiDockOS image<select @bind="digest" @bind:after="ResetConfigurati
         }finally { busy=false;await InvokeAsync(StateHasChanged); }
     }
     private async Task Publish() {
-        if(busy||file is null)return;busy=true;
+        if(busy)return;busy=true;
         try {
-            if(!await confirmation.Request("Publish factory image",$"Verify and publish {file.Name} for this workspace."))return;
+            module??=await JS.InvokeAsync<IJSObjectReference>("import","./provisioning.js");
+            var filename=await module.InvokeAsync<string?>("publicationFile",uploadInput);
+            if(filename is null) { message="Choose a signed factory package before publishing.";return; }
+            if(!await confirmation.Request("Publish factory image",$"Verify and publish {filename} for this workspace."))return;
             var user=(await Authentication.GetAuthenticationStateAsync()).User;
-            await using var input=file.OpenReadStream(FactoryImages.MaximumCompressed);
-            await Store.Publish(user,input);images=Store.List(user);file=null;message="Signed factory image published.";
-        }catch(Exception e) when(e is IOException or InvalidOperationException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException) { message="Publication failed. Check the signed package, trust key, immutable version and available storage."; }
+            var ticket=Store.AuthorizeUpload(user);
+            // The package travels over HTTP, independently of the interactive circuit.
+            message=await module.InvokeAsync<string>("publishFactory",CancellationToken.None,uploadInput,uploadStatus,ticket);
+            images=Store.List(user);
+        }catch(Exception e) when(e is IOException or InvalidOperationException or UnauthorizedAccessException or JSException or OperationCanceledException or TimeoutException) {
+            message="Publication interrupted. Refresh to check whether the image was published, then choose the package and try again if needed.";
+        }
         finally { busy=false; }
     }
+
     public async ValueTask DisposeAsync() { reference?.Dispose();if(module is not null)try { await module.InvokeVoidAsync("clear",host);await module.DisposeAsync(); }catch(JSDisconnectedException){} }
 }
