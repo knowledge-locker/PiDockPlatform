@@ -5,6 +5,7 @@ using PiDock.Core;
 using PiDock.Web.Shared;
 namespace PiDock.Cloud.Web;
 
+public sealed record PreparedFactory(string Digest,string Version,long Bytes);
 public sealed record PublishedFactory(string Tenant, FactoryImageInfo Image, string Actor, DateTimeOffset At);
 public sealed record FactoryAudit(string Tenant, string Actor, string Action, string Digest, DateTimeOffset At);
 public sealed record FactoryCatalog(PublishedFactory[] Images, FactoryAudit[] Audit);
@@ -29,6 +30,29 @@ public sealed class FactoryImageStore
     public PublishedFactory[] List(ClaimsPrincipal user) { var tenant=Tenant(user);lock(gate)return catalog.Images.Where(x=>x.Tenant==tenant).OrderByDescending(x=>x.At).ToArray(); }
     private void Save(FactoryCatalog value) { StateFiles.WriteAtomic(path,JsonSerializer.Serialize(value,StateFiles.Json));catalog=value; }
     private FactoryCatalog Audit(FactoryCatalog value,ClaimsPrincipal user,string action,string digest) => value with { Audit=value.Audit.Append(new(Tenant(user),user.Identity!.Name!,action,digest,clock.GetUtcNow())).TakeLast(1000).ToArray() };
+    // Operator-staged public release packages still require normal action MFA and full verification.
+    public PreparedFactory[] Prepared(ClaimsPrincipal user)
+    {
+        Tenant(user);var directory=Path.Combine(root,"prepared");
+        if(!Directory.Exists(directory)||File.GetAttributes(directory).HasFlag(FileAttributes.ReparsePoint))return [];
+        var result=new List<PreparedFactory>();
+        foreach(var path in Directory.EnumerateFiles(directory,"*.json").Take(32)) {
+            try {
+                if(new FileInfo(path).Length>4096||File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))continue;
+                var item=JsonSerializer.Deserialize<PreparedFactory>(File.ReadAllText(path),StateFiles.Json);
+                if(item is null||!OsUpdateRules.Digest(item.Digest)||Path.GetFileNameWithoutExtension(path)!=item.Digest||item.Version is not { Length: >0 and <=64 }||item.Version.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c!='.'&&c!='-')||item.Bytes is <22 or >FactoryImages.MaximumCompressed)continue;
+                var package=Path.Combine(directory,item.Digest+".pidockfactory");
+                if(File.Exists(package)&&!File.GetAttributes(package).HasFlag(FileAttributes.ReparsePoint)&&new FileInfo(package).Length==item.Bytes)result.Add(item);
+            }catch(Exception e) when(e is IOException or JsonException or UnauthorizedAccessException) { }
+        }
+        return result.ToArray();
+    }
+    public async Task PublishPrepared(ClaimsPrincipal user,string digest)
+    {
+        var prepared=Prepared(user).SingleOrDefault(x=>x.Digest==digest)??throw new UnauthorizedAccessException();
+        await using var input=File.OpenRead(Path.Combine(root,"prepared",prepared.Digest+".pidockfactory"));
+        await Publish(user,input,expected:prepared);
+    }
     // Minted only by the action-specific MFA dialog. Opaque header tokens also prevent CSRF.
     public string AuthorizeUpload(ClaimsPrincipal user)
     {
@@ -46,7 +70,7 @@ public sealed class FactoryImageStore
             uploadTickets.Remove(token);return true;
         }
     }
-    public async Task Publish(ClaimsPrincipal user,Stream input,CancellationToken ct=default,Func<bool>? isCurrent=null)
+    public async Task Publish(ClaimsPrincipal user,Stream input,CancellationToken ct=default,Func<bool>? isCurrent=null,PreparedFactory? expected=null)
     {
         var tenant=Tenant(user);
         if(!await uploads.WaitAsync(0,ct))throw new InvalidOperationException("Another factory upload is running.");
@@ -61,6 +85,7 @@ public sealed class FactoryImageStore
             }
             File.Delete(compressed);
             var image=await Task.Run(()=>FactoryImages.Verify(incoming,trust,compressed),ct);
+            if(expected is not null&&(image.Digest!=expected.Digest||image.Manifest.Version!=expected.Version))throw new InvalidDataException("Prepared image identity changed.");
             lock(gate) {
                 Tenant(user);
                 if(isCurrent is not null&&!isCurrent())throw new UnauthorizedAccessException();
@@ -104,7 +129,7 @@ public static class FactoryImageEndpoints
                 var limit=context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
                 if(limit is not null&&!limit.IsReadOnly)limit.MaxRequestBodySize=FactoryImages.MaximumCompressed;
                 using var timeout=CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
-                timeout.CancelAfter(TimeSpan.FromMinutes(30));
+                timeout.CancelAfter(TimeSpan.FromHours(2));
                 await store.Publish(context.User,context.Request.Body,timeout.Token,()=>users.IsCurrent(context.User));
                 return Results.Ok();
             }
