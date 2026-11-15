@@ -28,28 +28,40 @@ console.log('Independent interface addressing and explicit cloud consent checks 
 assert.equal(publicationFile({files:[]}),null);
 assert.equal(publicationFile({files:[{name:'image.pidockfactory',size:100}]}),'image.pidockfactory');
 assert.equal(publicationFile({files:[{name:'image.pidockfactory',size:2147483649}]}),null);
+const ui={
+    panel:{hidden:true,dataset:{},setAttribute(name,value){this[name]=value;},scrollIntoView(){}},
+    heading:{textContent:''},status:{textContent:''},explanation:{textContent:''},button:{textContent:'',setAttribute(name,value){this[name]=value;}},
+    progress:{value:0,hidden:false,removeAttribute(name){if(name==='value')this.value=undefined;}}
+};
 class UploadRequest {
     static response=200;static networkError=false;upload={};
     open(method,url) { assert.equal(method,'POST');assert.equal(url,'/api/factory-images'); }
     setRequestHeader(name,value) { if(name==='X-PiDock-Publish')assert.equal(value,'approved-once'); }
     send(file) {
         assert.equal(file.name,'image.pidockfactory');
+        assert.equal(ui.panel.hidden,false);assert.equal(ui.button['aria-busy'],'true');
+        assert.match(ui.explanation.textContent,/buttons are temporarily disabled/);
+        assert.equal(ui.button.textContent,'Uploading…');
+        this.upload.onprogress({lengthComputable:false});assert.equal(ui.progress.value,undefined);
         this.upload.onprogress({lengthComputable:true,loaded:50,total:100});
-        assert.match(status.textContent,/50%/);
+        assert.match(ui.status.textContent,/50% uploaded/);assert.equal(ui.progress.value,50);
         this.upload.onprogress({lengthComputable:true,loaded:100,total:100});
-        assert.match(status.textContent,/Verifying signature/);
+        assert.equal(ui.heading.textContent,'Verifying factory image');
+        assert.equal(ui.button.textContent,'Verifying…');assert.equal(ui.progress.value,undefined);
         this.status=UploadRequest.response;
         if(UploadRequest.networkError)this.onerror();else this.onload();
     }
 }
 globalThis.XMLHttpRequest=UploadRequest;
-const status={textContent:''};
 const fileInput={files:[{name:'image.pidockfactory',size:100}],value:'selected'};
-assert.match(await publishFactory(fileInput,status,'approved-once'),/published/);
-assert.equal(fileInput.value,'');assert.equal(status.textContent,'');
+assert.match(await publishFactory(fileInput,ui,'approved-once'),/published/);
+assert.equal(fileInput.value,'');assert.equal(ui.panel.dataset.state,'complete');
+assert.equal(ui.button['aria-busy'],'false');assert.equal(ui.progress.value,100);
+assert.match(ui.explanation.textContent,/buttons are available again/);
 UploadRequest.response=403;
-assert.match(await publishFactory(fileInput,status,'approved-once'),/authorization expired/);
+assert.match(await publishFactory(fileInput,ui,'approved-once'),/authorization expired/);
+assert.equal(ui.panel.dataset.state,'failed');assert.equal(ui.progress.hidden,true);
 UploadRequest.networkError=true;
-assert.match(await publishFactory(fileInput,status,'approved-once'),/interrupted/);
-assert.equal(status.textContent,'');
-console.log('HTTP publication progress, success, authorization failure and retry recovery checks passed.');
+assert.match(await publishFactory(fileInput,ui,'approved-once'),/interrupted/);
+assert.equal(ui.button['aria-busy'],'false');assert.equal(ui.button.textContent,'Publish factory image');
+console.log('HTTP publication progress, verification, disabled-control explanation and retry recovery checks passed.');

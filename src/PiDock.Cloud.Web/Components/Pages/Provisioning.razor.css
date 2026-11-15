@@ -1,0 +1,15 @@
+.factory-upload-status {
+    padding: 1.4rem;
+    margin: 1.5rem 0;
+    border: 2px solid #c9144b;
+    border-radius: 1rem;
+    background: #fff0f5;
+    box-shadow: 0 4px 18px #c9144b14;
+}
+.factory-upload-status[hidden] { display: none; }
+.factory-upload-status h2 { margin: 0 0 .6rem; }
+.factory-upload-status [role="status"] { font-size: 1.15rem; font-weight: 650; }
+.factory-upload-status progress { display: block; width: 100%; height: 1.6rem; accent-color: #c9144b; margin: 1rem 0; }
+.factory-upload-status progress[hidden] { display: none; }
+.factory-upload-status[data-state="complete"] { border-color: #237344; background: #f0faf4; }
+.factory-upload-status[data-state="failed"] { border-color: #a13a24; background: #fff5ee; }
