@@ -22,6 +22,20 @@
 <button @onclick="Configure" disabled="@(busy||string.IsNullOrEmpty(digest))">Configure image</button>
 </section>
 <section class="card" hidden="@(!configurationReady)"><h2>2. Set up and download</h2><p>The form below runs in your browser. The local password, authenticator secret, Wi-Fi credentials and enrollment code are never submitted to PiDockCloud. Your download contains private device setup; keep it secure and delete it after flashing.</p><div @ref="host"></div></section>
+<details class="card" hidden="@(!configurationReady)"><summary>3. Flash the SD card and start PiDockOS</summary>
+<p><strong>No separate formatting is needed.</strong> Use an SD card of at least 16 GB. Writing the image replaces its partition table and creates PiDockOS’s boot and Linux filesystems. Do not choose FAT32, exFAT or APFS yourself, or copy the download onto a formatted card.</p>
+<ol>
+<li>Open <a href="https://www.raspberrypi.com/software/" target="_blank" rel="noopener noreferrer">Raspberry Pi Imager</a> on your Mac, Windows or Linux computer. Insert the intended card and check its name and capacity.</li>
+<li>Choose <strong>Use custom</strong> and select the downloaded <code>-main-private.img.gz</code> or <code>-node-private.img.gz</code>. Imager can read the compressed file directly; you do not need to unzip it.</li>
+<li>Select that card as storage. <strong>Skip OS customization if offered</strong>: the image already contains the setup you chose here. Do not add Imager owner, network or SSH settings.</li>
+<li>Write the image. This erases the selected card. Keep verification enabled and wait for both writing and verification to finish, then safely eject the card. If macOS later offers to initialize an unreadable Linux partition, dismiss the prompt; do not initialize it.</li>
+<li>Power off the target Pi before inserting its card. Preserve any previous installation media until the new installation is accepted.</li>
+</ol>
+<p><strong>Main:</strong> Connect Ethernet if selected, power on and allow network and trusted-time setup to finish. Open <a href="https://pidock.local">https://pidock.local</a> or its configured static address. Review its local certificate and sign in with the appliance owner and authenticator entry created for this image. Cloud registration runs on first boot only if you selected it.</p>
+<p><strong>Node:</strong> Use a separate card and the Node download. Boot with suitable power and connect its supported USB-C data port to the Main using a data-capable connection. Open <strong>Main → USB nodes</strong> to discover, adopt and configure it. Nodes have no separate owner or cloud sign-in.</p>
+<p>GPIO outputs remain disabled. Keep configured images private; after installation is accepted, delete unneeded private downloads and use <strong>Clear temporary image</strong> to remove the browser’s preparation copy.</p>
+<p><a href="https://www.raspberrypi.com/documentation/computers/getting-started.html" target="_blank" rel="noopener noreferrer">Raspberry Pi’s image-writing guide</a></p>
+</details>
 <p role="status">@message</p>
 <details class="card" open="@(images.Length==0)"><summary>Publish a signed factory image</summary><p>Upload a credential-free factory package signed by a trusted release key. Publication requires fresh cloud authentication.</p><input @ref="uploadInput" type="file" accept=".pidockfactory,.zip" disabled="@busy"/><button @ref="publishButton" @onclick="Publish" disabled="@busy">Publish factory image</button></details>
 @if(prepared.Length>0) {
