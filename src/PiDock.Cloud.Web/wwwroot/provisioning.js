@@ -43,9 +43,55 @@ export function cloudSetup(enabled,url,register,code,remoteControl,remoteUi){
  else if(remoteControl||remoteUi)throw Error('Remote permissions require cloud registration.');
  return result;
 }
-function interfaceForm(name,title,enabled){return `<fieldset class="interface"><legend>${title}</legend><label class="check"><input name="${name}Enabled" type="checkbox" ${enabled?'checked':''}>Enable ${title}</label><div id="${name}Settings"><label>IPv4 addressing<select name="${name}Method"><option value="dhcp">Automatic (DHCP)</option><option value="static">Static</option></select></label><div id="${name}Static" hidden><label>IPv4 address / prefix<input name="${name}Address" placeholder="192.168.1.50/24" autocomplete="off"></label><label>Gateway (optional)<input name="${name}Gateway" placeholder="192.168.1.1" autocomplete="off"></label><label>DNS servers (optional, separated by commas)<input name="${name}Dns" placeholder="192.168.1.1, 1.1.1.1" autocomplete="off"></label></div></div></fieldset>`;}
+export function setupCodeControls(ui,bytes,signal,now=()=>Math.floor(Date.now()/30000)) {
+ const {firstInput,secondInput,firstButton,secondButton,firstStatus,secondStatus,help}=ui;
+ let first=-1,second=-1,observedFirst=firstInput.value,observedSecond=secondInput.value,revision=0;
+ const instruction='Verify the first code, then wait for the next 30-second code before entering it here.';
+ const reset=()=>{
+  first=-1;second=-1;observedFirst=firstInput.value;observedSecond='';
+  secondInput.value='';secondInput.disabled=true;secondInput.required=true;
+  firstButton.disabled=!/^[0-9]{6}$/.test(firstInput.value);secondButton.disabled=true;
+  firstStatus.textContent='';secondStatus.textContent='';help.textContent=instruction;
+ };
+ const firstEdited=()=>{if(firstInput.value===observedFirst)return;revision++;reset();};
+ const secondEdited=()=>{
+  if(secondInput.value===observedSecond)return;
+  revision++;observedSecond=secondInput.value;second=-1;secondInput.required=true;
+  secondButton.disabled=first<0||!/^[0-9]{6}$/.test(secondInput.value);secondStatus.textContent='';
+ };
+ for(const event of ['input','change']){firstInput.addEventListener(event,firstEdited);secondInput.addEventListener(event,secondEdited);}
+ firstButton.onclick=async()=>{
+  firstEdited();const candidate=firstInput.value,step=now(),attempt=revision;
+  if(!/^[0-9]{6}$/.test(candidate)){reset();return;}
+  const expected=await totp(bytes,step);
+  if(signal.aborted||revision!==attempt||firstInput.value!==candidate)return;
+  if(candidate!==expected){reset();firstStatus.textContent='Enter the current code from the new authenticator entry.';return;}
+  first=step;second=-1;
+  // Update observed values before clearing/focusing: Safari can emit change on blur.
+  observedFirst='';observedSecond='';firstInput.value='';secondInput.value='';
+  firstButton.disabled=true;secondInput.required=true;secondInput.disabled=false;secondButton.disabled=true;
+  firstStatus.textContent='First code verified. Wait for the next code.';secondStatus.textContent='';help.textContent=instruction;
+  secondInput.focus();
+ };
+ secondButton.onclick=async()=>{
+  firstEdited();secondEdited();const candidate=secondInput.value,step=now(),originalFirst=first,attempt=revision;
+  if(originalFirst<0||!/^[0-9]{6}$/.test(candidate))return;
+  if(step<=originalFirst){secondStatus.textContent='Wait until your authenticator shows its next code, then verify it.';return;}
+  if(step!==originalFirst+1){reset();secondStatus.textContent='The verification window expired. Verify a new first code, then its next code.';firstInput.focus();return;}
+  const expected=await totp(bytes,step);
+  if(signal.aborted||revision!==attempt||first!==originalFirst||secondInput.value!==candidate)return;
+  if(candidate!==expected){secondStatus.textContent='That code did not match. Enter the next code from the new PiDockOS authenticator entry.';return;}
+  second=step;observedSecond='';secondInput.value='';secondInput.required=false;secondInput.disabled=true;secondButton.disabled=true;
+  firstStatus.textContent='First code verified.';secondStatus.textContent='Second code verified. Authenticator setup is complete.';
+  help.textContent='Both codes are verified. You can finish the remaining settings before downloading.';
+ };
+ reset();
+ return {get step(){firstEdited();secondEdited();return first>=0&&second===first+1?second:null;}};
+}
+function interfaceForm(name,title,enabled,extra=''){return `<fieldset class="interface"><legend>${title}</legend><label class="check"><input name="${name}Enabled" type="checkbox" ${enabled?'checked':''}>Enable ${title}</label><div id="${name}Settings"><label>IPv4 addressing<select name="${name}Method"><option value="dhcp">Automatic (DHCP)</option><option value="static">Static</option></select></label><div id="${name}Static" hidden><label>IPv4 address / prefix<input name="${name}Address" placeholder="192.168.1.50/24" autocomplete="off"></label><label>Gateway (optional)<input name="${name}Gateway" placeholder="192.168.1.1" autocomplete="off"></label><label>DNS servers (optional, separated by commas)<input name="${name}Dns" placeholder="192.168.1.1, 1.1.1.1" autocomplete="off"></label></div>${extra}</div></fieldset>`;}
 export function configure(host,image,bridge){
  clear(host);const controller=new AbortController();preparations.set(host,controller);const root=host.shadowRoot||host.attachShadow({mode:'open'}),expanded=image.manifest.setupSchema===2;
+ const wifiFields='<div id="wifi"><label>Wi-Fi network name<input name="ssid" maxlength="32" autocomplete="off"></label><label>Wi-Fi password<input name="wifiPassword" type="password" autocomplete="off"></label><label>Country code<input name="country" value="US" maxlength="2" pattern="[A-Z]{2}"></label></div>';
  root.innerHTML=`<style>:host{font:inherit}label{display:block;margin:1em 0}input,select{display:block;box-sizing:border-box;width:100%;padding:.7em;margin-top:.4em;font:inherit;border:1px solid #bcb5b8;border-radius:6px}button{font:inherit;cursor:pointer;padding:.8em;border-radius:7px;border:0;background:#c4144e;color:white}fieldset{border:0;padding:0}fieldset.interface{border:1px solid #ded8dc;padding:1em;margin:1em 0}input[type=checkbox]{width:auto;display:inline;margin-right:.5em}.check{display:flex;align-items:center;gap:.4em}[hidden]{display:none!important}output{display:block;margin:1em 0}code{user-select:all;overflow-wrap:anywhere}.credential-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.2em}.credential-pair>div{min-width:0}.password-control{display:flex;align-items:stretch;gap:.4em}.password-control input{min-width:0;margin:0}.password-control button{flex-shrink:0;background:#eee6e9;color:#522333;padding:.5em .8em}.help{font-size:.92em;color:#5d5558}.credential-pair label{margin-bottom:.5em}button:disabled{opacity:.5;cursor:default}input:disabled{background:#f3f0f1}@media(max-width:640px){.credential-pair{grid-template-columns:1fr;gap:0}}</style><form><fieldset id="all">${expanded?`<label>Mode<select name="mode" aria-describedby="modeDescription"><option value="Main">Main — Primary or standalone Pi</option><option value="Node">Node — USB expansion for a Main</option></select></label><p id="modeDescription"></p><p id="nodeNote" hidden>Prepare an unpaired USB expansion node. No human owner, external network, cloud registration or remote permissions are configured. Connect it to a Main device over a data-capable USB link, then adopt and configure it from Main → USB nodes. The Main owner must confirm adoption.</p>`:'<p>This image supports basic Main setup. Choose an expanded-setup image for mode, static addressing and cloud options.</p>'}<fieldset id="main"><legend>Local appliance owner</legend>
  <label>Username<input name="username" pattern="[A-Za-z0-9-]{1,64}" maxlength="64" autocomplete="off" required></label>
  <p id="passwordRequirements" class="help">Use 14–256 characters. Spaces and passphrases are allowed. Confirmation must match exactly.</p>
@@ -56,14 +102,13 @@ export function configure(host,image,bridge){
  <p>Add a new PiDockOS entry to your authenticator with this setup key:</p><code id="secret"></code>
  <div class="credential-pair"><div><label>Current authenticator code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off"></label><button id="verify" type="button" disabled>Verify first code</button><output id="verification" role="status"></output></div>
  <div><label>Next authenticator code<input name="next" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" aria-describedby="nextCodeHelp" disabled required></label><button id="verifyNext" type="button" disabled>Verify second code</button><output id="nextVerification" role="status"></output><p id="nextCodeHelp" class="help">Verify the first code, then wait for the next 30-second code before entering it here.</p></div></div>
- ${expanded?interfaceForm('ethernet','Ethernet',true)+interfaceForm('wireless','Wi-Fi',true):''}
- <div ${expanded?'hidden':''}><label>Network<select name="network"><option value="wifi">Wi-Fi</option><option value="ethernet">Ethernet</option></select></label></div><div id="wifi">
- <label>Wi-Fi network name<input name="ssid" maxlength="32" autocomplete="off"></label><label>Wi-Fi password<input name="wifiPassword" type="password" autocomplete="off"></label><label>Country code<input name="country" value="US" maxlength="2" pattern="[A-Z]{2}"></label></div>
+ ${expanded?interfaceForm('ethernet','Ethernet',true)+interfaceForm('wireless','Wi-Fi',true,wifiFields):''}
+ <div ${expanded?'hidden':''}><label>Network<select name="network"><option value="wifi">Wi-Fi</option><option value="ethernet">Ethernet</option></select></label></div>${expanded?'':'<fieldset class="interface" id="legacyWifi"><legend>Wi-Fi</legend>'+wifiFields+'</fieldset>'}
  ${expanded?`<fieldset class="interface"><legend>PiDockCloud (optional)</legend><label class="check"><input name="cloudEnabled" type="checkbox" aria-describedby="cloudDefault">Configure PiDockCloud</label><p id="cloudDefault"></p><p id="cloudSuggestion"></p><fieldset id="cloudSettings" disabled hidden><label>Cloud URL<input name="cloudUrl" type="url" autocomplete="off" maxlength="512"></label><label class="check"><input name="register" type="checkbox">Register on first boot</label><fieldset id="registrationSettings" disabled hidden><label>Single-use enrollment code<input name="enrollmentCode" autocomplete="off" maxlength="64" spellcheck="false"></label><p>Generate an invitation in the chosen cloud shortly before creating the image. It must still be valid when the Pi first connects. An expired invitation can be replaced locally after boot.</p><label class="check"><input name="remoteControl" type="checkbox">Allow remote container control</label><label class="check"><input name="remoteUi" type="checkbox">Allow remote PiDockOS interface access</label><p>These are separate local permissions, off by default. They take effect only after this registration succeeds. Cloud actions still require fresh MFA; remote UI sessions also require PiDockOS sign-in. Cloud-managed OS updates remain off.</p></fieldset></fieldset></fieldset>`:'<p>Cloud enrollment and remote permissions are approved separately after first boot.</p>'}</fieldset><button type="submit">Create and download image</button></fieldset><output id="status" role="status"></output><div id="download"></div></form>`;
- const form=root.querySelector('form'),f=form.elements,status=root.querySelector('#status'),bytes=crypto.getRandomValues(new Uint8Array(20)),secret=base32(bytes);let first=-1,second=-1,active=false,objectUrl,payload;
+ const form=root.querySelector('form'),f=form.elements,status=root.querySelector('#status'),bytes=crypto.getRandomValues(new Uint8Array(20)),secret=base32(bytes);let active=false,objectUrl,payload;
  controller.signal.addEventListener('abort',()=>{bytes.fill(0);payload?.fill(0);if(objectUrl)URL.revokeObjectURL(objectUrl);f.password.value='';f.confirm.value='';f.wifiPassword.value='';if(expanded)f.enrollmentCode.value='';},{once:true});
  root.querySelector('#secret').textContent=secret;
- const verify=root.querySelector('#verify'),verifyNext=root.querySelector('#verifyNext'),confirmationHelp=root.querySelector('#confirmationHelp');
+ const confirmationHelp=root.querySelector('#confirmationHelp');
  const passwordState=()=>{
   const error=passwordRequirement(f.password.value),ready=!error;
   f.password.setCustomValidity(error);f.confirm.disabled=!ready;
@@ -77,33 +122,11 @@ export function configure(host,image,bridge){
  };
  f.password.addEventListener('input',passwordState);f.password.addEventListener('change',passwordState);f.confirm.addEventListener('input',passwordState);f.confirm.addEventListener('change',passwordState);
  for(const toggle of root.querySelectorAll('[data-reveal]'))toggle.onclick=()=>{const input=f[toggle.dataset.reveal],show=input.type==='password';input.type=show?'text':'password';toggle.textContent=show?'Hide':'Show';toggle.setAttribute('aria-pressed',String(show));toggle.setAttribute('aria-label',(show?'Hide ':'Show ')+(toggle.dataset.reveal==='password'?'appliance password':'password confirmation'));};
- const resetCodes=()=>{first=-1;second=-1;f.next.value='';f.next.disabled=true;f.next.required=true;verifyNext.disabled=true;root.querySelector('#nextVerification').textContent='';root.querySelector('#nextCodeHelp').textContent='Verify the first code, then wait for the next 30-second code before entering it here.';verify.disabled=!/^[0-9]{6}$/.test(f.code.value);root.querySelector('#verification').textContent='';};
- f.code.addEventListener('input',resetCodes);f.code.addEventListener('change',resetCodes);
- f.next.addEventListener('input',()=>{second=-1;f.next.required=true;verifyNext.disabled=first<0||!/^[0-9]{6}$/.test(f.next.value);root.querySelector('#nextVerification').textContent='';});
- verify.onclick=async()=>{
-  const candidate=f.code.value,s=Math.floor(Date.now()/30000);
-  if(!/^[0-9]{6}$/.test(candidate)){resetCodes();return;}
-  const expected=await totp(bytes,s);if(controller.signal.aborted||f.code.value!==candidate)return;
-  if(candidate===expected){first=s;second=-1;f.next.required=true;verifyNext.disabled=true;root.querySelector('#nextVerification').textContent='';f.code.value='';verify.disabled=true;f.next.disabled=false;root.querySelector('#verification').textContent='First code verified. Wait for the next code.';f.next.focus();}
-  else{first=-1;f.next.value='';f.next.disabled=true;root.querySelector('#verification').textContent='Enter the current code from the new authenticator entry.';}
- };
- verifyNext.onclick=async()=>{
-  const candidate=f.next.value,step=Math.floor(Date.now()/30000),originalFirst=first;
-  if(originalFirst<0||!/^[0-9]{6}$/.test(candidate))return;
-  if(step<=originalFirst){root.querySelector('#nextVerification').textContent='Wait until your authenticator shows its next code, then verify it.';return;}
-  if(step!==originalFirst+1){resetCodes();root.querySelector('#nextVerification').textContent='The verification window expired. Verify a new first code, then its next code.';f.code.focus();return;}
-  const expected=await totp(bytes,step);
-  if(controller.signal.aborted||first!==originalFirst||f.next.value!==candidate)return;
-  if(candidate!==expected){root.querySelector('#nextVerification').textContent='That code did not match. Enter the next code from the new PiDockOS authenticator entry.';return;}
-  second=step;f.next.value='';f.next.required=false;f.next.disabled=true;verifyNext.disabled=true;
-  root.querySelector('#verification').textContent='First code verified.';
-  root.querySelector('#nextVerification').textContent='Second code verified. Authenticator setup is complete.';
-  root.querySelector('#nextCodeHelp').textContent='Both codes are verified. You can finish the remaining settings before downloading.';
- };
+ const codeVerification=setupCodeControls({firstInput:f.code,secondInput:f.next,firstButton:root.querySelector('#verify'),secondButton:root.querySelector('#verifyNext'),firstStatus:root.querySelector('#verification'),secondStatus:root.querySelector('#nextVerification'),help:root.querySelector('#nextCodeHelp')},bytes,controller.signal);
  passwordState();
 
  const sync=()=>{
-  if(!expanded){root.querySelector('#wifi').hidden=f.network.value!=='wifi';return;}
+  if(!expanded){root.querySelector('#legacyWifi').hidden=f.network.value!=='wifi';return;}
   const node=f.mode.value==='Node';root.querySelector('#modeDescription').textContent=node?'Adds Pi hardware to extend a Main. It is discovered and configured through the Main over USB.':'The primary Pi for a standalone device or a deployment with additional Pi nodes.';root.querySelector('#main').disabled=node;root.querySelector('#main').hidden=node;root.querySelector('#nodeNote').hidden=!node;
   for(const name of ['ethernet','wireless']){root.querySelector('#'+name+'Settings').hidden=!f[name+'Enabled'].checked;root.querySelector('#'+name+'Static').hidden=f[name+'Method'].value!=='static';}
   root.querySelector('#wifi').hidden=!f.wirelessEnabled.checked;
@@ -120,7 +143,7 @@ export function configure(host,image,bridge){
  const node=expanded&&f.mode.value==='Node';
  if(!node&&passwordRequirement(f.password.value))throw Error(passwordRequirement(f.password.value));
  if(!node&&f.password.value!==f.confirm.value)throw Error('Passwords do not match.');
- const step=second;if(!node&&(first<0||second!==first+1))throw Error('Verify the first code and then click Verify second code before creating the image.');
+ const step=node?0:codeVerification.step;if(!node&&step===null)throw Error('Verify the first code and then click Verify second code before creating the image.');
  let wifi=null;if(!node&&(expanded?f.wirelessEnabled.checked:f.network.value==='wifi')){const ssid=enc.encode(f.ssid.value),pass=f.wifiPassword.value;if(ssid.length<1||ssid.length>32||!/^[\x20-\x7e]{8,63}$/.test(pass)||!/^[A-Z]{2}$/.test(f.country.value))throw Error('Enter a Wi-Fi name (1–32 bytes), password (8–63 printable characters) and country code.');const key=await crypto.subtle.importKey('raw',enc.encode(pass),'PBKDF2',false,['deriveBits']);wifi={ssid:hex(ssid),psk:hex(await crypto.subtle.deriveBits({name:'PBKDF2',salt:ssid,iterations:4096,hash:'SHA-1'},key,256)),country:f.country.value};}
  let network=null,cloud=null;
  if(expanded){
