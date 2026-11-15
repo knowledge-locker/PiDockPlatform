@@ -148,7 +148,11 @@ public sealed class WorkspaceTests : IDisposable
         var form = new Dictionary<string, string> { ["username"] = "owner", ["password"] = Password,
             ["code"] = Code(secret), ["__RequestVerificationToken"] = Field(html, "__RequestVerificationToken") };
         client.DefaultRequestHeaders.Add("Origin", "null");
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/auth/login", new FormUrlEncodedContent(form))).StatusCode);
+        using var rejected=await client.PostAsync("/auth/login",new FormUrlEncodedContent(form));
+        Assert.Equal(HttpStatusCode.Forbidden,rejected.StatusCode);
+        Assert.Equal("text/html",rejected.Content.Headers.ContentType!.MediaType);
+        Assert.Null(rejected.Content.Headers.ContentDisposition);
+        Assert.Contains("Open a fresh sign-in form",await rejected.Content.ReadAsStringAsync());
         client.DefaultRequestHeaders.Remove("Origin"); client.DefaultRequestHeaders.Add("Origin", "https://localhost");
         Assert.Equal(HttpStatusCode.Redirect, (await client.PostAsync("/auth/login", new FormUrlEncodedContent(form))).StatusCode);
         using var team = await client.GetAsync("/workspaces");

@@ -21,6 +21,9 @@ public sealed class WebTests
         store.Add("test-owner", "integration-test-password", secret, "local", "Owner", true, -1);
         var badCsrf = await client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string> { ["username"] = "test-owner", ["password"] = "integration-test-password", ["code"] = "000000" }));
         Assert.Equal(HttpStatusCode.BadRequest, badCsrf.StatusCode);
+        Assert.Equal("text/html",badCsrf.Content.Headers.ContentType!.MediaType);
+        Assert.Null(badCsrf.Content.Headers.ContentDisposition);
+        Assert.Contains("Return to sign in",await badCsrf.Content.ReadAsStringAsync());
         var code = Totp.Code(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30);
         var result = await Login(client, "test-owner", code);
         Assert.Equal(HttpStatusCode.Redirect, result.StatusCode); Assert.Equal("/", result.Headers.Location!.OriginalString);
@@ -35,6 +38,18 @@ public sealed class WebTests
         // Same valid code cannot create a second authenticated session.
         using var other = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         var replay = await Login(other, "test-owner", code); Assert.Contains("failed=1", replay.Headers.Location!.OriginalString);
+    }
+    [Fact]
+    public async Task RepeatedSignInAttemptsRenderRetryInstructionsInsteadOfAnEmptyDownload()
+    {
+        using var factory=new PreviewFactory<PiDock.Cloud.Web.CloudMarker>();
+        using var client=factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect=false,BaseAddress=new Uri("https://localhost") });
+        for(var i=0;i<10;i++)Assert.Equal(HttpStatusCode.BadRequest,(await client.PostAsync("/auth/login",new FormUrlEncodedContent(new Dictionary<string,string>()))).StatusCode);
+        var response=await client.PostAsync("/auth/login",new FormUrlEncodedContent(new Dictionary<string,string>()));
+        Assert.Equal(HttpStatusCode.TooManyRequests,response.StatusCode);
+        Assert.Equal("text/html",response.Content.Headers.ContentType!.MediaType);
+        Assert.Null(response.Content.Headers.ContentDisposition);
+        Assert.Contains("Wait one minute",await response.Content.ReadAsStringAsync());
     }
     [Fact]
     public async Task RemoteApplianceConnectionCannotEnableItsOwnRemotePermission()

@@ -43,6 +43,13 @@ public static class Authentication
         builder.Services.AddAuthorization(); builder.Services.AddCascadingAuthenticationState();
         builder.Services.AddRateLimiter(options =>
         {
+            options.OnRejected = async (rejected, cancellationToken) => {
+                if (rejected.HttpContext.Request.Path != "/auth/login") return;
+                var response=rejected.HttpContext.Response;
+                response.StatusCode=429;response.Headers.CacheControl="no-store";response.Headers.RetryAfter="60";
+                response.ContentType="text/html; charset=utf-8";
+                await response.WriteAsync("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Sign-in temporarily paused</title></head><body><h1>Sign-in temporarily paused</h1><p>Too many attempts. Wait one minute, then <a href=\"/auth/login\">open a fresh sign-in form</a> and use a new authenticator code.</p></body></html>", cancellationToken);
+            };
             options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
             options.AddPolicy("workspace-management", context => RateLimitPartition.GetFixedWindowLimiter(context.User.Identity?.Name ?? "unauthenticated",
@@ -79,7 +86,9 @@ public static class Authentication
         }).AllowAnonymous();
         app.MapPost("/auth/login", async (HttpContext context, IAntiforgery antiforgery, UserStore store) =>
         {
-            try { await antiforgery.ValidateRequestAsync(context); } catch (AntiforgeryValidationException) { return Results.BadRequest(); }
+            try { await antiforgery.ValidateRequestAsync(context); } catch (AntiforgeryValidationException) {
+                return Results.Content("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Sign-in form expired</title><link rel=\"stylesheet\" href=\"/_content/PiDock.Web.Shared/pidock.css\"></head><body><main class=\"login\"><h1>Reopen the sign-in form</h1><p>This form expired or belongs to a different browser session. Your sign-in was not submitted. Open a fresh form and use a new authenticator code.</p><p><a href=\"/auth/login\">Return to sign in</a></p></main></body></html>", "text/html", statusCode:400);
+            }
             var form = await context.Request.ReadFormAsync();
             if (form["username"].ToString().Length > 64 || form["password"].ToString().Length > 256 || form["code"].ToString().Length != 6) return Results.Redirect("/auth/login?failed=1");
             var user = store.Authenticate(form["username"].ToString(), form["password"].ToString(), form["code"].ToString(), DateTimeOffset.UtcNow);

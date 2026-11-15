@@ -39,7 +39,17 @@ public static class RemoteAccessGateway
                 var cloudRequestOrigin = context.Request.Headers.Origin.ToString();
                 bool agent = context.Request.Path.StartsWithSegments("/api/remote/agent") || context.Request.Path.StartsWithSegments("/api/remote/data");
                 // A device's isolated site must never open an authenticated cloud Blazor socket.
-                if ((cloudRequestOrigin.Length > 0 && cloudRequestOrigin != service.CloudOrigin!.GetLeftPart(UriPartial.Authority)) || (context.WebSockets.IsWebSocketRequest && !agent && cloudRequestOrigin != service.CloudOrigin!.GetLeftPart(UriPartial.Authority))) { context.Response.StatusCode = 403; return; }
+                if ((cloudRequestOrigin.Length > 0 && cloudRequestOrigin != service.CloudOrigin!.GetLeftPart(UriPartial.Authority)) || (context.WebSockets.IsWebSocketRequest && !agent && cloudRequestOrigin != service.CloudOrigin!.GetLeftPart(UriPartial.Authority))) {
+                    context.Response.StatusCode = 403;
+                    if (context.Request.Path == "/auth/login" && context.Request.Method == "POST") {
+                        context.Response.Headers.CacheControl = "no-store";
+                        context.Response.Headers["Referrer-Policy"] = "strict-origin";
+                        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                        context.Response.ContentType = "text/html; charset=utf-8";
+                        await context.Response.WriteAsync("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Reopen PiDockCloud sign-in</title><link rel=\"stylesheet\" href=\"/_content/PiDock.Web.Shared/pidock.css\"></head><body><main class=\"login\"><h1>Reopen PiDockCloud sign-in</h1><p>Your browser could not confirm this form came from PiDockCloud. This can happen with an older sign-in tab. Your credentials were not processed.</p><p><a href=\"/auth/login\">Open a fresh sign-in form</a>, then use a new authenticator code.</p></main></body></html>");
+                    }
+                    return;
+                }
             }
             await next(context); return;
         }
