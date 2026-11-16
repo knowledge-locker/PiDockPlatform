@@ -138,7 +138,7 @@ def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode
         copy_binary(target, root, "/bin/busybox")
         copy_binary(target, root, "/usr/lib/pidock/boot-reboot")
         (root / "bin/boot-reboot").symlink_to("/usr/lib/pidock/boot-reboot")
-        for name in ("sh", "mount", "umount", "sync", "switch_root", "sleep", "reboot", "seq", "grep", "mkdir", "chmod", "date", "cat"):
+        for name in ("sh", "mount", "umount", "sync", "switch_root", "sleep", "reboot", "seq", "grep", "mkdir", "chmod", "date", "cat", "tail", "dmesg"):
             (root / "bin" / name).symlink_to("busybox")
         for program in ("veritysetup", "blkid"):
             found = next((folder + "/" + program for folder in ("/sbin", "/usr/sbin", "/bin", "/usr/bin") if resolve_target(target, folder + "/" + program).is_file()), None)
@@ -167,7 +167,7 @@ def make_recovery_initramfs(target, scripts, output, epoch):
         copy_binary(target, root, "/bin/busybox")
         copy_binary(target, root, "/usr/lib/pidock/boot-reboot")
         (root / "bin/boot-reboot").symlink_to("/usr/lib/pidock/boot-reboot")
-        for name in ("sh", "mount", "umount", "mountpoint", "sleep", "reboot", "grep", "mkdir", "chmod", "chown", "date", "sync", "cat"):
+        for name in ("sh", "mount", "umount", "mountpoint", "sleep", "reboot", "grep", "mkdir", "chmod", "chown", "date", "sync", "cat", "tail", "dmesg"):
             (root / "bin" / name).symlink_to("busybox")
         for program in ("blkid", "setpriv"):
             found = next((folder + "/" + program for folder in ("/usr/sbin", "/usr/bin", "/sbin", "/bin") if resolve_target(target, folder + "/" + program).is_file()), None)

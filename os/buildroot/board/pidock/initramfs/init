@@ -7,16 +7,28 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
 pidock-boot-status initramfs_started
-exec </dev/console >/dev/console 2>&1
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then pidock-boot-status init_failed "$rc"; fi' EXIT
+exec 2>>/run/pidock-init-output.log
+pidock-boot-status console_open
+exec </dev/console >/dev/console
+pidock-boot-status console_ready
 # A signed build timestamp only bootstraps TLS plausibility; it is never a trusted-time proof.
+pidock-boot-status clock_check
 epoch=$(cat /etc/build-epoch)
-[ "$(date +%s)" -ge "$epoch" ] || date -u -s "@$epoch"
-fail() { pidock-boot-status failed; echo "PiDockOS: verified startup failed: $*. Press R during startup for physical recovery." >/dev/console; sleep 3; boot-reboot normal; exit 1; }
+if [ "$(date +%s)" -lt "$epoch" ]; then
+    pidock-boot-status clock_set
+    date -u -s "@$epoch" >>/run/pidock-init-output.log 2>&1
+fi
+pidock-boot-status clock_ready
+fail() { printf 'PiDockOS startup failure: %s\n' "$*" >>/run/pidock-init-output.log; pidock-boot-status failed; echo "PiDockOS: verified startup failed: $*. Press R during startup for physical recovery." >/dev/console; sleep 3; boot-reboot normal; exit 1; }
 # A failed system slot must not make its independent recovery environment unreachable.
 echo 'PiDockOS: press R for physical recovery (5 seconds).'
+pidock-boot-status recovery_key_wait
 key=
 read -r -n 1 -t 5 key </dev/tty1 || true
-case "$key" in r|R) exec boot-reboot 1;; esac
+pidock-boot-status recovery_key_done
+case "$key" in r|R) pidock-boot-status recovery_selected; exec boot-reboot 1;; esac
+pidock-boot-status root_descriptor
 . /etc/root.env
 # Unauthenticated external command-line arguments cannot select another root or change its hash.
 root_device=
@@ -26,16 +38,18 @@ for attempt in $(seq 1 60); do
     count=$(echo "$devices" | grep -c '^/dev/' || true)
     [ "$count" -le 1 ] || fail 'ambiguous system media; disconnect duplicate PiDockOS media'
     if [ "$count" -eq 1 ]; then root_device=$devices; break; fi
+    case "$attempt" in 10|20|30|40|50|60) pidock-boot-status root_wait;; esac
     sleep 1
 done
 [ -b "$root_device" ] || fail 'system partition missing'
 pidock-boot-status root_found
 pidock-boot-status verity_open
-veritysetup open "$root_device" pidock-root "$root_device" "$ROOT_HASH" --hash-offset "$HASH_OFFSET" --data-blocks "$((HASH_OFFSET / 4096))" --data-block-size 4096 --hash-block-size 4096 --hash sha256 --readonly --restart-on-corruption || { pidock-boot-status verity_failed; fail 'root integrity check rejected'; }
+veritysetup open "$root_device" pidock-root "$root_device" "$ROOT_HASH" --hash-offset "$HASH_OFFSET" --data-blocks "$((HASH_OFFSET / 4096))" --data-block-size 4096 --hash-block-size 4096 --hash sha256 --readonly --restart-on-corruption >>/run/pidock-init-output.log 2>&1 || { pidock-boot-status verity_failed; fail 'root integrity check rejected'; }
 pidock-boot-status verity_mapping_ready
-mount -t ext4 -o ro /dev/mapper/pidock-root /newroot || { pidock-boot-status root_mount_failed; fail 'verified root cannot be mounted'; }
+mount -t ext4 -o ro /dev/mapper/pidock-root /newroot >>/run/pidock-init-output.log 2>&1 || { pidock-boot-status root_mount_failed; fail 'verified root cannot be mounted'; }
 pidock-boot-status root_mounted
 pidock-boot-status handoff
+pidock-boot-status switch_root
 mount --move /dev /newroot/dev
 mount --move /proc /newroot/proc
 mount --move /sys /newroot/sys

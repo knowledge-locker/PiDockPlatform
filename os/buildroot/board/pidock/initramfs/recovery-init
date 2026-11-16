@@ -7,10 +7,19 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
 pidock-boot-status recovery_started
-exec </dev/tty1 >/dev/tty1 2>&1
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then pidock-boot-status init_failed "$rc"; fi' EXIT
+exec 2>>/run/pidock-init-output.log
+pidock-boot-status recovery_console_open
+exec </dev/tty1 >/dev/tty1
+pidock-boot-status recovery_console_ready
+pidock-boot-status clock_check
 epoch=$(cat /etc/build-epoch)
-[ "$(date +%s)" -ge "$epoch" ] || date -u -s "@$epoch"
+[ "$(date +%s)" -ge "$epoch" ] || date -u -s "@$epoch" >>/run/pidock-init-output.log 2>&1
+pidock-boot-status clock_ready
+pidock-boot-status recovery_confirmation
 printf '\nPiDockOS physical recovery\nNo network administration is running.\nType RECOVER within 60 seconds to continue: '
+trap - EXIT
+exec 2>/dev/tty1
 answer=
 read -r -t 60 answer || { reboot -f; exit 1; }
 [ "$answer" = RECOVER ] || { reboot -f; exit 1; }
