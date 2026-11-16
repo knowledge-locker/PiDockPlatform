@@ -64,7 +64,7 @@ try
 {
     if(workflow) {using var volumeCheck=await engine.GetAsync("/v1.47/volumes/pidock-app-ui-sample-data");Check(volumeCheck.StatusCode==HttpStatusCode.NotFound,"Workflow requires an absent sample data volume; retained data was not modified.");}
     Console.WriteLine("Preparing restricted Linux ARM64 sample image and disposable local registry…");
-    await Run("dotnet", "publish", Path.Combine(root,"tools/PiDock.AppUi.Sample"), "-c", "Release", "-r", "linux-arm64", "--self-contained", "false", "-p:RestorePackagesWithLockFile=false", "-o", Path.Combine(temp,"app"));
+    await Run("dotnet", "publish", Path.Combine(root,"tools/PiDock.AppUi.Sample"), "-c", "Release", "-r", "linux-arm64", "--self-contained", "false", "-p:NuGetLockFilePath=obj/packages.linux-arm64.lock.json", "-o", Path.Combine(temp,"app"));
     if(nativeHealth) await File.WriteAllTextAsync(Path.Combine(temp,"pidock-health-probe.c"),ApplicationHealthAssets.ReaderSource);
     string probeStage=nativeHealth ? """
         FROM mcr.microsoft.com/dotnet/sdk:10.0.302@sha256:72dd743782f2ae7e5476fd64f6a460045e3998dc862218b80e6944cba79a01b0 AS probe
@@ -101,7 +101,7 @@ try
         await Run("docker","build","--platform","linux/arm64","--build-arg","VERSION=two","-t",secondTag,temp);
         secondImageId=(await Run("docker","image","inspect","--format","{{.Id}}",secondTag)).Trim(); await Run("docker","push",secondTag);
         secondImage=(await Run("docker","image","inspect","--format","{{index .RepoDigests 0}}",secondTag)).Trim();
-        await Run("dotnet","publish",Path.Combine(root,"tools/PiDock.AppData.Helper"),"-c","Release","-r","linux-arm64","--self-contained","false","-p:RestorePackagesWithLockFile=false","-o",Path.Combine(temp,"helper"));
+        await Run("dotnet","publish",Path.Combine(root,"tools/PiDock.AppData.Helper"),"-c","Release","-r","linux-arm64","--self-contained","false","-p:NuGetLockFilePath=obj/packages.linux-arm64.lock.json","-o",Path.Combine(temp,"helper"));
         await File.WriteAllTextAsync(Path.Combine(temp,"Dockerfile.helper"),$"""
             FROM mcr.microsoft.com/dotnet/aspnet:10.0.15@sha256:bfd912c83295ce66d4b706ebb8541b9f14259b0e76fbb88b2751f58ce2399d2e
             LABEL fixture.run={run}

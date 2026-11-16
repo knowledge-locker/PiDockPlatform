@@ -2,6 +2,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0.302@sha256:72dd743782f2ae7e5476fd64f6a460
 WORKDIR /source
 COPY global.json Directory.Build.props ./
 COPY src ./src
+COPY sdk ./sdk
 ARG PROJECT=PiDock.Cloud.Web
 RUN dotnet restore src/${PROJECT}/${PROJECT}.csproj --locked-mode
 RUN dotnet publish src/${PROJECT}/${PROJECT}.csproj -c Release --no-restore -o /out /p:UseAppHost=false
