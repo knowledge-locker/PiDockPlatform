@@ -27,3 +27,7 @@ The local PiDockCloud preview at `https://localhost:8443` is updated to the test
 The [simulation-first development gate](Application-Development-Gate.md) remains PASS. No shared pre-app validation batch remains before starting Logic Engine. Its own model/runtime/editor validation is subsequent product work.
 
 This rebuild does not deploy the hosted production cloud, publish alpha.7 into a workspace's factory catalog, flash a card or update a physical Pi. Those existing installations are not asserted current. Pi/systemd/hardware timing, power loss and physical app GPIO acceptance remain separate release gates. Retained detailed local evidence is under `artifacts/reconciled-*.json`, `artifacts/target-security-restart.json` and `artifacts/pidockos-alpha7-verification.json`; build/operator logs and private recovery material are excluded from Git.
+
+## Reconciled beta image
+
+The alpha.7 identities above remain historical validation evidence. The next card image is `1.0.0-beta.1`, sequence 8, incorporating this evidence/metadata correction and the factory service reconciliation in PR #22. Its signed package identity and native checks are recorded with the build receipts. The beta retains initial installer diagnostics, Main/Node setup, separate cloud permissions and disabled physical GPIO outputs. Physical Pi boot acceptance is still required.
