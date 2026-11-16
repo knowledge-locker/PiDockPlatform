@@ -52,6 +52,60 @@ public static class PlatformDiscoveryEndpoints
             return await next(context);
         });
         group.MapGet("/discovery", (PlatformDiscovery discovery) => discovery.Read());
+        group.MapGet("/app-removal", async (BrokerClient broker, CancellationToken ct) =>
+        {
+            try { var support = await broker.RemovalSupport(ct); return support is null ? (IResult)Results.Problem("App removal support could not be verified.", statusCode: 503) : Results.Ok(support); }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return Results.Problem("App removal support could not be verified.", statusCode: 503); }
+        });
+        group.MapGet("/app-storage", async (BrokerClient broker, CancellationToken ct) =>
+        {
+            try { var support = await broker.StorageSupport(ct); return support is null ? (IResult)Results.Problem("App storage support could not be verified.", statusCode: 503) : Results.Ok(support); }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return Results.Problem("App storage support could not be verified.", statusCode: 503); }
+        });
+        group.MapGet("/app-install-trust", async (BrokerClient broker, CancellationToken ct) =>
+        {
+            try { var support = await broker.InstallTrustSupport(ct); return support is null ? (IResult)Results.Problem("App image approval support could not be verified.", statusCode: 503) : Results.Ok(support); }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return Results.Problem("App image approval support could not be verified.", statusCode: 503); }
+        });
+        group.MapGet("/app-io", (ApplicationIoService io) => io.Support());
+        group.MapGet("/app-diagnostics", (SharedApplicationServices services) => services.DiagnosticsSupport());
+        group.MapGet("/app-gpio-readiness", (ApplicationGpioReadinessService gpio) => gpio.Read());
+        group.MapGet("/app-engineering", (ApplicationOverrideService engineering, IConfiguration configuration, ApplicationRuntimeAccessGate access) =>
+            engineering.Support(configuration.GetValue<bool>("PiDock:Engineering:Enabled"), access.Enabled));
+        group.MapGet("/app-runtime-access", (ApplicationRuntimeAccessGate access) => access.Support());
+        group.MapGet("/app-backups", async (BrokerClient broker, CancellationToken ct) =>
+        {
+            try { var support = await broker.BackupSupport(ct); return support is null ? (IResult)Results.Problem("App backup support could not be verified.", statusCode: 503) : Results.Ok(support); }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return Results.Problem("App backup support could not be verified.", statusCode: 503); }
+        });
+        group.MapGet("/app-updates",async(BrokerClient broker,CancellationToken ct)=>
+        {
+            try {var support=await broker.UpdateSupport(ct);return support is null ? (IResult)Results.Problem("App update support could not be verified.",statusCode:503) : Results.Ok(support);}
+            catch(Exception e)when(e is HttpRequestException or TaskCanceledException){return Results.Problem("App update support could not be verified.",statusCode:503);}
+        });
+        group.MapGet("/app-orchestration",async(BrokerClient broker,CancellationToken ct)=>
+        {
+            try {var support=await broker.OrchestrationSupport(ct);return support is null ? (IResult)Results.Problem("App orchestration support could not be verified.",statusCode:503) : Results.Ok(support);}
+            catch(Exception e)when(e is HttpRequestException or TaskCanceledException){return Results.Problem("App orchestration support could not be verified.",statusCode:503);}
+        });
+        group.MapGet("/app-health/reader.c", () => Results.Text(ApplicationHealthAssets.ReaderSource,"text/x-c"));
+        group.MapGet("/app-health", async (BrokerClient broker, CancellationToken ct) =>
+        {
+            try { var support = await broker.HealthSupport(ct); return support is null ? (IResult)Results.Problem("App health support could not be verified.",statusCode:503) : Results.Ok(support); }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return Results.Problem("App health support could not be verified.",statusCode:503); }
+        });
+        group.MapGet("/app-lifecycle", async (BrokerClient broker, CancellationToken ct) =>
+        {
+            try { var support = await broker.LifecycleSupport(ct); return support is null ? (IResult)Results.Problem("App lifecycle support could not be verified.",statusCode:503) : Results.Ok(support); }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return Results.Problem("App lifecycle support could not be verified.",statusCode:503); }
+        });
+        group.MapGet("/app-resources", async (BrokerClient broker, CancellationToken ct) =>
+        {
+            try { var support = await broker.ResourceSupport(ct); return support is null ? (IResult)Results.Problem("Host broker is not configured.",statusCode:503) : Results.Ok(support); }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return Results.Problem("App resource support could not be verified.",statusCode:503); }
+        });
+        group.MapGet("/ui/bridge", () => PiDock.Web.Shared.ApplicationUiBridgeAssets.Discovery());
+        group.MapGet("/ui", () => PiDock.Web.Shared.ApplicationUiAssets.Discovery());
         group.MapGet("/contracts", () => PlatformContracts.List());
         group.MapGet("/contracts/{id}", (string id) => PlatformContracts.Schema(id) is { } schema
             ? Results.Json(schema, contentType: "application/schema+json") : Results.NotFound(new { error = "unknown_contract" }));

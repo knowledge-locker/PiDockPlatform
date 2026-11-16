@@ -17,11 +17,30 @@ namespace PiDock.Tests;
 public sealed class PlatformDiscoveryTests
 {
     [Fact]
+    public async Task AuthoringPublishesSharedUiRequirementsThroughApiAndBundledMcpGuide()
+    {
+        using var factory = new DiscoveryFactory();
+        using var client = factory.CreateClient(new() { BaseAddress = new("https://localhost") });
+        client.DefaultRequestHeaders.Authorization = new("Bearer", factory.Token);
+        var response = await client.GetAsync(PlatformContracts.ApiRoot + "/authoring");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl!.NoStore);
+        var guide = await response.Content.ReadAsStringAsync();
+        Assert.Equal(PlatformContracts.AuthoringGuide, guide);
+        Assert.Equal(PiDock.Agent.Mcp.DiscoveryResources.Authoring(), guide);
+        Assert.Contains("platform-wide requirements for every hosted app", guide);
+        Assert.Contains("host-openable interface component", guide);
+        Assert.Contains("shared UI styles", guide);
+        Assert.Contains("planned, not available", guide);
+        Assert.DoesNotContain("Logic Engine", guide);
+    }
+
+    [Fact]
     public async Task DiscoveryRequiresItsOwnCredentialAndCannotGrantOwnerAccess()
     {
         using var factory = new DiscoveryFactory();
         using var client = factory.CreateClient(new() { BaseAddress = new("https://localhost"), AllowAutoRedirect = false });
-        foreach (var path in new[] { "discovery", "contracts", "contracts/application-manifest", "authoring" })
+        foreach (var path in new[] { "discovery", "contracts", "contracts/application-manifest", "authoring", "app-backups", "app-runtime-access", "app-io", "app-engineering", "app-storage", "app-install-trust", "app-removal", "app-gpio-readiness", "app-diagnostics" })
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(PlatformContracts.ApiRoot + "/" + path)).StatusCode);
         client.DefaultRequestHeaders.Authorization = new("Bearer", factory.Token);
         var response = await client.GetAsync(PlatformContracts.ApiRoot + "/discovery");
@@ -43,6 +62,31 @@ public sealed class PlatformDiscoveryTests
         client.DefaultRequestHeaders.Authorization = new("Bearer", factory.Token);
         factory.Services.GetRequiredService<IConfiguration>()["PiDock:Discovery:ExpiresAt"] = DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O");
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(PlatformContracts.ApiRoot + "/discovery")).StatusCode);
+    }
+
+    [Fact]
+    public async Task EngineeringAndIoDiscoveryExposeMetadataWithoutEnablingServicesOrMutationAuthority()
+    {
+        using var factory = new DiscoveryFactory();
+        using var client = factory.CreateClient(new() { BaseAddress = new("https://localhost"), AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Authorization = new("Bearer", factory.Token);
+        var io = await client.GetFromJsonAsync<ApplicationIoSupport>(PlatformContracts.ApiRoot + "/app-io");
+        var access = await client.GetFromJsonAsync<ApplicationRuntimeAccessSupport>(PlatformContracts.ApiRoot + "/app-runtime-access");
+        Assert.NotNull(access); Assert.False(access.Enabled);
+        Assert.DoesNotContain(PlatformContracts.List(), c => c.Id.Contains("runtime-permission", StringComparison.Ordinal));
+        Assert.DoesNotContain("deliveryId", PlatformContracts.Schema("application-runtime-access-support")!.ToJsonString());
+        Assert.NotNull(io); Assert.False(io.Enabled); Assert.False(io.Physical); Assert.Equal("simulation", io.Adapter);
+        var engineering = await client.GetFromJsonAsync<ApplicationEngineeringSupport>(PlatformContracts.ApiRoot + "/app-engineering");
+        Assert.NotNull(engineering); Assert.False(engineering.Enabled);
+        var backup = await client.GetAsync(PlatformContracts.ApiRoot + "/app-backups");
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, backup.StatusCode);
+        Assert.True(backup.Headers.CacheControl!.NoStore);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/apps/v1/io/leases", new ApplicationIoLeaseRequest(["sim:bcm17"]))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/apps/v1/engineering/watch")).StatusCode);
+        Assert.Equal(HttpStatusCode.Redirect, (await client.GetAsync("/app-backups")).StatusCode);
+        var schema = PlatformContracts.Schema("application-backup-info")!.ToJsonString();
+        Assert.DoesNotContain("credential", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("payload", schema, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -124,6 +168,20 @@ public sealed class PlatformDiscoveryTests
         // Explicit bad credentials must not silently downgrade to the owner's existing cookie.
         client.DefaultRequestHeaders.Authorization = new("Bearer", new string('0', 64));
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(PlatformContracts.ApiRoot + "/discovery")).StatusCode);
+    }
+
+    [Fact]
+    public async Task HealthReaderSourceIsAuthenticatedAndMatchesBundledMcpSdkDigest()
+    {
+        using var factory = new DiscoveryFactory();
+        using var client = factory.CreateClient(new() { BaseAddress = new("https://localhost"),AllowAutoRedirect = false });
+        Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync(ApplicationHealthAssets.SourcePath)).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new("Bearer",factory.Token);
+        var response = await client.GetAsync(ApplicationHealthAssets.SourcePath);Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.True(response.Headers.CacheControl!.NoStore);
+        var source = await response.Content.ReadAsStringAsync();
+        Assert.Equal(ApplicationHealthAssets.ReaderSource,source);Assert.Equal(PiDock.Agent.Mcp.DiscoveryResources.HealthReaderSource(),source);
+        Assert.Equal(ApplicationHealthAssets.ReaderSha256,Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source))));
+        Assert.Contains(ApplicationHealthRules.ReportPath,source);
     }
 
     private sealed class DiscoveryFactory : WebApplicationFactory<PiDock.Appliance.Web.ApplianceMarker>

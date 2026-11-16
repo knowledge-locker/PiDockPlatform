@@ -11,9 +11,17 @@ ExecStart=/usr/bin/dotnet /usr/lib/pidock/broker/PiDock.Appliance.Broker.dll
 Environment=Broker__SocketPath=/run/pidock/broker.sock
 Environment=Broker__DockerSocket=/var/run/docker.sock
 Environment=Broker__EnableDeployments=false
+Environment=Broker__EnableAppResources=false
+Environment=Broker__EnableAppRecovery=false
+Environment=Broker__EnableAppOrchestration=false
+Environment=Broker__EnableAppUpdates=false
+Environment=Broker__StateDirectory=/var/lib/pidock-broker
+StateDirectory=pidock-broker
+StateDirectoryMode=0700
 RuntimeDirectory=pidock
 RuntimeDirectoryMode=0750
 UMask=0007
+TimeoutStopSec=220
 Restart=on-failure
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -23,7 +31,7 @@ ProtectClock=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 RestrictSUIDSGID=true
-ReadWritePaths=/run/pidock
+ReadWritePaths=/run/pidock /var/lib/pidock-broker
 
 [Install]
 WantedBy=multi-user.target

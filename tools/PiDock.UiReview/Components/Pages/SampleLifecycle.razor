@@ -1,0 +1,57 @@
+@page "/sample-lifecycle"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Owner")]
+@implements IAsyncDisposable
+@inject IServiceProvider Services
+@inject BrokerClient Broker
+@inject UserStore Users
+@inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider Authentication
+<PageTitle>App lifecycle review · PiDockOS</PageTitle>
+<p class="eyebrow">DEVELOPMENT / SHARED APP CONFORMANCE</p><h1>App lifecycle review</h1>
+<p>These host controls manage only the disposable sample process. They use the private PiDockOS lifecycle protocol and the shared runtime-access guard. No Docker workloads or physical GPIO are controlled.</p>
+<p><a href="/apps/ui-sample/main">Open sample workspace</a></p>
+<section class="card"><h2>Sample lifecycle</h2>
+<p>Process: @view.State · Requested: @(view.DesiredRunning ? "Running" : "Stopped") · Maintenance: @(view.Paused ? "Paused" : "Active")</p>
+<p>Process ID: @(view.ProcessId?.ToString() ?? "Not running")</p>
+<div class="button-row">
+<button disabled="@(busy || view.Paused)" @onclick="() => Control(Pause)">Pause apps</button>
+<button class="secondary" disabled="@(busy || !view.Paused)" @onclick="() => Control(Resume)">Resume requested apps</button>
+<button class="secondary" disabled="@busy" @onclick="() => Control(Stop)">Stop sample</button>
+<button class="secondary" disabled="@(busy || view.Paused)" @onclick="() => Control(Start)">Start sample</button>
+<button class="secondary" disabled="@(busy || view.Paused)" @onclick="() => Control(Restart)">Restart sample</button>
+<button class="secondary" disabled="@(busy || view.ProcessId is null)" @onclick="() => Control(Fail)">Simulate process failure</button>
+</div><p role="status">@message</p></section>
+<section class="card"><h2>Authoritative shared resources</h2>
+<p>Active I/O leases: @view.Leases</p><p>Active engineering forces: @view.Forces</p><p>Pending variable writes: @view.PendingWrites</p>
+<p>Simulated outputs at configured fallback: @(view.OutputsAtFallback ? "Yes" : "No")</p>
+<p>Pause and Stop revoke authority before graceful exit. Failure skips application cleanup; the host guard still releases resources. Restart and Resume start a fresh process with a private startup identity and cleared controls. This fixture does not enable automatic failure recovery.</p>
+</section>
+@code {
+    private ReviewRuntimeController Runtime => Services.GetRequiredService<ReviewRuntimeController>();
+    private const string Pause="pause", Resume="resume", Stop="stop", Start="start", Restart="restart", Fail="fail";
+    private ReviewRuntimeView view = new(false, true, "Starting", null, 0, 0, 0, true);
+    private bool busy; private string? message;
+    private readonly CancellationTokenSource stopping = new(); private Task? polling;
+    protected override void OnInitialized() { if (Services.GetService<ReviewRuntimeController>() is not { } runtime) { busy = true; message = "Launch the connected sample to enable these isolated controls."; return; } view = runtime.View(); polling = Poll(); }
+    private async Task Poll()
+    {
+        try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1)); while (await timer.WaitForNextTickAsync(stopping.Token)) await InvokeAsync(() => { view = Runtime.View(); StateHasChanged(); }); }
+        catch (OperationCanceledException) { }
+    }
+    private async Task Control(string action)
+    {
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        if (busy || !Users.IsCurrent(user) || !user.IsInRole("Owner")) return;
+        busy = true;
+        try
+        {
+            if (action is Pause or Resume) await Broker.OrchestrationControl(action);
+            else if (action == Restart) await Broker.Restart(ReviewRuntimeController.Id);
+            else if (action == Fail) await Runtime.Control(Fail, stopping.Token);
+            else await Broker.ChangeState(ReviewRuntimeController.Id, action == Start);
+            view = Runtime.View(); message = "Lifecycle action completed. Resource counts come from the shared services.";
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException or OperationCanceledException or IOException) { message = "Action could not be confirmed. Check lifecycle and resource status before retrying."; }
+        finally { busy = false; }
+    }
+    public async ValueTask DisposeAsync() { stopping.Cancel(); if (polling is not null) await polling; stopping.Dispose(); }
+}

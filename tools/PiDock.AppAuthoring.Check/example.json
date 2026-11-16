@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "runtime": {
+    "name": "ui-sample",
+    "image": "registry.example.test/ui-sample@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "memoryMiB": 128,
+    "cpuLimit": 0.5,
+    "containerPort": 7361,
+    "hostPort": 7361,
+    "resources": {
+      "persistentData": true,
+      "credentials": ["bridge"],
+      "managedLifecycle": true
+    }
+  },
+  "ui": {
+    "schemaVersion": 1,
+    "appId": "ui-sample",
+    "id": "main",
+    "title": "UI sample",
+    "entryPath": "index.html",
+    "requiredUiVersion": "1.0",
+    "requiredStyleVersion": "1.0"
+  },
+  "serviceOrigin": "http://127.0.0.1:7361/",
+  "publicAssets": ["assets/components.css", "assets/tokens.css", "assets/client.js"],
+  "bridge": {
+    "credentialId": "bridge",
+    "commandsPath": "commands",
+    "commands": ["counter.increment", "counter.reset", "stream.disconnect", "demo.start", "demo.stop", "demo.bank-toggle", "demo.reset"],
+    "streamPath": "events",
+    "version": "1.0"
+  },
+  "requiredCapabilities": ["ui.hosting.interactive", "apps.resources"]
+}

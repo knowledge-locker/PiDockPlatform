@@ -20,22 +20,6 @@
           "PiDock.Core": "[1.0.0, )"
         }
       },
-      "pidock.appliance.web": {
-        "type": "Project",
-        "dependencies": {
-          "PiDock.Agent": "[1.0.0, )",
-          "PiDock.Core": "[1.0.0, )",
-          "PiDock.Web.Shared": "[1.0.0, )"
-        }
-      },
-      "pidock.cloud.web": {
-        "type": "Project",
-        "dependencies": {
-          "PiDock.Agent": "[1.0.0, )",
-          "PiDock.Core": "[1.0.0, )",
-          "PiDock.Web.Shared": "[1.0.0, )"
-        }
-      },
       "pidock.core": {
         "type": "Project"
       },

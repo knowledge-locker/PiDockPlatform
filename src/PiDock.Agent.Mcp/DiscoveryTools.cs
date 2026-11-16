@@ -20,8 +20,59 @@ public sealed class DiscoveryTools(DiscoveryApiClient api)
 [McpServerResourceType]
 public sealed class DiscoveryResources(DiscoveryApiClient api)
 {
+    [McpServerResource(UriTemplate = "pidock://platform/app-runtime-access", Name = "PiDockOS lifecycle-bound app runtime authority", MimeType = "application/json")]
+    public Task<string> AppRuntimeAccess(CancellationToken ct) => api.AppRuntimeAccess(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-diagnostics", Name = "PiDockOS app diagnostics and local notification support", MimeType = "application/json")]
+    public Task<string> AppDiagnostics(CancellationToken ct) => api.AppDiagnostics(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-removal", Name = "PiDockOS managed app removal support", MimeType = "application/json")]
+    public Task<string> AppRemoval(CancellationToken ct) => api.AppRemoval(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-gpio-readiness", Name = "PiDockOS physical GPIO readiness evidence", MimeType = "application/json")]
+    public Task<string> AppGpioReadiness(CancellationToken ct) => api.AppGpioReadiness(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-storage", Name = "PiDockOS app storage admission support", MimeType = "application/json")]
+    public Task<string> AppStorage(CancellationToken ct) => api.AppStorage(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-install-trust", Name = "PiDockOS exact app image approval support", MimeType = "application/json")]
+    public Task<string> AppInstallTrust(CancellationToken ct) => api.AppInstallTrust(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-io", Name = "PiDockOS app I/O adapter support", MimeType = "application/json")]
+    public Task<string> AppIo(CancellationToken ct) => api.AppIo(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-engineering", Name = "PiDockOS variable engineering support", MimeType = "application/json")]
+    public Task<string> AppEngineering(CancellationToken ct) => api.AppEngineering(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-backups", Name = "PiDockOS app data backup and restore support", MimeType = "application/json")]
+    public Task<string> AppBackups(CancellationToken ct) => api.AppBackups(ct);
+
     [McpServerResource(UriTemplate = "pidock://platform/discovery", Name = "PiDockOS target", MimeType = "application/json")]
     public Task<string> Discovery(CancellationToken cancellationToken) => api.Discover(cancellationToken);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-updates", Name = "PiDockOS app image updates and rollback", MimeType = "application/json")]
+    public Task<string> AppUpdates(CancellationToken ct)=>api.AppUpdates(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-orchestration", Name = "PiDockOS app dependency ordering and coordinated shutdown", MimeType = "application/json")]
+    public Task<string> AppOrchestration(CancellationToken ct)=>api.AppOrchestration(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-health/reader.c", Name = "PiDockOS fixed health reader source", MimeType = "text/x-c")]
+    public static string HealthReaderSource() => ApplicationHealthAssets.ReaderSource;
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-health", Name = "PiDockOS app health and readiness reporting", MimeType = "application/json")]
+    public Task<string> AppHealth(CancellationToken ct) => api.AppHealth(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-lifecycle", Name = "PiDockOS app lifecycle and recovery support", MimeType = "application/json")]
+    public Task<string> AppLifecycle(CancellationToken ct) => api.AppLifecycle(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/app-resources", Name = "PiDockOS managed app data and credential delivery", MimeType = "application/json")]
+    public Task<string> AppResources(CancellationToken ct) => api.AppResources(ct);
+
+    [McpServerResource(UriTemplate = "pidock://platform/ui/bridge", Name = "PiDockOS authenticated app commands and live streaming", MimeType = "application/json")]
+    public Task<string> UiBridge(CancellationToken cancellationToken) => api.UiBridge(cancellationToken);
+
+    [McpServerResource(UriTemplate = "pidock://platform/ui", Name = "PiDockOS UI and styling support", MimeType = "application/json")]
+    public Task<string> Ui(CancellationToken cancellationToken) => api.Ui(cancellationToken);
 
     [McpServerResource(UriTemplate = "pidock://platform/authoring", Name = "PiDockOS bundled authoring guide", MimeType = "text/plain")]
     public static string Authoring() => PlatformContracts.AuthoringGuide;

@@ -13,7 +13,8 @@ public static class SharedApplicationEndpoints
         builder.AddServiceCredentials(cloud: false);
         builder.Services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider, PlatformLogProvider>();
         builder.Services.AddSingleton(sp => new SharedApplicationServices(sp.GetRequiredService<StateDirectory>().Path,
-            sp.GetRequiredService<HistoryStore>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<AgentSession>()));
+            sp.GetRequiredService<HistoryStore>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<AgentSession>(),
+            () => builder.Configuration.GetSection("PiDock:Apps:Notifications:Policies").Get<ApplicationNotificationPolicy[]>() ?? []));
     }
     private static string App(ClaimsPrincipal user) => user.FindFirstValue("app")!;
     private static string[] Sources(ClaimsPrincipal user) => user.FindAll("read-source").Select(c => c.Value).Append(App(user)).Distinct().ToArray();

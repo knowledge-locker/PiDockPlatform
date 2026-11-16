@@ -39,6 +39,21 @@ public static class StateFiles
         }
         finally { File.Delete(temporary); }
     }
+    public static void WriteAtomicBytes(string path, byte[] bytes)
+    {
+        var directory=PrepareDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        var temporary=Path.Combine(directory,Guid.NewGuid()+".tmp");
+        try
+        {
+            using(var stream=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+            {
+                if(!OperatingSystem.IsWindows())File.SetUnixFileMode(temporary,UnixFileMode.UserRead|UnixFileMode.UserWrite);
+                stream.Write(bytes);stream.Flush(true);
+            }
+            File.Move(temporary,path,true);SyncDirectory(directory);
+        }
+        finally{File.Delete(temporary);}
+    }
     public static void MoveDirectory(string source, string destination)
     {
         Directory.Move(source, destination);

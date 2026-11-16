@@ -455,6 +455,12 @@
           "PiDock.Core": "[1.0.0, )"
         }
       },
+      "pidock.appdata.helper": {
+        "type": "Project",
+        "dependencies": {
+          "PiDock.Core": "[1.0.0, )"
+        }
+      },
       "pidock.appliance.broker": {
         "type": "Project",
         "dependencies": {
@@ -466,6 +472,12 @@
         "dependencies": {
           "PiDock.Agent": "[1.0.0, )",
           "PiDock.Core": "[1.0.0, )",
+          "PiDock.Web.Shared": "[1.0.0, )"
+        }
+      },
+      "pidock.appui.sample": {
+        "type": "Project",
+        "dependencies": {
           "PiDock.Web.Shared": "[1.0.0, )"
         }
       },

@@ -1,6 +1,6 @@
 [Unit]
 Description=PiDock appliance management preview
-After=network.target
+After=network.target pidock-broker.service
 
 [Service]
 User=pidock

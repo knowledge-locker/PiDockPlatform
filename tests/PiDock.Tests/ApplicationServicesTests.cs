@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using PiDock.Agent;
 using PiDock.Agent.Mcp;
 using ModelContextProtocol;
@@ -199,6 +200,7 @@ public sealed class ApplicationServicesTests
                 if (!cloud && id == "publisher") settings[prefix + "AlarmPriorities:0"] = "1";
             }
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(settings));
+            if (!cloud) builder.ConfigureServices(services => { services.RemoveAll<ICapacityProbe>(); services.AddSingleton<ICapacityProbe>(new Probe()); });
         }
         public string Token(string id) => tokens[id];
         public HttpClient Client(string? id)

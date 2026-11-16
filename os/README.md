@@ -31,3 +31,15 @@ The older `os/systemd` units are compatibility templates for the Linux-hosted se
 Expanded setup uses schema 2, advertised in the signed factory manifest. Main supports separate Ethernet/Wi-Fi DHCP or static IPv4 settings, an optional HTTPS cloud URL and first-boot invitation, and independent remote container/interface consent. Node omits human ownership and external networking; it exposes an isolated USB ECM link for discovery/adoption in **Main → USB nodes**. The Main owner confirms adoption/configuration/release with fresh MFA. Device identity is pinned independently of interface names; no household addressing is required. Available node services are configuration and resource monitoring. USB image flashing from Main, workload placement and node I/O grants remain unavailable.
 
 The signed base enables the USB-C peripheral controller; Main leaves it unbound and uses its USB host ports for nodes. The Node-only gadget binds an ECM function. Host links receive scoped IPv6 link-local addresses and explicit firewall forwarding blocks. Hardware acceptance must verify the exact boards, data cables and powered dock; no power compatibility or successful physical adoption is inferred from software tests.
+
+## Supervised app recovery
+
+The broker unit defaults `Broker__EnableAppRecovery=false`. Enable it together with managed app resources and lifecycle/deployment permissions to allow per-app opt-in recovery. The PiDockOS appliance host must run: it supplies current credentials and coordinates recovery without browser/cloud access. Persist and protect `/var/lib/pidock-broker` and its keys across OS updates. See [shared lifecycle rules](../docs/Application-Lifecycle.md) for durable Stop intent, retry limits, migration of existing apps and remaining health/hardware limits.
+
+## Ordered app shutdown
+
+`Broker__EnableAppOrchestration=false` remains the supplied default. Enabling it requires resources and lifecycle/deployment permission. A graceful broker stop journals and stops resource apps dependent-first; host-shutdown intent resumes in order after broker restart. Explicit maintenance pause remains paused until Owner Resume. The appliance unit orders after the broker and the broker after Docker; broker stop timeout is 220 seconds around a 180-second batch. Preserve private state/keys/journal across upgrades. See [orchestration boundaries](../docs/Application-Orchestration.md); forced shutdown and physical I/O safety remain separate concerns.
+
+## App image update opt-in
+
+`Broker__EnableAppUpdates=false` is the supplied default. Enabling it requires resources, orchestration and lifecycle permissions. Preserve the private `updates` journals and broker key ring across service/OS upgrades, including accepted operations. The appliance update worker uses current credentials; the broker integrates active-update interruption into coordinated shutdown. See [image-only compatibility and rollback limits](../docs/Application-Updates.md).

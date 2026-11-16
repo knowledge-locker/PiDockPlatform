@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using PiDock.Web.Shared;
 namespace PiDock.Tests;
 
@@ -116,7 +117,7 @@ public sealed class WebTests
     [Fact]
     public async Task ApplianceTrendsAndDownloadsWorkWithoutCloudAndExportTheCompleteSelection()
     {
-        using var factory = new PreviewFactory<PiDock.Appliance.Web.ApplianceMarker>();
+        using var factory = new PreviewFactory<PiDock.Appliance.Web.ApplianceMarker>(capacityProbe: new HealthyCapacityProbe());
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         var now = DateTimeOffset.UtcNow;
         string endpoint = "/api/telemetry/export?format=csv&signals=cpu,memory&from=" + Uri.EscapeDataString(now.AddHours(-1).ToString("O")) + "&to=" + Uri.EscapeDataString(now.ToString("O"));
@@ -198,10 +199,18 @@ public sealed class WebTests
         client.DefaultRequestHeaders.Add("X-Forwarded-Proto", "https");
         Assert.Equal(HttpStatusCode.TemporaryRedirect, (await client.GetAsync("/auth/login")).StatusCode);
     }
-    private sealed class PreviewFactory<T>(string environment = "Development") : WebApplicationFactory<T> where T : class
+    private sealed class HealthyCapacityProbe : PiDock.Agent.ICapacityProbe
+    {
+        public PiDock.Core.StorageCapacity Read(string path,long bytes) => new(32L << 30,(16L << 30)-bytes,bytes);
+    }
+    private sealed class PreviewFactory<T>(string environment = "Development", PiDock.Agent.ICapacityProbe? capacityProbe = null) : WebApplicationFactory<T> where T : class
     {
         private readonly string root = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pidock-web-" + Guid.NewGuid());
-        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment(environment).UseSetting("PiDock:StateDirectory", root).UseSetting("Logging:LogLevel:Default", "Warning");
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            builder.UseEnvironment(environment).UseSetting("PiDock:StateDirectory", root).UseSetting("Logging:LogLevel:Default", "Warning");
+            if (capacityProbe is not null) builder.ConfigureServices(services => { services.RemoveAll<PiDock.Agent.ICapacityProbe>(); services.AddSingleton(capacityProbe); });
+        }
         protected override void Dispose(bool disposing) { base.Dispose(disposing); if (disposing && Directory.Exists(root)) Directory.Delete(root, true); }
     }
 }

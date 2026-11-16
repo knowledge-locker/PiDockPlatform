@@ -1,15 +1,26 @@
 # Application platform discovery preview
 
-The initial read-only discovery layer now accompanies [cloud publishing and shared app services](Cloud-Publishing-and-App-Services.md). Hardware access, binary package upload, installation validation and automated container credential delivery remain pending. The [specification](PiDock-Specification-and-Implementation-Plan.md#application-platform-api-and-development-contract) remains the target; the local platform conformance gate has not passed.
+The initial read-only discovery layer now accompanies [cloud publishing and shared app services](Cloud-Publishing-and-App-Services.md). Managed app data and private startup credential delivery are now available behind broker opt-in. Opt-in app supervision now recovers process exits and reboot-stopped containers with durable lifecycle intent. Hardware access, binary package upload and installation validation remain pending. The [specification](PiDock-Specification-and-Implementation-Plan.md#application-platform-api-and-development-contract) remains the target; the local platform conformance gate has not passed.
 
 ## Available interfaces
+
+All hosted app UI plans must follow [PiDockOS application UI integration](Application-UI-Integration.md): reuse the shared PiDockOS look and interaction patterns and supply a host-openable interface component for an approved menu/tab/launch point. This is a platform-wide requirement, included in the API and MCP authoring guide. Versioned scoped UI styles, a separate contribution schema and owner-configured isolated read-only app hosting are implemented in preview. An optional Owner-bound bridge now provides named app commands and bounded live streaming; user identity disclosure and package-driven registration remain planned. See the [bridge contract](Application-UI-Bridge.md). Use the versioned app CSS bundle rather than the legacy shell stylesheet.
 
 | HTTPS endpoint | Returns |
 | --- | --- |
 | `GET /api/platform/v1/discovery` | API/contract versions, architecture, capability states, permitted discovery operations and public registered-cloud context |
 | `GET /api/platform/v1/contracts` | Contract IDs, versions, status and schema paths |
-| `GET /api/platform/v1/contracts/{id}` | JSON Schema 2020-12 for `discovery`, `application-manifest`, or `application-log-event` |
+| `GET /api/platform/v1/contracts/{id}` | JSON Schema 2020-12 for listed platform contracts, including `application-ui-contribution` and `application-ui-discovery` |
 | `GET /api/platform/v1/authoring` | Concise agent authoring guidance |
+| `GET /api/platform/v1/ui` | UI/style versions, asset hashes and hosting limits |
+| `GET /api/platform/v1/app-updates` | Image-only update/rollback support, opt-in and limits |
+| `GET /api/platform/v1/app-orchestration` | Dependency conditions, coordinated shutdown support and limits |
+| `GET /api/platform/v1/app-health` | Health reporting support, fixed reader/report paths, limits and readiness semantics |
+| `GET /api/platform/v1/app-lifecycle` | App supervision opt-in, retry policy and lifecycle limits |
+| `GET /api/platform/v1/app-resources` | Broker opt-in status, fixed managed paths, startup protocol and limits |
+| `GET /api/platform/v1/ui/bridge` | Authenticated command/stream SDK metadata, hashes, limits and planned extensions |
+| `GET /api/platform/v1/ui/bridge/1.0/{name}` | Public non-secret `host.js` and `client.js` assets |
+| `GET /api/platform/v1/ui/styles/1.0/{name}` | Public non-secret `tokens.css` and `components.css` assets |
 
 Contracts live in `PiDock.Core`. Version 1 uses camelCase JSON, explicit string capability/registration states, and numeric operational priorities Critical=1, Warning=2, Alert=3, Notice=4. Diagnostic level is a separate field. The manifest is accepted in registry-reference cloud releases, and the log schema is accepted by the shared app API; neither implies installation or hardware access. Schema reads are not an installation policy validator. Unknown contract IDs return 404. Responses require HTTPS and are marked `Cache-Control: no-store`; calls are limited to 120 per minute per authenticated discovery identity.
 
@@ -82,6 +93,8 @@ Configure an MCP host to launch `dotnet` with the absolute path to that DLL and 
 | Read-only tool | `pidock_list_contracts` |
 | JSON resource | `pidock://platform/discovery` |
 | Authoring resource | `pidock://platform/authoring` |
+| Read-only live UI discovery | `pidock://platform/ui` |
+| Read-only command/stream discovery | `pidock://platform/ui/bridge` |
 | Schema resource template | `pidock://platform/contracts/{id}` |
 
 Tools accept no target URLs or arbitrary paths. Authorized registry-reference publishing is now provided by separate cloud tools; see the shared-services guide. Upload, deployment, hardware writes and network changes remain unavailable. The authoring guide and schema resources are bundled from contract version 1.0 and work without an appliance connection. Compare their version with live target discovery; `pidock_list_contracts` describes the target rather than the local bundle. The bridge refreshes target context for every discovery invocation. The cloud publishing client separately discovers endpoints and obtains tenant publisher authority; it does not infer these from the saved cloud URL.
@@ -93,3 +106,13 @@ Tools accept no target URLs or arbitrary paths. Authorized registry-reference pu
 Automated checks cover discovery authorization/expiry and owner isolation, registered/unregistered/invalid context, secret exclusion, schema responses and priority values, bounded fixed-path bridge requests, owner/other-role authorization, and a real stdio MCP negotiation, offline resource read and connection-error path. These are software checks, not proof of physical I/O, complete platform conformance or cloud publishing. Offline authoring can use this guide and the bundled MCP guide/schema resources; target discovery and contract listing require an accessible authenticated appliance.
 
 Implementation references: [official MCP C# SDK getting started](https://github.com/modelcontextprotocol/csharp-sdk/blob/main/docs/concepts/getting-started.md) and [resource definitions](https://github.com/modelcontextprotocol/csharp-sdk/blob/main/docs/concepts/resources/resources.md).
+
+## Managed app resources
+
+[Shared application data and credentials](Application-Resources.md) defines opt-in per-app data volumes, private startup credential files, Owner-managed rotation/revocation and the API/MCP support probe. This is general PiDockOS authoring support. Resource-enabled apps require managed starts/restarts. [App lifecycle and recovery](Application-Lifecycle.md) now provide opt-in supervision; [Health/readiness reporting](Application-Health.md) now supports optional app heartbeats and bounded unhealthy-app recovery. Data quotas, backup/purge and hardware authority remain planned.
+
+## Dependency-aware lifecycle
+
+[Shared app orchestration](Application-Orchestration.md) adds opt-in required-app Ready/Running gates, reverse-order shutdown, durable maintenance pause/resume and broker-shutdown recovery. It uses the existing UI authorization, credentials, health and retry boundaries for all compatible apps. Dependency references do not grant network or service access.
+
+[Shared app updates and rollback](Application-Updates.md) add opt-in immutable image replacement with readiness-gated promotion, retained previous container and controlled restoration. This is image-only: configuration/data migration, snapshots, package rollout and signatures remain separate. API/MCP guidance applies to every compatible app.

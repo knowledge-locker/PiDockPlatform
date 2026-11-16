@@ -78,6 +78,8 @@ Versioned platform discovery and an agent MCP stdio bridge are available. Use **
 
 ## Container applications
 
+Applications with a UI must reuse the PiDockOS visual language and expose a workspace that opens from its menu, tab or another approved launch point. These platform-wide [UI integration requirements](docs/Application-UI-Integration.md) are included in API/MCP authoring guidance. Versioned scoped styles and owner-configured isolated app launch are available in read-only preview; the optional authenticated bridge supports named app commands and bounded live data, while package-driven registration remains planned. See the [bridge contract](docs/Application-UI-Bridge.md). See the [generic UI fixture](tools/PiDock.AppUi.Sample/README.md).
+
 The dashboard connects to an independently started host broker over a Unix socket. The web process never receives Docker socket access. Deployment controls are off unless enabled explicitly on the broker. See [the development guide](docs/Development.md#restricted-host-broker) for setup.
 
 This preview supports registry pulls of immutable ARM64 images and basic lifecycle control, not image archive uploads, Compose, host mounts, device grants or persistent volumes. Containers run as UID/GID 1654; images must be compatible. Application data is ephemeral unless the image uses an external service. Do not run stateful workloads yet.
@@ -96,3 +98,11 @@ This preview supports registry pulls of immutable ARM64 images and basic lifecyc
 See [implementation status](docs/Implementation-Status.md) for the current verification and next milestones.
 
 PiDockOS supports local telemetry trends and downloads plus signed service updates through PiDockCloud with separate local owner permission and cloud-free package uploads. An independent updater stages, checks and rolls back the appliance/broker programs. A one-time local bootstrap and verified public signing keys are required. See [PiDockOS updates](docs/PiDockOS-Updates.md).
+
+Shared app [persistent data and credential delivery](docs/Application-Resources.md) now support opt-in managed volumes, protected startup records and Owner-managed app credentials. Discover target support before deploying a compatible app; opt-in [app lifecycle recovery](docs/Application-Lifecycle.md) is now implemented, while data backup/quota/purge remain planned.
+
+Shared [app health and readiness](docs/Application-Health.md) now support private bounded heartbeats, explicit Ready/Not ready/Unhealthy/Unknown status and opt-in health-driven recovery using the existing retry budget. App images must include the fixed native reader and publish critical-work reports.
+
+Shared [dependency ordering and coordinated shutdown](docs/Application-Orchestration.md) now add required-app Ready/Running gates, dependent-first stop/restart and durable maintenance pause/resume. Broker shutdown preserves app requests for ordered resume; orchestration remains disabled by default.
+
+Shared [app image updates and rollback](docs/Application-Updates.md) now support opt-in digest-pinned replacement, stable-readiness promotion and a retained previous container. Configuration and data remain live; incompatible migrations/data rollback are not supported.

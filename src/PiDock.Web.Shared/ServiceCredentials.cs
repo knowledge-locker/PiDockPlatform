@@ -65,7 +65,7 @@ public sealed class ServiceCredentialOptions : AuthenticationSchemeOptions
     public bool Cloud { get; set; }
 }
 public sealed class ServiceCredentialHandler(IOptionsMonitor<ServiceCredentialOptions> options, ILoggerFactory logger,
-    UrlEncoder encoder, IConfiguration configuration, TimeProvider clock, IEnumerable<RegisteredAgentStore> registeredAgents, ClockTrust clockTrust)
+    UrlEncoder encoder, IConfiguration configuration, TimeProvider clock, IEnumerable<RegisteredAgentStore> registeredAgents, IEnumerable<ApplicationCredentialVault> appVaults, ClockTrust clockTrust)
     : AuthenticationHandler<ServiceCredentialOptions>(options, logger, encoder)
 {
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -75,22 +75,34 @@ public sealed class ServiceCredentialHandler(IOptionsMonitor<ServiceCredentialOp
         if (!value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) || value.Length != 71 || !value[7..].All(char.IsAsciiHexDigit)) return Fail();
         if (!Options.Cloud)
         {
-            var registration = registeredAgents.Select(store => store.Authenticate(value[7..])).FirstOrDefault(entry => entry is not null);
-            if (registration is not null)
+            try
             {
-                var registeredClaims = new List<Claim> { new(ClaimTypes.Name, registration.Id), new("app", registration.Subject) };
-                registeredClaims.AddRange(registration.Scopes.Select(scope => new Claim("scope", scope)));
-                return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(registeredClaims, Scheme.Name)), Scheme.Name)));
+                var managed = appVaults.Select(vault => vault.Authenticate(value[7..])).FirstOrDefault(c => c is not null);
+                if (managed is not null)
+                {
+                    var identity = new ClaimsIdentity(new[] { new Claim(ClaimTypes.Name, managed.Id), new Claim("app", managed.AppId) }.Concat(managed.Scopes.Select(scope => new Claim("scope", scope))), Scheme.Name);
+                    return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
+                }
+                var registration = registeredAgents.Select(store => store.Authenticate(value[7..])).FirstOrDefault(entry => entry is not null);
+                if (registration is not null)
+                {
+                    var registeredClaims = new List<Claim> { new(ClaimTypes.Name, registration.Id), new("app", registration.Subject) };
+                    registeredClaims.AddRange(registration.Scopes.Select(scope => new Claim("scope", scope)));
+                    return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(registeredClaims, Scheme.Name)), Scheme.Name)));
+                }
             }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or CryptographicException or System.Text.Json.JsonException)
+            { return Fail(); }
         }
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value[7..]));
         ServiceCredential[] entries;
         try { entries = configuration.GetSection(Options.Section).Get<ServiceCredential[]>() ?? []; }
-        catch (InvalidOperationException) { return Fail(); }
+        catch (Exception e) when (e is InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException or CryptographicException) { return Fail(); }
+        if (entries.Length > 256 || entries.Any(c => c is null)) return Fail();
         // Ambiguous token assignments fail closed instead of choosing a tenant or app by order.
         var matches = entries.Take(257).Where(c => c.TokenSha256 is { Length: 64 } && c.TokenSha256.All(char.IsAsciiHexDigit) &&
             CryptographicOperations.FixedTimeEquals(hash, Convert.FromHexString(c.TokenSha256))).ToArray();
-        if (entries.Length > 256 || matches.Length != 1) return Fail();
+        if (matches.Length != 1) return Fail();
         var entry = matches[0];
         if (!IdentityRules.IsId(entry.Id) || !IdentityRules.IsId(entry.Subject) || entry.Subject == "pidockos" || entry.ExpiresAt <= clock.GetUtcNow() ||
             entry.Scopes is null || entry.Scopes.Length > 32 || entry.Scopes.Any(s => !ApplicationContractRules.Text(s, 80)) ||

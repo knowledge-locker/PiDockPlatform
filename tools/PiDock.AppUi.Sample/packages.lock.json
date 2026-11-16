@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "pidock.core": {
+        "type": "Project"
+      },
+      "pidock.web.shared": {
+        "type": "Project",
+        "dependencies": {
+          "PiDock.Core": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+@import url('./tokens.css');
+/* All visual rules are opt-in and scoped. Loading this file does not restyle the host shell. */
+.pidock-app { font-family:var(--pd-font); color:var(--pd-text); background:var(--pd-canvas); font-size:14px; line-height:1.5; font-synthesis:none; color-scheme:light; padding:var(--pd-space-5); }
+.pidock-app, .pidock-app * { box-sizing:border-box; }
+.pidock-app .pd-stack { display:grid; gap:var(--pd-space-4); }
+.pidock-app .pd-row { display:flex; align-items:center; gap:var(--pd-space-3); flex-wrap:wrap; }
+.pidock-app .pd-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); gap:var(--pd-space-4); }
+.pidock-app .pd-panel { background:var(--pd-panel); border:1px solid var(--pd-line); border-radius:var(--pd-panel-radius); padding:var(--pd-space-5); min-width:0; }
+.pidock-app .pd-title { font-size:26px; font-weight:580; letter-spacing:-.7px; margin:0; }
+.pidock-app .pd-heading { font-size:18px; font-weight:580; margin:0; }
+.pidock-app .pd-muted { color:var(--pd-muted); }
+.pidock-app .pd-button { font:inherit; border:1px solid transparent; border-radius:var(--pd-radius); background:var(--pd-accent); color:var(--pd-panel); padding:11px 16px; font-weight:650; cursor:pointer; }
+.pidock-app .pd-button[data-variant='secondary'] { background:transparent; color:var(--pd-text); border-color:var(--pd-line); }
+.pidock-app .pd-button:hover:not(:disabled) { filter:brightness(.94); }
+.pidock-app .pd-button:disabled { opacity:.45; cursor:not-allowed; }
+.pidock-app .pd-field { display:grid; gap:var(--pd-space-2); font-size:14px; }
+.pidock-app .pd-input { display:block; width:100%; min-width:0; font:inherit; background:var(--pd-input); color:var(--pd-text); border:1px solid var(--pd-input-border); border-radius:7px; padding:11px; }
+.pidock-app [hidden] { display:none !important; }
+.pidock-app .pd-check { display:flex; gap:var(--pd-space-2); align-items:center; }
+.pidock-app .pd-check input { accent-color:var(--pd-accent); }
+.pidock-app .pd-badge { display:inline-block; border-radius:var(--pd-radius); padding:5px 9px; font-size:12px; color:var(--pd-neutral); background:var(--pd-neutral-bg); }
+.pidock-app .pd-badge[data-status='healthy'] { color:var(--pd-success); background:var(--pd-success-bg); }
+.pidock-app .pd-badge[data-status='forced'], .pidock-app .pd-badge[data-status='stale'] { color:var(--pd-warning); background:var(--pd-warning-bg); }
+.pidock-app .pd-badge[data-status='unavailable'] { color:var(--pd-danger); background:var(--pd-danger-bg); }
+.pidock-app .pd-table-wrap { max-width:100%; overflow:auto; }
+.pidock-app .pd-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+.pidock-app .pd-table th, .pidock-app .pd-table td { padding:12px; text-align:left; border-bottom:1px solid var(--pd-line); }
+.pidock-app :is(button,a,input,select,textarea,summary):focus-visible { outline:3px solid var(--pd-focus); outline-offset:4px; }
+@media(max-width:650px) { .pidock-app { padding:var(--pd-space-4); } .pidock-app .pd-panel { padding:var(--pd-space-4); } }
+@media(pointer:coarse) { .pidock-app .pd-button, .pidock-app .pd-input { min-height:44px; } .pidock-app .pd-input { font-size:16px; } }

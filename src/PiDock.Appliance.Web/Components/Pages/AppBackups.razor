@@ -1,0 +1,88 @@
+@page "/app-backups"
+@attribute [Authorize(Roles = "Owner")]
+@inject BrokerClient Broker
+@inject AuthenticationStateProvider Authentication
+@inject UserStore Users
+<PageTitle>App data backups · PiDockOS</PageTitle>
+<p class="eyebrow">APPLIANCE / APPLICATIONS</p><h1>App data backups</h1>
+<p>Save and restore local snapshots of managed app data. These snapshots stay on this appliance. An image rollback and a data restore are separate operations.</p>
+<p><a href="/applications">Applications and maintenance controls</a></p>
+<section class="card"><div class="section-heading"><h2>Backup readiness</h2><button class="secondary" disabled="@busy" @onclick="Load">Refresh</button></div>
+@if (support?.Enabled != true) { <p>App backups are not enabled on this appliance.</p> }
+<p>Maintenance: @(maintenance?.Paused == true ? maintenance.Phase : "Active"). Pause supervised apps and wait for maintenance to finish before saving or restoring data.</p>
+@if (support is not null) { <p>Up to @support.MaximumSnapshotsPerApp snapshots per app; @(support.MaximumDataBytes / 1048576) MiB of data and @support.MaximumEntries files or directories per snapshot.</p> }
+@if (restore is not null)
+{
+    <p role="status">Restore for @restore.AppId: @RestorePhase(restore.Phase) · @RestoreOutcome(restore.Outcome)</p>
+    @if (restore.SafetySnapshotId is { } safety) { <p>Safety snapshot: @safety</p> }
+    @if (ApplicationBackupRules.BlocksStartup(restore))
+    {
+        <p class="notice">Startup remains blocked until this restore completes. Correct the reported problem and retry the same operation. Maintenance remains paused after completion.</p>
+        <button disabled="@(busy || support?.Enabled != true)" @onclick="Retry">Retry interrupted restore</button>
+    }
+}
+</section>
+<section class="card"><h2>Save app data</h2>
+<label>Managed app<select @bind="containerId"><option value="">Choose an app</option>@foreach (var app in applications) { <option value="@app.Id">@string.Join(", ", app.Names)</option> }</select></label>
+<p>Only apps with managed persistent data can be backed up. Credentials and platform keys are outside the app data snapshot.</p>
+<button disabled="@(!CanChange || string.IsNullOrEmpty(containerId))" @onclick="Create">Save snapshot</button>
+</section>
+<section class="card"><h2>Saved snapshots</h2>
+<p>Restore replaces the selected app's data and first saves a safety snapshot of its current data. Keep a free snapshot slot. The installed app image must match the snapshot image.</p>
+<table><thead><tr><th>App / created</th><th>Contents</th><th>Control</th></tr></thead><tbody>
+@foreach (var snapshot in snapshots)
+{
+    <tr><td>@snapshot.AppId<small>@snapshot.CreatedAt.ToLocalTime().ToString("g") · @(snapshot.Kind == "pre_restore" ? "Safety snapshot" : "Saved snapshot")</small><small>@snapshot.Image</small></td>
+    <td>@snapshot.DataBytes.ToString("N0") bytes · @snapshot.EntryCount entries<small>@snapshot.Id</small></td>
+    <td><button class="secondary" disabled="@(!CanChange || string.IsNullOrEmpty(containerId))" @onclick="() => Restore(snapshot)">Restore into selected app</button>
+    <button class="secondary" disabled="@(busy || support?.Enabled != true || ApplicationBackupRules.BlocksStartup(restore))" @onclick="() => Delete(snapshot)">Delete snapshot</button></td></tr>
+}
+</tbody></table>
+</section>
+<section class="card"><h2>Confirm owner credentials</h2><p>Each change requires your password and a fresh authenticator code.</p>
+<label>Password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
+<label>Authenticator code<input @bind="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code" /></label><p role="status">@message</p></section>
+@code {
+    private ApplicationBackupSupport? support;
+    private ApplicationOrchestrationStatus? maintenance;
+    private ApplicationDataRestoreStatus? restore;
+    private ApplicationBackupInfo[] snapshots = [];
+    private ApplicationSummary[] applications = [];
+    private string containerId = "", password = "", code = "";
+    private string? message;
+    private bool busy;
+    private bool CanChange => !busy && support?.Enabled == true && maintenance is { Paused: true, Phase: "paused" } && !ApplicationBackupRules.BlocksStartup(restore);
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load()
+    {
+        try
+        {
+            support = await Broker.BackupSupport();
+            snapshots = await Broker.Backups();
+            restore = await Broker.DataRestoreStatus();
+            maintenance = await Broker.OrchestrationStatus();
+            applications = await Broker.List();
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        { support = null; message = "Backup status unavailable. Check the host broker before continuing."; }
+    }
+    private Task Create() => Change(() => Broker.CreateBackup(containerId, new(Guid.NewGuid())), "Snapshot saved locally.");
+    private Task Restore(ApplicationBackupInfo snapshot) => Change(() => Broker.RestoreBackup(containerId, new(Guid.NewGuid(), snapshot.Id)), "Data restored. Review the result before resuming requested apps from Applications.");
+    private Task Retry() => restore is null ? Task.CompletedTask : Change(() => Broker.RestoreBackup(restore.ContainerId, new(restore.OperationId, restore.SnapshotId)), "Restore completed. Review the result before resuming apps.");
+    private Task Delete(ApplicationBackupInfo snapshot) => Change(() => Broker.DeleteBackup(snapshot.Id), "Snapshot deleted. App data was not changed.");
+    private async Task Change(Func<Task> action, string success)
+    {
+        if (busy) return;
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        bool authorized = Users.IsCurrent(user) && user.IsInRole("Owner") && Users.Authenticate(user.Identity!.Name!, password, code, DateTimeOffset.UtcNow) is not null;
+        password = ""; code = "";
+        if (!authorized) { message = "Fresh owner password and authenticator code required."; return; }
+        busy = true;
+        try { await action(); message = success; }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException or TaskCanceledException or System.Text.Json.JsonException)
+        { message = "Operation could not be confirmed. Refresh status before retrying; an interrupted restore keeps startup blocked."; }
+        finally { await Load(); busy = false; }
+    }
+    private static string RestorePhase(string phase) => phase switch { "preparing" => "Preparing safety snapshot", "staging" => "Preparing restored data", "applying" => "Replacing app data", "finishing" => "Finishing restore", "completed" => "Complete", _ => "Needs attention" };
+    private static string RestoreOutcome(string outcome) => outcome switch { "interrupted" => "Interrupted; inspect and retry", "completed" => "Data restored", _ => "Status recorded" };
+}

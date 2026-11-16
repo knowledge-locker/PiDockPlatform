@@ -26,6 +26,22 @@ public sealed class DiscoveryApiClient(HttpClient http) : IDisposable
 
     public Task<string> Discover(CancellationToken ct) => Read("discovery", ct);
     public Task<string> Contracts(CancellationToken ct) => Read("contracts", ct);
+    public Task<string> AppBackups(CancellationToken ct) => Read("app-backups", ct);
+    public Task<string> AppRuntimeAccess(CancellationToken ct) => Read("app-runtime-access", ct);
+    public Task<string> AppIo(CancellationToken ct) => Read("app-io", ct);
+    public Task<string> AppGpioReadiness(CancellationToken ct) => Read("app-gpio-readiness", ct);
+    public Task<string> AppEngineering(CancellationToken ct) => Read("app-engineering", ct);
+    public Task<string> AppStorage(CancellationToken ct) => Read("app-storage", ct);
+    public Task<string> AppInstallTrust(CancellationToken ct) => Read("app-install-trust", ct);
+    public Task<string> AppRemoval(CancellationToken ct) => Read("app-removal", ct);
+    public Task<string> AppDiagnostics(CancellationToken ct) => Read("app-diagnostics", ct);
+    public Task<string> AppUpdates(CancellationToken ct)=>Read("app-updates",ct);
+    public Task<string> AppOrchestration(CancellationToken ct)=>Read("app-orchestration",ct);
+    public Task<string> AppHealth(CancellationToken ct) => Read("app-health",ct);
+    public Task<string> AppLifecycle(CancellationToken ct) => Read("app-lifecycle", ct);
+    public Task<string> AppResources(CancellationToken ct) => Read("app-resources", ct);
+    public Task<string> UiBridge(CancellationToken ct) => Read("ui/bridge", ct);
+    public Task<string> Ui(CancellationToken ct) => Read("ui", ct);
     public Task<string> Guide(CancellationToken ct) => Read("authoring", ct);
     public Task<string> Schema(string id, CancellationToken ct)
     {

@@ -42,3 +42,8 @@ Device onboarding and authenticator enrollment still use the console. File brows
 Both applications now share a light palette with raspberry primary actions and navigation (#C51A4A), leaf-green healthy states and storage bars, white cards and warm neutral canvas (#F6F4F3). Amber remains reserved for warnings and forced outputs. Selected GPIO pins use raspberry outlines; health states keep explicit text labels. This is an inspired PiDock theme, not an official Raspberry Pi identity.
 
 Primary button text measures 5.80:1 contrast; the checked text/background pairs for body copy, navigation, GPIO, and status badges all exceed 4.5:1. This check covers those pairs rather than a full accessibility certification. Shared CSS tokens keep the appliance, cloud, sign-in and review banner consistent.
+
+
+## Isolated app UI fixture
+
+The appliance review harness also hosts registered application interfaces through the same shared gateway and real launch components. Start the [Development-only UI sample](../tools/PiDock.AppUi.Sample/README.md), supply its registration settings to the review process, and open `/apps/ui-sample/main` on the review origin. The review tool keeps its existing loopback-only disposable identity; it does not change the production authentication policy. The shared gateway uses the selected authentication scheme and independently validates the principal against the disposable UserStore just as the appliance validates its owner session. The cloud review harness does not expose app routes.
