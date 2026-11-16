@@ -1,5 +1,7 @@
 # Signed PiDockOS service updates
 
+The application-installation update now has both a signed beta image package and a legacy service package. See [prepared packages and target selection](PiDockOS-App-Installation-Update.md).
+
 PiDockOS supports the same signed package through two paths:
 
 - **Local appliance → PiDockOS updates**: upload and verify a package, then approve installation with a fresh local Owner password and authenticator code. No cloud registration or cloud permission is required.
