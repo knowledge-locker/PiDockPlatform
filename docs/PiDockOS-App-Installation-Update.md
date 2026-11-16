@@ -36,3 +36,9 @@ Native Linux ARM64 checks passed target service/driver validation, Main/Node set
 | Dev.19 services | `5d14972969c50a1be67e4b9205bd7d89e1d6f7d64ddb28d6ddc62ee78e05f4db` |
 
 [Machine-readable verification](../artifacts/pidockos-app-install-update-verification.json). Adjacent `.sha256` files accompany each ZIP. The updater's read-only `verify-update PACKAGE TRUST_DIRECTORY RUNTIME` command is also available for offline verification with independently trusted public keys.
+
+## Catalog publication preparation
+
+PR #25 is merged into main (`3f479d5fce20b3f1abd4bbacdfe7fe05cb3a6283`). The prepared ZIP remains byte-for-byte identical to the verified source artifact. Development now mounts the same verified public `pidock-prod-20261112` release signer already trusted by production; its older development signer remains trusted. No signing private key was transferred, and the existing dev cloud image, accounts, key ring and release catalog were preserved.
+
+The package is also available in the operator's Downloads folder as `pidockos-1.0.0-beta.2-linux-arm64-image.zip`. Both environments are ready for publication through **PiDockOS releases** in the intended device workspace. Actual catalog publication requires the existing fresh password/TOTP workflow; it has not been bypassed or completed by this preparation. No Pi installation request was queued.
