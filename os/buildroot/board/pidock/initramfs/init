@@ -49,7 +49,7 @@ done
 [ -b "$root_device" ] || fail 'system partition missing'
 pidock-boot-status root_found
 pidock-boot-status verity_open
-veritysetup open "$root_device" pidock-root "$root_device" "$ROOT_HASH" --hash-offset "$HASH_OFFSET" --data-blocks "$((HASH_OFFSET / 4096))" --data-block-size 4096 --hash-block-size 4096 --hash sha256 --readonly --restart-on-corruption >>/run/pidock-init-output.log 2>&1 || { pidock-boot-status verity_failed; fail 'root integrity check rejected'; }
+veritysetup open "$root_device" pidock-root "$root_device" "$ROOT_HASH" --hash-offset "$HASH_OFFSET" --data-blocks "$((HASH_OFFSET / 4096))" --data-block-size 4096 --hash-block-size 4096 --hash sha256 --restart-on-corruption >>/run/pidock-init-output.log 2>&1 || { pidock-boot-status verity_failed; fail 'root integrity check rejected'; }
 pidock-boot-status verity_mapping_ready
 mount -t ext4 -o ro /dev/mapper/pidock-root /newroot >>/run/pidock-init-output.log 2>&1 || { pidock-boot-status root_mount_failed; fail 'verified root cannot be mounted'; }
 pidock-boot-status root_mounted

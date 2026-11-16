@@ -17,6 +17,19 @@ chroot "$root" /bin/boot-clock 946684800
 chroot "$root" /bin/blkid --version
 if [ "$2" = normal ]; then
     chroot "$root" /bin/veritysetup --version
+    # Exercise the exact shipped open command, not just the executable's version.
+    # A nonexistent input prevents any host device mapping; CLI parsing must pass.
+    command=$(sed -n '/^veritysetup open /s/ >>.*//p' "$root/init")
+    [ -n "$command" ]
+    result=0
+    chroot "$root" /bin/sh -c 'export PATH=/bin:/sbin; . /etc/root.env; root_device=/nonexistent-pidock-test; '"$command" >"$root/open-check.log" 2>&1 || result=$?
+    [ "$result" -ne 0 ]
+    if grep -Eiq 'unknown option|unrecognized option|invalid action' "$root/open-check.log"; then
+        cat "$root/open-check.log" >&2
+        exit 1
+    fi
+    grep -q 'nonexistent-pidock-test' "$root/open-check.log"
+    echo 'Signed verity open command parses successfully; nonexistent device rejected.'
 else
     chroot "$root" /bin/sh -n /bin/pidock-recovery
     chroot "$root" /bin/setpriv --version
