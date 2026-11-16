@@ -103,3 +103,13 @@ Before signing, run `os/tests/verify_initramfs_runtime.sh` against each trusted,
 ## Alpha.6 compressed-driver correction
 
 The kernel installs XZ-compressed modules, but the alpha.5 target kmod reported `-XZ`. Native `modinfo` could not decode the installed `brcmfmac.ko.xz`, blocking Wi-Fi; USB expansion modules use the same format. Alpha.6 enables XZ support in both target kmod and the host depmod tool that builds the driver dependency/alias indexes. Run `os/tests/verify_target_runtime.sh TARGET_ROOT` in the isolated native builder before signing; it reads the actual compressed Wi-Fi and USB ECM driver metadata without inserting modules into the build host’s kernel. The target-profile gate reads the checked-in release profile rather than duplicating its version. Alpha.5 was not published to production and must not be used for replacement Node downloads. Physical acceptance remains pending until the corrected card boots.
+
+## Installer and first-boot diagnostics
+
+New images write `pidock-early-boot.log` on the control/first boot partition as the signed initramfs discovers the root, creates its verity mapping and hands over to the OS. Missing early logs can also mean firmware did not reach the initramfs or that the card could not be written; their absence alone is not a failure code. These status files are diagnostic observations, never security attestations.
+
+The first-boot service writes a bounded 64 KiB `pidock-install.log` there with setup state, Wi-Fi device availability, authentication rejection, association/DHCP progress, and authenticated-time status. It runs before the updater and management application on initial installation, for at most three minutes. It leaves the boot partition read-only afterward, and does not export during firmware trial boots. Successful initial setup disables that initial-install service on later boots.
+
+Public reports are generated from a fixed set of status messages. Raw Wi-Fi events and wpa_cli output are never copied: passwords, authenticator seeds/codes, enrollment codes, SSIDs, BSSIDs and assigned addresses are excluded. An owner can also view/download the sanitized report under **PiDockOS → Installer diagnostics** after sign-in. Nothing is automatically uploaded to PiDockCloud.
+
+Detailed system journals remain private on the Linux data partition, bounded to 32 MiB and seven days. They may contain ordinary system/network identifiers and should be handled as private support data. WPA key-debug logging is not enabled. If networking fails, power down, return the card to the computer, and open the two text reports on the first boot partition; no Linux filesystem formatting or ownership reset is needed.

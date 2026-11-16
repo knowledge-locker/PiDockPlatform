@@ -42,6 +42,14 @@ assert (root/'var/lib/pidock/network/wpa_supplicant.conf').exists()
 assert json.loads((root/'var/lib/pidock/device-mode.json').read_text())['mode']=='Main'
 run(['chroot',str(root),'/usr/lib/pidock/appliance/PiDock.Appliance.Web','--apply-media-network'],env=env,timeout=60)
 wireless=(root/'run/systemd/network/10-pidock-wireless.network').read_text();assert 'DHCP=yes' in wireless
+run(['chroot',str(root),'/usr/bin/setpriv','--regid=1654','--clear-groups','/usr/lib/pidock/updater/PiDock.Updater','host-first-boot-log-once'],env=env,timeout=30)
+installer=(root/'var/lib/pidock/diagnostics/install.log').read_text()
+card_report=(root/'boot/control/pidock-install.log').read_text()
+assert 'setup=applied' in installer and 'mode=Main' in installer
+for secret in (setup['secret'],setup['wifi']['ssid'],setup['wifi']['psk']):
+ assert secret not in installer and secret not in card_report
+run(['chroot',str(root),'/usr/bin/setpriv','--reuid=1654','--regid=1654','--clear-groups','/bin/cat','/var/lib/pidock/diagnostics/install.log'])
+print('Sanitized installer report generated, exported to the boot partition and readable by the appliance user.',flush=True)
 account=root/'var/lib/pidock/appliance/accounts.protected'
 before=hashlib.sha256(account.read_bytes()).digest()
 setup['username']='replacement-owner'

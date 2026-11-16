@@ -10,6 +10,9 @@ root=$(mktemp -d)
 trap 'rm -rf -- "$root"' EXIT HUP INT TERM
 gzip -dc "$archive" | (cd "$root"; cpio -id --quiet --no-absolute-filenames --no-preserve-owner)
 chroot "$root" /bin/sh -n /init
+chroot "$root" /bin/sh -n /bin/pidock-boot-status
+chroot "$root" /bin/pidock-boot-status initramfs_started
+grep -q '^stage=initramfs_started$' "$root/run/pidock-early.log"
 chroot "$root" /bin/blkid --version
 if [ "$2" = normal ]; then
     chroot "$root" /bin/veritysetup --version

@@ -6,6 +6,7 @@ mount -t devtmpfs devtmpfs /dev
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
+pidock-boot-status recovery_started
 exec </dev/tty1 >/dev/tty1 2>&1
 epoch=$(cat /etc/build-epoch)
 [ "$(date +%s)" -ge "$epoch" ] || date -u -s "@$epoch"
