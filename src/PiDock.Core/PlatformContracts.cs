@@ -40,6 +40,7 @@ public static class PlatformContracts
         ["discovery"] = typeof(PlatformDiscoveryDocument),
         ["application-manifest"] = typeof(PlatformApplicationManifest),
         ["application-runtime-manifest"] = typeof(ApplicationManifest),
+        ["application-runtime-support"] = typeof(ApplicationRuntimeSupport),
         ["application-runtime-access-support"] = typeof(ApplicationRuntimeAccessSupport),
         ["application-authoring-plan"] = typeof(ApplicationAuthoringPlan),
         ["application-authoring-report"] = typeof(ApplicationAuthoringReport),
@@ -270,6 +271,15 @@ public static class PlatformContracts
         hardware/UI/credential grant. Expiry/revocation prevents new installs and update candidates;
         existing container restarts retain their original lifecycle contract. Full package import,
         signatures, registry credentials and transactional UI registration remain separate work.
+
+        MANAGED APP CAPABILITY CHECKS (engineering preview):
+        Managed platform credentials with system.read may GET /api/apps/v1/runtime-support.
+        This bounded, read-only metadata aggregates resource, health, lifecycle, orchestration,
+        I/O, engineering and runtime-access support. Require enabled, compatible contracts.
+        Missing/unreachable broker support returns 503 rather than invented capabilities.
+        It grants no lifecycle mutations, Owner session or platform.discovery.read authority.
+        No delivery identity, credential values or private broker observations are returned.
+        See docs/Application-Runtime-Support.md; use ApplicationRuntimeSupportClient.Read.
 
         SHARED RUNTIME AUTHORITY (engineering preview):
         Probe app-runtime-access through API/MCP. Opt-in PiDock:Apps:RuntimeAccess:Enabled binds I/O and
