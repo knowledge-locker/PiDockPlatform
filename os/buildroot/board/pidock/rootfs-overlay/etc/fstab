@@ -1,0 +1,4 @@
+# System root is opened and mounted read-only by the signed initramfs.
+PARTUUID=5049444b-07 /var ext4 defaults,nodev,nosuid,noexec 0 2
+PARTUUID=5049444b-01 /boot/control vfat ro,nodev,nosuid,noexec,umask=0077 0 0
+tmpfs /tmp tmpfs mode=1777,nodev,nosuid,noexec 0 0

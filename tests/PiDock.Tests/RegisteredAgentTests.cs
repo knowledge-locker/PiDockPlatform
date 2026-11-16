@@ -102,6 +102,59 @@ public sealed class RegisteredAgentTests
         var wrongProvider = DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(factory.Root, "other-keys")));
         Assert.Throws<CryptographicException>(() => new RegisteredAgentStore(wrongProvider, new(copiedState), users, factory.Clock));
     }
+    [Fact]
+    public void RemoteOwnerCannotCreateRevealRotateOrRevokeAgentCredentials()
+    {
+        using var factory=new AgentFactory();
+        var users=factory.Services.GetRequiredService<UserStore>();
+        var (owner,secret)=Owner(users,factory.Clock);var agents=factory.Services.GetRequiredService<RegisteredAgentStore>();
+        factory.Clock.Advance();var created=agents.Create(owner,Password,Code(secret,factory.Clock),"Local agent","https://localhost/",1);
+        var remote=new ClaimsPrincipal(new ClaimsIdentity(owner.Claims.Append(new Claim("pidock_remote",Guid.NewGuid().ToString())),"Cookies"));
+        factory.Clock.Advance();var otp=Code(secret,factory.Clock);
+        Assert.Throws<UnauthorizedAccessException>(()=>agents.List(remote));
+        Assert.Throws<UnauthorizedAccessException>(()=>agents.Create(remote,Password,otp,"Remote agent","https://localhost/",1));
+        Assert.Throws<UnauthorizedAccessException>(()=>agents.Reveal(remote,Password,otp,created.Application.Id));
+        Assert.Throws<UnauthorizedAccessException>(()=>agents.Rotate(remote,Password,otp,created.Application.Id,1));
+        Assert.Throws<UnauthorizedAccessException>(()=>agents.Revoke(remote,Password,otp,created.Application.Id));
+        // Remote rejection must not consume the local owner's next code.
+        Assert.Equal(created.Token,agents.Reveal(owner,Password,otp,created.Application.Id).Token);
+    }
+    [Fact]
+    public async Task OwnerRecoveryInvalidatesPreviouslyIssuedAgentTokens()
+    {
+        using var factory=new AgentFactory();using var client=factory.CreateClient(new(){BaseAddress=new("https://localhost"),AllowAutoRedirect=false});
+        var users=factory.Services.GetRequiredService<UserStore>();var (owner,secret)=Owner(users,factory.Clock);
+        var agents=factory.Services.GetRequiredService<RegisteredAgentStore>();factory.Clock.Advance();
+        var registration=agents.Create(owner,Password,Code(secret,factory.Clock),"Owner-bound","https://localhost/",1,true);
+        client.DefaultRequestHeaders.Authorization=new("Bearer",registration.Token);
+        Assert.Equal(HttpStatusCode.OK,(await client.GetAsync("/api/apps/v1/system")).StatusCode);
+        var replacementSecret=Totp.NewSecret();
+        users.RecoverLocalOwner(new PhysicalPresence(),"replacement","new-owner-private-password",replacementSecret,-1);
+        Assert.Null(agents.Authenticate(registration.Token));
+        var replacement=users.Authenticate("replacement","new-owner-private-password",Code(replacementSecret,factory.Clock),factory.Clock.Now)!;
+        var newOwner=users.Principal(replacement);
+        Assert.False(Assert.Single(agents.List(newOwner)).OwnerCurrent);
+        factory.Clock.Advance();
+        Assert.Throws<ArgumentException>(()=>agents.Reveal(newOwner,"new-owner-private-password",Code(replacementSecret,factory.Clock),registration.Application.Id));
+        factory.Clock.Advance();
+        var newRegistration=agents.Create(newOwner,"new-owner-private-password",Code(replacementSecret,factory.Clock),"Owner-bound","https://localhost/",1);
+        Assert.NotNull(agents.Authenticate(newRegistration.Token));
+        Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/apps/v1/system")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/platform/v1/discovery")).StatusCode);
+    }
+    [Fact]
+    public void ClockPauseRejectsRegisteredTokensWithoutDeletingTheirState()
+    {
+        string directory=Path.Combine(OperatingSystem.IsMacOS()?"/private/tmp":Path.GetTempPath(),"pidock-clock-agent-"+Guid.NewGuid());
+        try {
+            bool allowed=true;var provider=new EphemeralDataProtectionProvider();
+            var users=new UserStore(provider,directory,clockAllowed:()=>allowed);var clock=new Clock();var (owner,secret)=Owner(users,clock);
+            var agents=new RegisteredAgentStore(provider,new(directory),users,clock);clock.Advance();
+            var registration=agents.Create(owner,Password,Code(secret,clock),"Clock-bound","https://localhost/",1);
+            Assert.NotNull(agents.Authenticate(registration.Token));allowed=false;Assert.Null(agents.Authenticate(registration.Token));
+            allowed=true;Assert.NotNull(agents.Authenticate(registration.Token));
+        }finally { if(Directory.Exists(directory))Directory.Delete(directory,true); }
+    }
     private const string Password = "integration-test-password";
     private static string Code(string secret, Clock clock) => Totp.Code(secret, clock.Now.ToUnixTimeSeconds() / 30);
     private static (ClaimsPrincipal User, string Secret) Owner(UserStore users, Clock clock)

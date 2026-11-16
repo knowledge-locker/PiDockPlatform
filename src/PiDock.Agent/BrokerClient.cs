@@ -41,6 +41,40 @@ public sealed class BrokerClient(IConfiguration configuration, IApplicationCrede
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode(); return await response.Content.ReadFromJsonAsync<ApplicationStorageStatus>(StateFiles.Json, ct);
     }
+    public async Task<NodeView[]> Nodes(CancellationToken ct=default)=>http is null?[]:await http.GetFromJsonAsync<NodeView[]>("/nodes",StateFiles.Json,ct)??[];
+    public async Task<NodeAudit[]> NodeAudit(CancellationToken ct=default)=>http is null?[]:await http.GetFromJsonAsync<NodeAudit[]>("/nodes/audit",StateFiles.Json,ct)??[];
+    public async Task AdoptNode(NodeAction request,CancellationToken ct=default) {
+        if(http is null)throw new InvalidOperationException("Host broker unavailable.");
+        using var response=await http.PostAsJsonAsync("/nodes/adopt",request,StateFiles.Json,ct);response.EnsureSuccessStatusCode();
+    }
+    public async Task ConfigureNode(NodeConfigureAction request,CancellationToken ct=default) {
+        if(http is null)throw new InvalidOperationException("Host broker unavailable.");
+        using var response=await http.PutAsJsonAsync("/nodes/configuration",request,StateFiles.Json,ct);response.EnsureSuccessStatusCode();
+    }
+    public async Task ReleaseNode(NodeReleaseAction request,CancellationToken ct=default) {
+        if(http is null)throw new InvalidOperationException("Host broker unavailable.");
+        using var response=await http.PostAsJsonAsync("/nodes/release",request,StateFiles.Json,ct);response.EnsureSuccessStatusCode();
+    }
+    public async Task<DigitalIoStatus> DigitalStatus(CancellationToken ct = default) => http is null
+        ? new(false, "Host broker is not connected.", null, [], [])
+        : await http.GetFromJsonAsync<DigitalIoStatus>("/gpio", StateFiles.Json, ct) ?? throw new HttpRequestException("GPIO response unavailable.");
+    public async Task ClaimDigital(DigitalLeaseRequest request)
+    {
+        DigitalIoRules.Validate(request);
+        if (http is null) throw new InvalidOperationException("Host broker is not configured.");
+        using var response = await http.PostAsJsonAsync("/gpio/leases", request); response.EnsureSuccessStatusCode();
+    }
+    public async Task ConfigureDigital(DigitalPinPermission permission)
+    {
+        if(!DigitalIoRules.Assignable(permission.Gpio))throw new ArgumentException("Reserved or invalid GPIO.");
+        if(http is null)throw new InvalidOperationException("Host broker is not configured.");
+        using var response=await http.PostAsJsonAsync("/gpio/policy",permission);response.EnsureSuccessStatusCode();
+    }
+    public async Task ReleaseDigital(Guid session)
+    {
+        if (http is null) return;
+        using var response = await http.DeleteAsync($"/gpio/leases/{session:D}"); response.EnsureSuccessStatusCode();
+    }
     public async Task<ApplicationSummary[]> List(CancellationToken ct = default) => http is null ? [] : await http.GetFromJsonAsync<ApplicationSummary[]>("/applications", StateFiles.Json, ct) ?? [];
     public async Task Deploy(ApplicationManifest manifest)
     {

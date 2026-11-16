@@ -1,0 +1,22 @@
+@page "/diagnostics"
+@attribute [Authorize(Roles = "Owner")]
+@using PiDock.Core
+<PageTitle>Installer diagnostics · PiDockOS</PageTitle>
+<p class="eyebrow">PIDOCKOS / DIAGNOSTICS</p>
+<h1>Installer diagnostics</h1>
+<section class="card">
+<p>The installer records setup progress, Wi-Fi authentication and addressing, and trusted-time status. This report excludes passwords, authenticator secrets, enrollment codes, and network identifiers.</p>
+@if(available) { <a class="button" href="/api/diagnostics/installer" download>Download installer log</a><pre style="white-space:pre-wrap;overflow-wrap:anywhere">@report</pre> }
+else { <p>No installer report is available yet. If the Pi cannot connect, shut it down and open <code>pidock-early-boot.log</code> and <code>pidock-install.log</code> on its first SD-card boot partition using your computer.</p> }
+<p>The first report covers early startup. The installer log covers owner setup, network connection and authenticated time. Detailed system journals stay private on the Linux data partition, limited to 32 MiB and seven days.</p>
+<p>Diagnostic status is informational; it does not approve updates, establish trusted time or change ownership.</p>
+</section>
+@code {
+    private string report="";private bool available;
+    protected override void OnInitialized() {
+        var file=new FileInfo(BootDiagnostics.LogPath);
+        if(file.Exists&&file.Length<=BootDiagnostics.MaximumBytes&&!file.Attributes.HasFlag(FileAttributes.ReparsePoint)) {
+            try { report=File.ReadAllText(file.FullName);available=true; }catch(Exception e) when(e is IOException or UnauthorizedAccessException){}
+        }
+    }
+}

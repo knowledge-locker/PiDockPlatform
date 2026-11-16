@@ -1,0 +1,10 @@
+{
+  "buildroot": {
+    "version": "2026.08.1",
+    "commit": "4c374fa38b30601dd54c52df6e45691252958803",
+    "url": "https://codeload.github.com/buildroot/buildroot/tar.gz/4c374fa38b30601dd54c52df6e45691252958803",
+    "sha256": "6a482ba47b1d0739ceb4572b1db1319abf585a4108ad5e532eccc1bfd63e9f5f"
+  },
+  "eeprom": {"commit":"3831e51dba65f4493f3f88c1d049de73165c082e"},
+  "usbboot": {"commit":"fdb604d018693465c9aa6ec69879df866d2820da"}
+}

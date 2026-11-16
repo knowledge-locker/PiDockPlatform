@@ -1,0 +1,1 @@
+../../../src/PiDock.Cloud.Web/wwwroot/provisioning.js

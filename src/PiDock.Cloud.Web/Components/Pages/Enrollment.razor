@@ -4,15 +4,12 @@
 @inject Microsoft.AspNetCore.Components.NavigationManager Navigation
 @inject EnrollmentStore Invitations
 @inject AuthenticationStateProvider Authentication
-@inject UserStore Users
 <PageTitle>Add device · PiDockCloud</PageTitle>
 <div class="page-heading"><div><p class="eyebrow">PIDOCKCLOUD / ENROLLMENT</p><h1>Add a device</h1><p>Create a single-use code, then enter it on your PiDockOS appliance.</p></div><a href="/">Fleet overview →</a></div>
 @if (!Invitations.Ready) { <div class="notice">Device enrollment is not enabled on this server. The server administrator must configure its certificate issuer and MQTT endpoint first.</div> }
 <div class="columns"><section class="card"><h2>1. Create an enrollment code</h2><p>The code belongs to your organization. It expires after ten minutes and connects one device.</p>
 @if (canManage) {
 <label>Device name<input @bind="name" maxlength="80" placeholder="Workshop Pi" autocomplete="off" /></label>
-<label>Your cloud password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
-<label>Fresh authenticator code<input @bind="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" /></label>
 <button @onclick="Create" disabled="@(busy || watching || !Invitations.Ready)">Generate single-use code</button>
 } else { <p>An organization Owner or Administrator must create enrollment codes.</p> }
 <p role="status">@message</p></section>
@@ -33,8 +30,10 @@ else { <table><thead><tr><th>Name</th><th>Device ID</th><th>Enrollment</th><th>C
 <tr><td>@entry.Name</td><td><small>@entry.DeviceId</small></td><td><span class="pill">@(entry.State == "Registered" ? (devices.Any(d => d.DeviceId == entry.DeviceId && d.HasLiveContact && d.ReceivedAt >= DateTimeOffset.UtcNow.AddSeconds(-90)) ? "Connected · live readings" : "Registered · waiting for live readings") : entry.State)</span></td><td>@entry.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td><td>@if(canManage && entry.State == "Pending") { <button class="secondary" disabled="@busy" @onclick="() => Cancel(entry.Id)">Cancel code</button> }@if (entry.State is "Registered" or "Pending") { <button class="secondary" disabled="@watching" @onclick="() => Watch(entry.DeviceId)">Watch for connection</button> }</td></tr>
 }</tbody></table> }
 <small>Registered confirms certificate issuance. Fleet contact confirms that monitoring is connected. Cancelling a code does not revoke an issued certificate.</small></section>
+<ReauthenticationDialog @ref="confirmation" Cloud="true" />
 @code {
-    private string name = "", password = "", otp = "", message = ""; private bool busy, canManage;
+    private ReauthenticationDialog confirmation = default!;
+    private string name = "", message = ""; private bool busy, canManage;
     private bool watching, timedOut; private string watchMessage = ""; private string? watchedDevice; private Guid? retryInvitation;
     private DateTimeOffset watchStarted; private readonly CancellationTokenSource stop = new(); private Task? refresh; private bool navigating;
     private IReadOnlyList<StoredDevice> devices = [];
@@ -42,7 +41,7 @@ else { <table><thead><tr><th>Name</th><th>Device ID</th><th>Enrollment</th><th>C
     protected override async Task OnInitializedAsync() { await Load(); refresh = Refresh(); }
     private void Watch(string deviceId) { watchedDevice = deviceId; watchStarted = DateTimeOffset.UtcNow; watching = true; timedOut = false; watchMessage = "Waiting for the appliance to send a live reading. This can take up to two minutes."; }
     private void StopWatching() { watching = false; }
-    private void TryAgain() { retryInvitation = issued?.Id ?? entries.FirstOrDefault(e => e.DeviceId == watchedDevice)?.Id; issued = null; timedOut = false; watching = false; password = ""; otp = ""; message = "Check networking on PiDockOS, then enter fresh credentials to generate a new code. If the device already registered, retry its cloud connection and watch its existing registration below."; }
+    private void TryAgain() { retryInvitation = issued?.Id ?? entries.FirstOrDefault(e => e.DeviceId == watchedDevice)?.Id; issued = null; timedOut = false; watching = false; message = "Check networking on PiDockOS, then select Generate single-use code. If the device already registered, retry its cloud connection and watch its existing registration below."; }
     private async Task Refresh()
     {
         var token = stop.Token;
@@ -73,16 +72,11 @@ else { <table><thead><tr><th>Name</th><th>Device ID</th><th>Enrollment</th><th>C
     }
     public async ValueTask DisposeAsync() { await stop.CancelAsync(); if (!navigating) { if (refresh is not null) await refresh; stop.Dispose(); } }
     private async Task Load() { var user = (await Authentication.GetAuthenticationStateAsync()).User; canManage = EnrollmentStore.CanManage(user); entries = Invitations.For(user); devices = Fleet.For(user); }
-    private async Task<bool> Confirm()
-    {
-        var user = (await Authentication.GetAuthenticationStateAsync()).User;
-        bool valid = Users.IsCurrent(user) && EnrollmentStore.CanManage(user) && Users.Authenticate(user.Identity!.Name!, password, otp, DateTimeOffset.UtcNow) is not null;
-        password = ""; otp = ""; if (!valid) message = "Your cloud password and a fresh authenticator code are required."; return valid;
-    }
+
     private async Task Create()
     {
         if(busy) return; busy = true; watching = false; timedOut = false;
-        try { if (!await Confirm()) return;
+        try { if (!await confirmation.Request("Generate enrollment code", $"Create a single-use invitation for {name} to join your organization. Any previous pending invitation being retried will be cancelled.")) return;
             var user = (await Authentication.GetAuthenticationStateAsync()).User;
             var previous = Invitations.For(user).FirstOrDefault(e => e.Id == (retryInvitation ?? issued?.Id));
             if (previous?.State == "Registered") { message = "This device already registered. Retry its cloud connection on PiDockOS; watching for telemetry now."; Watch(previous.DeviceId); return; }
@@ -95,7 +89,7 @@ else { <table><thead><tr><th>Name</th><th>Device ID</th><th>Enrollment</th><th>C
     private async Task Cancel(Guid id)
     {
         if(busy) return; busy = true;
-        try { if (!await Confirm()) return; Invitations.Cancel((await Authentication.GetAuthenticationStateAsync()).User, id); if(issued?.Id == id) issued = null; message = "Invitation cancelled."; await Load(); }
+        try { if (!await confirmation.Request("Cancel enrollment code", "Cancel this pending invitation. It will no longer register a new device.")) return; Invitations.Cancel((await Authentication.GetAuthenticationStateAsync()).User, id); if(issued?.Id == id) issued = null; message = "Invitation cancelled."; await Load(); }
         catch(Exception e) when(e is IOException or UnauthorizedAccessException) { message = "Invitation could not be cancelled."; }
         finally { busy = false; }
     }

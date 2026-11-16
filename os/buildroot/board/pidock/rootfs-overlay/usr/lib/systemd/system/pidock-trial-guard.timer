@@ -1,0 +1,7 @@
+[Unit]
+Description=PiDockOS independent trial health deadline
+[Timer]
+OnBootSec=180s
+Unit=pidock-trial-guard.service
+[Install]
+WantedBy=timers.target

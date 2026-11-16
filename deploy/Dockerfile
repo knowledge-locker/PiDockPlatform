@@ -13,7 +13,7 @@ COPY tools ./tools
 RUN dotnet restore PiDock.sln --locked-mode
 RUN dotnet test PiDock.sln --no-restore --configuration Release
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.15@sha256:bfd912c83295ce66d4b706ebb8541b9f14259b0e76fbb88b2751f58ce2399d2e
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.15@sha256:bfd912c83295ce66d4b706ebb8541b9f14259b0e76fbb88b2751f58ce2399d2e AS runtime
 WORKDIR /app
 COPY --from=build /out .
 ARG WEB_URLS=https://+:8443
@@ -26,4 +26,13 @@ ENV ASPNETCORE_URLS=${WEB_URLS} \
     ASPNETCORE_Kestrel__Certificates__Default__KeyPath=${WEB_CERTIFICATE_KEY}
 USER $APP_UID
 EXPOSE 8443 8080
+# Set PROJECT to match the selected runtime target.
+FROM runtime AS appliance
+ENTRYPOINT ["dotnet", "PiDock.Appliance.Web.dll"]
+
+FROM runtime AS broker
+ENTRYPOINT ["dotnet", "PiDock.Appliance.Broker.dll"]
+
+# Preserve the default cloud target used by existing publication workflows.
+FROM runtime AS cloud
 ENTRYPOINT ["dotnet", "PiDock.Cloud.Web.dll"]

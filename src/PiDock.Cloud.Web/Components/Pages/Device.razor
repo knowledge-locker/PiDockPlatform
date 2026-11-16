@@ -4,13 +4,16 @@
 @inject EnrollmentStore Invitations
 @inject ApplicationCommandStore Commands
 @inject AuthenticationStateProvider Authentication
-@inject UserStore Users
 <PageTitle>@name · PiDockCloud</PageTitle>
 @if (device is null) {
     <section class="card empty"><h1>Device unavailable</h1><p>This device is not available in your organization.</p><a href="/">Return to fleet overview →</a></section>
 } else {
 <div class="page-heading"><div><p class="eyebrow"><a href="/">FLEET</a> / DEVICE DASHBOARD</p><h1>@name</h1><p>@device.Snapshot.Hostname · @device.Snapshot.Platform</p></div><span class="pill @(Online ? "status-online" : "status-offline")">@(Online ? "Online" : "Last known readings") · @Format.Ago(device.ReceivedAt)</span></div>
-<p>Cloud container control: <span class="pill @(Format.CloudControl(device) == "Allowed" ? "status-online" : "status-neutral")">@Format.CloudControl(device)</span> <small>Permission is set by the local owner on PiDockOS. Stale reports do not permit operations.</small></p>
+<section class="device-access-summary" aria-label="Device remote access">
+<div class="device-control-summary"><span>Cloud container control</span><span class="pill @(Format.CloudControl(device) == "Allowed" ? "status-online" : "status-neutral")">@Format.CloudControl(device)</span></div>
+<RemoteAccessPanel @key="(typeof(RemoteAccessPanel), DeviceId)" Device="device" />
+<small class="device-access-note">Permissions are set by the local owner on PiDockOS. A live connection is required for remote operations.</small>
+</section>
 <div class="metrics device-kpis">
 <section class="card"><span>Device uptime</span><strong>@(device.Snapshot.Channels?.Uptime == false ? "Not shared" : Format.Uptime(device.Snapshot.UptimeSeconds))</strong></section>
 <section class="card"><span>CPU utilization</span><strong>@Format.Percent(device.Snapshot.CpuPercent)</strong></section>
@@ -26,7 +29,7 @@ else {
 @foreach (var app in inventory.Applications) { <tr><td>@string.Join(", ", app.Names.Select(n => n.TrimStart('/')))</td><td><span class="pill status-neutral">@app.State</span><br/><small>@app.Status</small></td><td><small>@app.Image</small></td><td>@if(canControl) { <div class="button-row"><button class="secondary" disabled="@(!CanOperate || busy)" @onclick="() => ControlState(app)">@(app.State == "running" ? "Stop" : "Start")</button><button class="secondary" disabled="@(!CanOperate || busy || app.State != "running")" @onclick="() => Restart(app)">Restart</button></div> } else { <small>Owner / administrator required</small> }</td></tr> }
 </tbody></table></div>
 @if(inventory.Applications.Count == 0) { <p>No managed containers reported. Install applications locally through PiDockOS; system containers are excluded.</p> }
-@if(canControl) { <div class="runtime-confirm"><label>Cloud password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label><label>Fresh authenticator code<input @bind="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" /></label></div><small>Each operation requires fresh authentication, expires after two minutes, and is sent with the next live telemetry receipt. No shell, image deployment or device I/O access is granted.</small> }
+@if(canControl) { <small>Each operation requires fresh authentication, expires after two minutes, and is sent with the next live telemetry receipt.</small> }
 }
 <p role="status">@message</p>
 @if(operations.Count > 0) { <h3>Recent operations</h3><div class="table-scroll"><table><thead><tr><th>Operation</th><th>Requested</th><th>Result</th></tr></thead><tbody>@foreach(var operation in operations) { <tr><td>@operation.Command.Action</td><td>@Format.Ago(operation.Command.IssuedAt)</td><td>@(operation.Result?.State ?? (operation.Command.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired — verify device state before retrying" : "Queued — waiting for device"))<br/><small>@operation.Result?.Message</small></td></tr> }</tbody></table></div> }
@@ -34,9 +37,11 @@ else {
 <OsUpdatePanel @key="(typeof(OsUpdatePanel), DeviceId)" Device="device" />
 <ResourceTrends @key="DeviceId" Query="ReadHistory" ExportPath="@($"/api/devices/{Uri.EscapeDataString(DeviceId)}/export")" />
 }
+<ReauthenticationDialog @ref="confirmation" Cloud="true" />
 @code {
+    private ReauthenticationDialog confirmation = default!;
     [Parameter] public string DeviceId { get; set; } = "";
-    private StoredDevice? device; private string name = "Device", password = "", otp = "", message = "";
+    private StoredDevice? device; private string name = "Device", message = "";
     private bool busy, canControl;
     private IReadOnlyList<CloudApplicationCommand> operations = [];
     private System.Security.Claims.ClaimsPrincipal user = new();
@@ -52,9 +57,10 @@ else {
     private Task Restart(ApplicationSummary app) => Control(app.Id, "restart");
     private async Task Control(string container, string action)
     {
-        if(busy) return; busy = true;
-        try { var user = (await Authentication.GetAuthenticationStateAsync()).User; if(!Users.IsCurrent(user) || !ApplicationCommandStore.CanControl(user) || Users.Authenticate(user.Identity!.Name!,password,otp,DateTimeOffset.UtcNow) is null) { message = "Your cloud owner/administrator password and a fresh authenticator code are required."; return; } Commands.Queue(user,DeviceId,action,container); message = $"{action} requested. Waiting for the device acknowledgement; allow up to two minutes."; await Load(); }
+        if(busy || !CanOperate) return; busy = true;
+        var deviceId = DeviceId;
+        try { var user = (await Authentication.GetAuthenticationStateAsync()).User; if(!await confirmation.Request($"{action[..1].ToUpperInvariant() + action[1..]} container", $"Request {action} for container {container} on {name}.")) return; user = (await Authentication.GetAuthenticationStateAsync()).User; Commands.Queue(user,deviceId,action,container); message = $"{action} requested. Waiting for the device acknowledgement; allow up to two minutes."; await Load(); }
         catch(Exception e) when(e is InvalidOperationException or ArgumentException or UnauthorizedAccessException or IOException) { message = e is InvalidOperationException or ArgumentException ? e.Message : "The operation could not be saved."; }
-        finally { password = ""; otp = ""; busy = false; }
+        finally { busy = false; }
     }
 }

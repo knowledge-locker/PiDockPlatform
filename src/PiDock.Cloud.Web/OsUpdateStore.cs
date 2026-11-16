@@ -38,7 +38,7 @@ public sealed class OsUpdateStore
             lock (gate)
             {
                 if (!fleet.HasAccess(user)) throw new UnauthorizedAccessException();
-                var existing = Releases(user).FirstOrDefault(r => r.Release.Version == release.Version && r.Release.Runtime == release.Runtime);
+                var existing = Releases(user).FirstOrDefault(r => r.Release.Version == release.Version && r.Release.Runtime == release.Runtime && r.Release.Kind == release.Kind);
                 if (existing is not null) return existing.Release.Digest == release.Digest ? existing : throw new InvalidOperationException("Release versions are immutable for each runtime.");
                 string destination = Path.Combine(root, release.Digest + ".zip");
                 if (!File.Exists(destination)) File.Move(incoming, destination);
@@ -59,7 +59,7 @@ public sealed class OsUpdateStore
         lock (gate)
         {
             var release = Releases(user).SingleOrDefault(r => r.Release.Digest == digest) ?? throw new ArgumentException("Choose a published release in your organization.");
-            if (release.Release.Runtime != updates.Runtime) throw new ArgumentException("This release does not match the device runtime.");
+            if (release.Release.Runtime != updates.Runtime || release.Release.Kind != updates.UpdateKind) throw new ArgumentException("This release does not match the device runtime and updater type.");
             if (state.Commands.Any(c => c.Command.TenantId == target.TenantId && c.Command.DeviceId == device && c.Command.ExpiresAt > now && (c.Operation is null || OsUpdateRules.Busy(c.Operation.State) || c.Operation.State == "Downloading"))) throw new InvalidOperationException("Wait for the current update request to finish or expire.");
             var retained = state.Commands.Where(c => c.Command.IssuedAt > now.AddDays(-7)).ToList();
             if (retained.Count >= 512) throw new InvalidOperationException("Update operation quota reached.");

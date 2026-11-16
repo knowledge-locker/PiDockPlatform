@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 using PiDock.Core;
 namespace PiDock.Agent;
 
-public sealed class HostMonitor(HistoryStore history)
+public sealed class HostMonitor(HistoryStore history, ClockTrust? clock = null)
 {
     private readonly object gate = new();
     private long previousIdle, previousTotal;
@@ -37,7 +37,7 @@ public sealed class HostMonitor(HistoryStore history)
                 try { var stats = nic.GetIPStatistics(); interfaces.Add(new(nic.Name, nic.NetworkInterfaceType.ToString(), nic.OperationalStatus.ToString(), stats.BytesReceived, stats.BytesSent, stats.IncomingPacketsWithErrors + stats.OutgoingPacketsWithErrors)); }
                 catch (NetworkInformationException) { interfaces.Add(new(nic.Name, nic.NetworkInterfaceType.ToString(), "Unavailable", 0, 0, 0)); }
             }
-            return new(DateTimeOffset.UtcNow, Environment.MachineName, RuntimeInformation.OSDescription, cpu, totalMemory, availableMemory, temperature, uptime, history.Status().Budget, interfaces, "Unverified — host clock; RTC/NTS integration pending");
+            return new(DateTimeOffset.UtcNow, Environment.MachineName, RuntimeInformation.OSDescription, cpu, totalMemory, availableMemory, temperature, uptime, history.Status().Budget, interfaces, clock?.Description ?? "Host clock trust not enforced in this installation");
         }
     }
 }

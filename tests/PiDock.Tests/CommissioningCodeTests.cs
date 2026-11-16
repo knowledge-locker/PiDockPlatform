@@ -30,9 +30,9 @@ public sealed class CommissioningCodeTests
         var text = output.ToString();
         Assert.Contains($"submission UTC: {clock:O}", text);
         Assert.Contains($"Unix seconds: {clock.ToUnixTimeSeconds()}", text);
-        Assert.Contains($"submitted code: \"{code}\"; characters: 6", text);
-        foreach (long counter in new[] { Step + 1, Step + 2, Step + 3 })
-            Assert.Contains($"expected code: {Totp.Code(Secret, counter)}", text);
+        Assert.Contains("input characters: 6", text);
+        Assert.DoesNotContain(code, text);
+        foreach(long counter in new[] { Step+1,Step+2,Step+3 })Assert.DoesNotContain(Totp.Code(Secret,counter),text);
         Assert.Contains($"second step requires counter {Step + 2}", text);
         Assert.DoesNotContain(Secret, text);
     }

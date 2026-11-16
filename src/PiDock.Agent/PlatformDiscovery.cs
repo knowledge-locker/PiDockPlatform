@@ -26,7 +26,7 @@ public sealed class PlatformDiscovery(CloudEnrollmentClient enrollment, GpioSimu
             new("apps.removal", CapabilityState.Available, "Opt-in paused-app runtime removal with retained data and durable cleanup barrier. Probe app-removal; Owner confirmation of external access cleanup remains required.", ["app-removal.read"]),
             new("apps.runtime-access", CapabilityState.Available, "Opt-in private startup binding, broker observation, lifecycle revocation and permanent registration fencing. Probe app-runtime-access; simulated I/O only, no physical safety guarantee.", ["app-runtime-access.read"]),
             new("apps.engineering", CapabilityState.Available, "Opt-in managed-credential variable set/force/release with runtime revision, expiry and audit. Probe app-engineering; no physical GPIO authority.", ["app-engineering.read"]),
-            new("gpio.control", CapabilityState.Planned, "Physical GPIO operations and electrically validated hardware leases are not implemented.", []),
+            new("gpio.control", CapabilityState.Planned, "Local-owner Pi 5 GPIO maintenance is separate; GPIO access and leases for apps are not implemented.", []),
             new("gpio.app-simulation", io.Support().Enabled ? CapabilityState.Simulated : CapabilityState.Planned,
                 "Scoped app-facing simulated aliases, exclusive leases, batch outputs and fallback. Probe app-io; Development-only and never physical GPIO.", []),
             new("gpio.simulation", gpio.Enabled ? CapabilityState.Simulated : CapabilityState.Planned,

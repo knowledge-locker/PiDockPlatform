@@ -1,0 +1,10 @@
+[all]
+arm_64bit=1
+kernel=Image
+initramfs initramfs.gz followkernel
+disable_overscan=1
+avoid_warnings=2
+dtoverlay=vc4-kms-v3d
+# USB-C peripheral controller is inert in Main mode; only a Node binds a management gadget.
+dtoverlay=dwc2,dr_mode=peripheral
+# GPIO outputs remain disabled.

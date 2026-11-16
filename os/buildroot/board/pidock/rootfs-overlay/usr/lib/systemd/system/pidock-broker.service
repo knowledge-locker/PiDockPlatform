@@ -1,0 +1,36 @@
+[Unit]
+Requires=pidock-provision.service
+After=pidock-provision.service
+ConditionPathExists=!/var/lib/pidock/node-mode
+Description=PiDock restricted host broker
+After=docker.service
+Requires=docker.service
+
+[Service]
+User=root
+Group=pidock
+WorkingDirectory=/usr/lib/pidock/broker
+ExecStart=/usr/lib/pidock/broker/PiDock.Appliance.Broker
+Environment=Broker__SocketPath=/run/pidock/broker.sock
+Environment=Broker__DockerSocket=/var/run/docker.sock
+Environment=Broker__EnableDeployments=false
+Environment=Broker__EnableLifecycle=true
+Environment=Nodes__StateDirectory=/var/lib/pidock/broker/nodes
+Environment=Gpio__PolicyPath=/var/lib/pidock/broker/gpio-policy.json
+StateDirectory=pidock/broker
+RuntimeDirectory=pidock
+RuntimeDirectoryMode=0750
+UMask=0007
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+ReadWritePaths=/run/pidock /var/lib/pidock/broker
+
+[Install]
+WantedBy=multi-user.target

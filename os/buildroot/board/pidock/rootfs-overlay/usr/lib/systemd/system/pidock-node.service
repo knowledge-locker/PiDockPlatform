@@ -1,0 +1,26 @@
+[Unit]
+Description=PiDock node authority over private USB
+Requires=pidock-network.service pidock-usb-gadget.service
+After=pidock-network.service pidock-usb-gadget.service systemd-networkd.service
+ConditionPathExists=/var/lib/pidock/node-mode
+[Service]
+User=root
+WorkingDirectory=/usr/lib/pidock/broker
+ExecStart=/usr/lib/pidock/broker/PiDock.Appliance.Broker --usb-node
+Environment=ASPNETCORE_ENVIRONMENT=Production
+StateDirectory=pidock/node
+UMask=0077
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/pidock/node
+CapabilityBoundingSet=
+[Install]
+WantedBy=multi-user.target

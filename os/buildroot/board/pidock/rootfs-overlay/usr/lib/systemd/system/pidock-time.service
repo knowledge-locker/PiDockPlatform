@@ -1,0 +1,22 @@
+[Unit]
+Description=PiDock authenticated time evidence
+After=chrony.service
+Requires=chrony.service
+[Service]
+User=root
+ExecStart=/usr/lib/pidock/updater/PiDock.Updater host-time-guard
+RuntimeDirectory=pidock-time
+RuntimeDirectoryMode=0755
+UMask=0022
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectClock=true
+# chronyd owns a mode-0755 socket inside a mode-0750 directory. Root needs
+# DAC override for the local query; no clock-setting capability is granted.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+ReadWritePaths=/run/pidock-time
+[Install]
+WantedBy=multi-user.target

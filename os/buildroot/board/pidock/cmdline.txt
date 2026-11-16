@@ -1,0 +1,1 @@
+console=tty1 panic=10 ro quiet net.ifnames=0

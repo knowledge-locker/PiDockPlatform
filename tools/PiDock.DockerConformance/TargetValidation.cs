@@ -61,7 +61,7 @@ internal static class TargetValidation
         try
         {
             Console.WriteLine("Building the isolated target; actual broker and appliance executables will be restarted.");
-            await Exec("dotnet","publish",Path.Combine(root,"tools/PiDock.AppUi.Sample"),"-c","Release","-r","linux-arm64","--self-contained","false","-o",Path.Combine(temp,"app"));
+            await Exec("dotnet","publish",Path.Combine(root,"tools/PiDock.AppUi.Sample"),"-c","Release","-r","linux-arm64","--self-contained","false","-p:RestorePackagesWithLockFile=false","-o",Path.Combine(temp,"app"));
             await File.WriteAllTextAsync(Path.Combine(temp,"probe.c"),ApplicationHealthAssets.ReaderSource);
             await File.WriteAllTextAsync(Path.Combine(temp,"Dockerfile"),$"""
                 FROM {SdkImage} AS probe

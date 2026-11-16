@@ -1,0 +1,26 @@
+[Unit]
+Description=PiDock first-boot installer diagnostics
+After=var.mount boot-control.mount systemd-journal-flush.service pidock-provision.service pidock-network.service pidock-wifi.service
+Wants=pidock-provision.service pidock-network.service systemd-journal-flush.service
+Requires=var.mount boot-control.mount
+Before=pidock-updater.service pidock-appliance.service
+ConditionPathExists=!/var/lib/pidock/diagnostics/initial-complete
+[Service]
+Type=oneshot
+User=root
+Group=pidock
+UMask=0027
+ExecStart=/usr/lib/pidock/updater/PiDock.Updater host-first-boot-log
+ExecStopPost=/bin/mount -o remount,ro /boot/control
+TimeoutStartSec=240
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+ReadWritePaths=/var/lib/pidock/diagnostics /boot/control
+[Install]
+WantedBy=multi-user.target

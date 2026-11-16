@@ -2,6 +2,7 @@ using System.Net;
 using Microsoft.AspNetCore.DataProtection;
 using PiDock.Core;
 using PiDock.Appliance.Broker;
+if(args.Contains("--usb-node")) {await UsbNodeHost.Run(args);return;}
 var builder = WebApplication.CreateBuilder(args);
 var socket = builder.Configuration["Broker:SocketPath"] ?? "/run/pidock/broker.sock";
 if (!Path.IsPathFullyQualified(socket)) throw new InvalidOperationException("Broker socket must be an absolute path.");
@@ -40,14 +41,20 @@ if (resourcesEnabled)
 }
 builder.Services.AddSingleton(sp => new DockerOperations(UnixHttp.Connect(builder.Configuration["Broker:DockerSocket"] ?? "/var/run/docker.sock", TimeSpan.FromMinutes(3)),sp.GetService<IManagedDeploymentStore>(),sp.GetService<IApplicationBootstrapDelivery>(),TimeProvider.System,recoveryEnabled,orchestrationEnabled,sp.GetService<IApplicationShutdownStore>(),updatesEnabled,sp.GetService<IApplicationUpdateStore>(),backupsEnabled,sp.GetService<IApplicationBackupStore>(),dataHelperImage,installTrustEnabled,sp.GetService<IApplicationInstallTrustStore>(),removalsEnabled,sp.GetService<IApplicationRemovalStore>())
 { StorageConfiguration = builder.Configuration.GetSection("Broker:AppStorage").Get<ApplicationStorageConfiguration>() });
+builder.Services.AddSingleton<IDigitalIoDriver, LinuxDigitalIo>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<DigitalIoService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DigitalIoService>());
+builder.Services.AddSingleton<MainNodeService>();
+builder.Services.AddHostedService(sp=>sp.GetRequiredService<MainNodeService>());
 var installedRelease = OsUpdateRules.Installed(AppContext.BaseDirectory);
 var app = builder.Build();
 app.Use(async (context, next) =>
 {
     try { await next(); }
     catch (ArgumentException e) { context.Response.StatusCode = 400; await context.Response.WriteAsJsonAsync(new { error = e.Message }); }
-    catch (Exception e) when (e is HttpRequestException or InvalidOperationException or TaskCanceledException or IOException or System.Security.Cryptography.CryptographicException)
-    { app.Logger.LogWarning("Broker operation failed: {Type}", e.GetType().Name); context.Response.StatusCode = 503; await context.Response.WriteAsJsonAsync(new { error = "Container operation unavailable; check the runtime and broker logs." }); }
+    catch (Exception e) when (e is HttpRequestException or InvalidOperationException or TaskCanceledException or IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+    { app.Logger.LogWarning("Broker operation failed: {Type}", e.GetType().Name); context.Response.StatusCode = 503; await context.Response.WriteAsJsonAsync(new { error = "Host operation unavailable; check the runtime and broker logs." }); }
 });
 app.MapGet("/health/update", () => new OsUpdateHealth(installedRelease?.Digest, true));
 app.MapGet("/applications/runtime-access", (DockerOperations docker, CancellationToken ct) => docker.RuntimeAccess(ct));
@@ -106,7 +113,17 @@ app.MapGet("/applications/{id}/resources", async (string id, DockerOperations do
     var state = await docker.Resources(id,ct);
     return state is null ? (IResult)Results.NotFound() : Results.Ok(state);
 });
+app.MapGet("/nodes/status",(MainNodeService nodes)=>new {enabled=nodes.Enabled});
+app.MapGet("/nodes",(MainNodeService nodes)=>nodes.Current);
+app.MapGet("/nodes/audit",(MainNodeService nodes)=>nodes.Audit);
+app.MapPost("/nodes/adopt",async(NodeAction request,MainNodeService nodes,CancellationToken ct)=>{await nodes.Adopt(request,ct);return Results.Ok();});
+app.MapPut("/nodes/configuration",async(NodeConfigureAction request,MainNodeService nodes,CancellationToken ct)=>{await nodes.Configure(request,ct);return Results.Ok();});
+app.MapPost("/nodes/release",async(NodeReleaseAction request,MainNodeService nodes,CancellationToken ct)=>{await nodes.Release(request,ct);return Results.Ok();});
 app.MapGet("/applications", (DockerOperations docker, CancellationToken ct) => docker.List(ct));
+app.MapGet("/gpio", (DigitalIoService gpio) => gpio.Status());
+app.MapPost("/gpio/leases", (DigitalLeaseRequest request, DigitalIoService gpio) => { gpio.Claim(request); return Results.Ok(); });
+app.MapPost("/gpio/policy", (DigitalPinPermission permission,DigitalIoService gpio)=>{gpio.ConfigurePin(permission);return Results.Ok();});
+app.MapDelete("/gpio/leases/{session:guid}", (Guid session, DigitalIoService gpio) => { gpio.Release(session); return Results.Ok(); });
 if (builder.Configuration.GetValue<bool>("Broker:EnableDeployments"))
 {
     if (resourcesEnabled) app.MapPost("/applications/prepared", async (ApplicationDeploymentRequest request, DockerOperations docker, CancellationToken ct) => Results.Ok(new { id = await docker.DeployPrepared(request,ct) }));

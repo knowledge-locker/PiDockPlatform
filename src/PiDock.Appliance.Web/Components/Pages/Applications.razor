@@ -2,7 +2,6 @@
 @page "/applications"
 @inject BrokerClient Broker
 @inject AuthenticationStateProvider Authentication
-@inject UserStore Users
 <PageTitle>Applications · PiDockOS</PageTitle>
 <p class="eyebrow">APPLIANCE / APPLICATIONS</p><h1>Applications</h1><p>Run digest-pinned Linux ARM64 images through the restricted host broker.</p>
 <section class="card"><h2>Application workspaces</h2>@if (UiRegistry.Read().Length == 0) { <p>No application interfaces are registered.</p> } else { <ul>@foreach (var contribution in UiRegistry.Read()) { <li><a href="@ApplicationUiRules.LaunchPath(contribution.Contribution)">@contribution.Contribution.Title</a><small> · @(contribution.Bridge is null ? "isolated read-only UI preview" : "authenticated app bridge")</small></li> }</ul> }</section>
@@ -68,8 +67,10 @@
 @if(allowUpdates){<p>Requires health reporting and compatibility with retained data and existing app interfaces.</p><label>Update readiness deadline (seconds)<input type="number" min="30" max="120" @bind="updateReadiness" /></label><label>Continuous Ready before commit (seconds)<input type="number" min="5" max="30" @bind="updateStability" /></label>}
 <label>Credential names, separated by commas<input @bind="credentialNames" maxlength="328" /></label><p><a href="/app-resources">Manage app credentials</a>. Recovery-enabled images must support the PiDockOS startup protocol. Persistent data requires a data directory prepared for user 1654.</p>@if (installSupport?.Enabled == true) { <label>Reason for trusting this image<input @bind="approvalReason" maxlength="512" /></label><p>Approval covers the exact settings above for one hour. Approving does not install or start the app.</p><button class="secondary" disabled="@busy" @onclick="ApproveDeployment">Approve these deployment settings</button> }
 <button disabled="@(!Broker.Configured || busy)" @onclick="Deploy">Pull and deploy</button><p>App data is mounted at /var/lib/pidock/app-data. Storage admission and local backups are separately enabled platform capabilities. Hard volume quotas and automatic purge are not available. The broker supports an optional loopback port pair.</p></section>
-<section class="card"><h2>Confirm owner credentials</h2><p>Each runtime change requires your password and a fresh authenticator code.</p><label>Password<input type="password" @bind="password" autocomplete="current-password" /></label><label>Authenticator code<input @bind="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" /></label><p role="status">@message</p></section></div>
+</div><p role="status">@message</p>
+<ReauthenticationDialog @ref="confirmation" />
 @code {
+    private ReauthenticationDialog confirmation = default!;
     private ApplicationInstallSupport? installSupport; private ApplicationInstallApproval[] approvals = []; private string approvalReason = "";
     private bool persistentData, automaticRecovery, healthReporting, restartUnhealthy, managedLifecycle, allowUpdates;
     private ApplicationUpdateSupport? updateSupport;private ApplicationUpdateStatus[] versions=[];
@@ -83,7 +84,7 @@
     private ApplicationLifecycleStatus[] lifecycles = [];
     private ApplicationLifecycleSupport? lifecycleSupport; private string credentialNames = "";
     private const string Running = "running";
-    private ApplicationSummary[] applications=[]; private string name="", image="",password="",code="";private int memory=128;private double cpu=.5;private bool busy;private string? message;
+    private ApplicationSummary[] applications=[]; private string name="", image="";private int memory=128;private double cpu=.5;private bool busy;private string? message;
     protected override Task OnInitializedAsync()=>Load();
     private async Task Load()
     {
@@ -114,12 +115,7 @@
     private static string DependencyReason(string reason)=>reason switch {"missing"=>"Not installed", "requested_stopped"=>"Requested stopped", "not_running"=>"Not running", "bootstrap_incomplete"=>"Startup incomplete", "health_not_configured"=>"No health contract", "not_ready"=>"Not ready", _=>"Required service unavailable"};
     private Task Pause()=>Change(()=>Broker.OrchestrationControl("pause"));
     private Task Resume()=>Change(()=>Broker.OrchestrationControl("resume"));
-    private async Task<bool> Confirm()
-    {
-        var user=(await Authentication.GetAuthenticationStateAsync()).User;
-        bool valid=Users.IsCurrent(user)&&user.IsInRole("Owner")&&Users.Authenticate(user.Identity!.Name!,password,code,DateTimeOffset.UtcNow) is not null;
-        password="";code="";if(!valid)message="Fresh owner password and authenticator code required.";return valid;
-    }
+    private Task<bool> Confirm(string action, string detail) => confirmation.Request(action, detail);
     private ApplicationManifest DeploymentManifest() => new(name,image,memory,cpu,Resources:new(persistentData,credentialNames.Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries),automaticRecovery,healthReporting ? new ApplicationHealthPolicy(startupSeconds,freshnessSeconds,failureThreshold,restartUnhealthy) : null,dependencyNames.Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries).Select(id=>new ApplicationDependency(id,dependencyCondition)).ToArray(),shutdownSeconds,managedLifecycle,allowUpdates?new ApplicationUpdatePolicy("backward-compatible",updateReadiness,updateStability):null));
     private async Task ApproveDeployment()
     {
@@ -134,16 +130,16 @@
     private async Task Deploy()
     {
         if(busy)return;
-        try{var manifest = DeploymentManifest(); manifest.Validate();if(!await Confirm())return;busy=true;await Broker.Deploy(manifest);message="Application deployed.";await Load();}
+        try{var manifest = DeploymentManifest(); manifest.Validate();if(!await Confirm("Deploy application", $"Deploy {name} from image {image} on this appliance."))return;busy=true;await Broker.Deploy(manifest);message="Application deployed.";await Load();}
         catch(Exception e) when(e is ArgumentException or HttpRequestException or InvalidOperationException){message=e is ArgumentException?e.Message:"Deployment unavailable. Check broker logs and image compatibility.";}
         finally{busy=false;}
     }
-    private Task Control(string id,bool start) => Change(() => Broker.ChangeState(id,start));
-    private Task Restart(string id) => Change(() => Broker.Restart(id));
+    private Task Control(string id,bool start) => Change(() => Broker.ChangeState(id,start), actionTitle: start ? "Start application" : "Stop application", actionDetail: $"Change the state of container {id} on this appliance.");
+    private Task Restart(string id) => Change(() => Broker.Restart(id), actionTitle: "Restart application", actionDetail: $"Restart container {id}; temporary leases and forces will be released.");
     private Task Recovery(string id,bool enabled) => Change(() => Broker.SetRecovery(id,enabled));
-    private async Task Change(Func<Task> action,string successMessage="Application updated.")
+    private async Task Change(Func<Task> action,string successMessage="Application updated.", string actionTitle="Change application", string actionDetail="Change the selected application runtime settings on this appliance.")
     {
-        if (busy || !await Confirm()) return;
+        if (busy || !await Confirm(actionTitle, actionDetail)) return;
         busy = true;
         try { await action(); message = successMessage; }
         catch (Exception e) when (e is HttpRequestException or InvalidOperationException or TaskCanceledException or System.Text.Json.JsonException) { message = "Operation unavailable. Check recovery status, app credentials and broker availability."; }

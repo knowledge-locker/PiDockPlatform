@@ -2,6 +2,15 @@ namespace PiDock.Web.Shared;
 
 public static class Format
 {
+    public static string RemoteInterface(PiDock.Core.StoredDevice device, bool configured, bool connected, DateTimeOffset? now = null)
+    {
+        if (!configured) return "Not configured";
+        // The authenticated live tunnel is stronger evidence than the last telemetry sample.
+        if (connected) return "Enabled";
+        if (device.RemoteInterfaceEnabled is not { } enabled) return "Unavailable";
+        bool stale = !device.HasLiveContact || (now ?? DateTimeOffset.UtcNow) - device.ReceivedAt >= TimeSpan.FromSeconds(90);
+        return (enabled ? "Enabled" : "Disabled") + (stale ? " · stale" : "");
+    }
     public static string CloudControl(PiDock.Core.StoredDevice device, DateTimeOffset? now = null)
     {
         var time = now ?? DateTimeOffset.UtcNow;

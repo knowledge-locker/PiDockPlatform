@@ -27,12 +27,16 @@ public sealed class MqttConnection : IDisposable
         try { ActivatePrepared(prepared); }
         catch { prepared.Dispose(); throw; }
     }
-    internal MqttConnection PrepareEnrollment(CloudConnection connection)
+    private readonly List<MqttConnection> retired = [];
+    internal MqttConnection PrepareEnrollment(CloudConnection connection, bool replacing = false)
     {
         lock (gate)
         {
-            if (active is not null) throw new InvalidOperationException("Cloud connection is already active.");
-            var material = StateFiles.PrepareDirectory(Path.Combine(stateDirectory ?? throw new InvalidOperationException("Device state directory is required."), "cloud-mqtt"));
+            if (active is not null && !replacing) throw new InvalidOperationException("Cloud connection is already active.");
+            if (retired.Count >= 8) throw new InvalidOperationException("Restart the appliance services before changing cloud again.");
+            // Never replace certificate files used by an existing connection or in-flight delivery.
+            var identity = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(connection.CertificatePem)));
+            var material = StateFiles.PrepareDirectory(Path.Combine(stateDirectory ?? throw new InvalidOperationException("Device state directory is required."), "cloud-mqtt", identity));
             StateFiles.WriteAtomic(Path.Combine(material, "device.crt"), connection.CertificatePem);
             StateFiles.WriteAtomic(Path.Combine(material, "device.key"), connection.PrivateKeyPem);
             StateFiles.WriteAtomic(Path.Combine(material, "ca.crt"), connection.CaPem);
@@ -45,11 +49,12 @@ public sealed class MqttConnection : IDisposable
             return new MqttConnection(configured);
         }
     }
-    internal void ActivatePrepared(MqttConnection prepared)
+    internal void ActivatePrepared(MqttConnection prepared, bool replacing = false)
     {
         lock (gate)
         {
-            if (active is not null) throw new InvalidOperationException("Cloud connection is already active.");
+            if (active is not null && !replacing) throw new InvalidOperationException("Cloud connection is already active.");
+            if (active is not null) retired.Add(active);
             Volatile.Write(ref active, prepared);
         }
     }
@@ -117,5 +122,5 @@ public sealed class MqttConnection : IDisposable
             }
         }
     }
-    public void Dispose() { lock (gate) { foreach (var cert in ownedCertificates) cert.Dispose(); active?.Dispose(); } }
+    public void Dispose() { lock (gate) { foreach (var cert in ownedCertificates) cert.Dispose(); active?.Dispose(); foreach (var previous in retired) previous.Dispose(); } }
 }

@@ -77,6 +77,23 @@ public sealed class EnrollmentStore
             Save(updated); return reply;
         }
     }
+    public (string Tenant, string Device)? AuthenticateRemoteDevice(string certificatePem, string nonce, string signature)
+    {
+        try {
+            if (certificatePem.Length > 8192 || signature.Length > 1024) return null;
+            using var certificate = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(certificatePem);
+            var now = clock.GetUtcNow().UtcDateTime;
+            if (certificate.NotBefore.ToUniversalTime() > now || certificate.NotAfter.ToUniversalTime() <= now) return null;
+            using var key = System.Security.Cryptography.X509Certificates.RSACertificateExtensions.GetRSAPublicKey(certificate);
+            if (key is null || !key.VerifyData(RemoteProtocol.ProofBytes(nonce), Convert.FromBase64String(signature), HashAlgorithmName.SHA256, RSASignaturePadding.Pss)) return null;
+            lock (gate) foreach (var entry in entries.Where(e => e.State == "Registered" && e.Reply is not null)) {
+                using var issued = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(entry.Reply!.CertificatePem);
+                if (CryptographicOperations.FixedTimeEquals(certificate.RawData, issued.RawData)) return (entry.TenantId, entry.DeviceId);
+            }
+        } catch (Exception e) when (e is CryptographicException or FormatException or ArgumentException) { }
+        return null;
+    }
+    public (string Tenant, string Device)[] RemoteRegistrations() { lock (gate) return entries.Where(e => e.State == "Registered" && e.Reply?.ExpiresAt > clock.GetUtcNow()).Select(e => (e.TenantId, e.DeviceId)).ToArray(); }
     private static string Hash(string code) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)));
     private void Save(List<DeviceInvitation> updated)
     {
