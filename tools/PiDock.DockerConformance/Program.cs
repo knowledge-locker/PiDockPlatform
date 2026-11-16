@@ -21,12 +21,13 @@ bool healthRecovery = args.Contains("--health-recovery",StringComparer.Ordinal);
 bool retryLimits = args.Contains("--retry-limits",StringComparer.Ordinal);
 bool budgetReset = args.Contains("--budget-reset",StringComparer.Ordinal);
 bool credentialRecovery = args.Contains("--credential-recovery",StringComparer.Ordinal);
+bool applicationLibrary = args.Contains("--application-library",StringComparer.Ordinal);
 bool workflow = args.Contains("--workflow",StringComparer.Ordinal);
 bool targetValidation=args.Contains("--target-validation",StringComparer.Ordinal);
-if(new[]{healthRecovery,retryLimits,budgetReset,credentialRecovery,workflow,targetValidation}.Count(enabled=>enabled)>1) throw new ArgumentException("Choose one conformance scenario per run.");
-bool nativeHealth = healthRecovery || budgetReset || credentialRecovery || workflow;
+if(new[]{healthRecovery,retryLimits,budgetReset,credentialRecovery,workflow,targetValidation,applicationLibrary}.Count(enabled=>enabled)>1) throw new ArgumentException("Choose one conformance scenario per run.");
+bool nativeHealth = healthRecovery || budgetReset || credentialRecovery || workflow || applicationLibrary;
 bool supervised = nativeHealth || retryLimits;
-var root = Path.GetFullPath(args.Where(a=>a is not ("--health-recovery" or "--retry-limits" or "--budget-reset" or "--credential-recovery" or "--workflow" or "--target-validation")).SingleOrDefault() ?? ".");
+var root = Path.GetFullPath(args.Where(a=>a is not ("--health-recovery" or "--retry-limits" or "--budget-reset" or "--credential-recovery" or "--workflow" or "--target-validation" or "--application-library")).SingleOrDefault() ?? ".");
 if (!File.Exists(Path.Combine(root, "PiDock.sln"))) throw new ArgumentException("Pass the PiDock checkout path.");
 foreach (var key in Environment.GetEnvironmentVariables().Keys.Cast<string>().Where(k => new[] { "PiDock__", "PiDock:", "Broker__", "Broker:", "Sample__", "Review__" }.Any(p => k.StartsWith(p, StringComparison.OrdinalIgnoreCase))).ToArray()) Environment.SetEnvironmentVariable(key, null);
 if(targetValidation){await TargetValidation.Run(root);return;}
@@ -62,7 +63,7 @@ ApplicationCredentialFile Credential(string name, string purpose, string[] scope
 var credentials = new[] { Credential("bridge", "ui-bridge", []), Credential("sample-io", "platform", ["io.read", "io.write", "io.simulate"]), Credential("sample-runtime", "platform", ["signals.runtime"]), Credential("sample-engineer", "platform", ["signals.engineer"]) };
 try
 {
-    if(workflow) {using var volumeCheck=await engine.GetAsync("/v1.47/volumes/pidock-app-ui-sample-data");Check(volumeCheck.StatusCode==HttpStatusCode.NotFound,"Workflow requires an absent sample data volume; retained data was not modified.");}
+    if(workflow || applicationLibrary) {using var volumeCheck=await engine.GetAsync("/v1.47/volumes/pidock-app-ui-sample-data");Check(volumeCheck.StatusCode==HttpStatusCode.NotFound,"Workflow requires an absent sample data volume; retained data was not modified.");}
     Console.WriteLine("Preparing restricted Linux ARM64 sample image and disposable local registry…");
     await Run("dotnet", "publish", Path.Combine(root,"tools/PiDock.AppUi.Sample"), "-c", "Release", "-r", "linux-arm64", "--self-contained", "false", "-p:NuGetLockFilePath=obj/packages.linux-arm64.lock.json", "-o", Path.Combine(temp,"app"));
     if(nativeHealth) await File.WriteAllTextAsync(Path.Combine(temp,"pidock-health-probe.c"),ApplicationHealthAssets.ReaderSource);
@@ -123,7 +124,7 @@ try
     var docker = new DockerOperations(engine, store, new ApplicationBootstrapDelivery(socket), TimeProvider.System,
         recoveryEnabled:supervised, orchestrationEnabled: true, shutdownStore: new ApplicationShutdownStore(protection, Path.Combine(temp,"shutdown")),
         updatesEnabled:workflow,updateStore:updates,backupsEnabled:workflow,backupStore:backups,appDataHelperImage:helperImage,
-        installTrustEnabled:workflow,installTrustStore:new ApplicationInstallTrustStore(protection,Path.Combine(temp,"approvals")),
+        installTrustEnabled:workflow || applicationLibrary,installTrustStore:new ApplicationInstallTrustStore(protection,Path.Combine(temp,"approvals")),
         removalsEnabled:workflow,removalStore:new ApplicationRemovalStore(protection,Path.Combine(temp,"removal")));
     string brokerSocket = Path.Combine(temp,"b.sock");
     var cb = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], EnvironmentName = "Development" }); cb.Logging.ClearProviders();
@@ -155,8 +156,10 @@ try
     coordinator.MapPost("/applications/{id}/start", async (string id, CancellationToken ct) => { await docker.ChangeState(id,true,ct); return Results.Ok(); });
     coordinator.MapPost("/applications/{id}/restart", async (string id, CancellationToken ct) => { await docker.Restart(id,ct); return Results.Ok(); });
     coordinator.MapGet("/applications/{id}/resources",(string id,CancellationToken ct)=>docker.Resources(id,ct));
-    if(workflow)
+    if(workflow || applicationLibrary)
     {
+        coordinator.MapGet("/applications/resources",()=>new ApplicationResourceSupport(1,true,ApplicationResourceRules.DataDirectory,ApplicationResourceRules.CredentialDirectory,"pidock-stdin-v1",[]));
+        coordinator.MapPost("/applications/prepared",(ApplicationDeploymentRequest prepared,CancellationToken ct)=>docker.DeployPrepared(prepared,ct));
         coordinator.MapGet("/applications/install-trust/support",()=>docker.InstallTrustSupport());
         coordinator.MapGet("/applications/install-trust/approvals",()=>docker.InstallApprovals());
         coordinator.MapGet("/applications/updates/support",()=>docker.UpdateSupport());
@@ -195,15 +198,46 @@ try
     var io=api.Services.GetRequiredService<ApplicationIoService>(); var engineering=api.Services.GetRequiredService<ApplicationOverrideService>();
     using var broker=UnixHttp.Connect(brokerSocket,TimeSpan.FromSeconds(45));
     using var commands=new HttpClient { BaseAddress=new($"http://127.0.0.1:{appPort}/"), Timeout=TimeSpan.FromSeconds(8) }; commands.DefaultRequestHeaders.Authorization=new("Bearer",credentials[0].Token);
-    var manifest=new ApplicationManifest("ui-sample",pinned,256,1,7361,appPort,new(PersistentData:workflow,Credentials:credentials.Select(c=>c.Id).ToArray(),AutomaticRecovery:supervised,
+    var manifest=new ApplicationManifest("ui-sample",pinned,256,1,7361,appPort,new(PersistentData:workflow || applicationLibrary,Credentials:credentials.Select(c=>c.Id).ToArray(),AutomaticRecovery:supervised,
         Health:nativeHealth?new(StartupSeconds:30,FreshnessSeconds:10,FailureThreshold:1,RestartOnFailure:true):null,ManagedLifecycle:true,ShutdownSeconds:2,Updates:workflow?new(ReadinessSeconds:60,StableSeconds:5):null));
     if(workflow)
     {
         bool denied=false;try{await docker.DeployPrepared(new(manifest,credentials),default);}catch(InvalidOperationException){denied=true;}Check(denied,"Unapproved installation must be denied.");
         await docker.ApproveInstall(new(manifest,"fixture-owner","Disposable integrated Docker workflow",DateTimeOffset.UtcNow.AddHours(1)),default);
     }
-    workflowVolumeOwned=workflow;
-    container=await docker.DeployPrepared(new(manifest,credentials),default); ownedContainers.Add(container);
+    workflowVolumeOwned=workflow || applicationLibrary;
+    if(applicationLibrary)
+    {
+        var definition=await ApplicationLibraryConformance.PublishAndDownload(temp,manifest,certificate);
+        var client=api.Services.GetRequiredService<BrokerClient>();
+        bool denied=false;try{await client.DeployDefinition(definition);}catch(HttpRequestException){denied=true;}
+        Check(denied && (await docker.List(default)).Length==0,"Definition installation must respect local exact-image approval.");
+        await docker.ApproveInstall(new(manifest,"fixture-owner","Disposable application library acceptance",DateTimeOffset.UtcNow.AddHours(1)),default);
+        async Task EvictImage()
+        {
+            await Run("docker","image","rm","--force",imageId!);
+            using var absent=await engine.GetAsync($"/v1.47/images/{Uri.EscapeDataString(pinned)}/json");
+            Check(absent.StatusCode==HttpStatusCode.NotFound,"Image must be absent before registry installation.");
+        }
+        await EvictImage();
+        await client.DeployDefinition(definition);
+        container=(await docker.List(default)).Single().Id;ownedContainers.Add(container);
+        network=(await Inspect()).GetProperty("HostConfig").GetProperty("NetworkMode").GetString();if(network is not null)ownedNetworks.Add(network);
+        await Fresh();
+        var firstId=container;
+        await docker.ChangeState(container,false,default);
+        using(var remove=await engine.DeleteAsync($"/v1.47/containers/{container}?force=1"))remove.EnsureSuccessStatusCode();
+        store.Forget(container);
+        if(network is not null){using var remove=await engine.DeleteAsync($"/v1.47/networks/{network}");remove.EnsureSuccessStatusCode();}
+        await EvictImage();
+        await ApplicationLibraryConformance.InstallThroughCloud(temp,definition,client);
+        container=(await docker.List(default)).Single().Id;ownedContainers.Add(container);
+        Check(container!=firstId,"Cloud installation must create a fresh container through the normal broker.");
+        var resolved=await engine.GetFromJsonAsync<JsonElement>($"/v1.47/images/{Uri.EscapeDataString(pinned)}/json");
+        Check(resolved.GetProperty("Os").GetString()=="linux" && resolved.GetProperty("Architecture").GetString()=="arm64","Registry image must resolve to Linux ARM64.");
+        evidence.Add(new{test="application-library-local-and-cloud-install",passed=true,browserDefinitionDownload=true,exactDefinitionDigest=ApplicationContractRules.Digest(definition),imageApprovalEnforced=true,localImageEvictedBeforeEachInstall=true,separateCloudPermissionEnforced=true,receiptLargerThanFourKiB=true,registryImageResolved=true,platform="linux/arm64"});
+    }
+    else {container=await docker.DeployPrepared(new(manifest,credentials),default); ownedContainers.Add(container);}
     var inspection=await Inspect(); network=inspection.GetProperty("HostConfig").GetProperty("NetworkMode").GetString();
     if(network is not null)ownedNetworks.Add(network);
     Check(inspection.GetProperty("Config").GetProperty("User").GetString()=="1654:1654" && inspection.GetProperty("HostConfig").GetProperty("ReadonlyRootfs").GetBoolean(),"Restricted runtime configuration required.");
@@ -267,9 +301,9 @@ try
     if(budgetReset) await ValidateBudgetReset();
     if(credentialRecovery) await ValidateCredentialRecovery();
     if(workflow) await ValidateWorkflow();
-    string report=Path.Combine(root,workflow?"artifacts/docker-sample-workflow.json":credentialRecovery?"artifacts/docker-sample-credential-recovery.json":budgetReset?"artifacts/docker-sample-budget-reset.json":retryLimits?"artifacts/docker-sample-retry-limits.json":healthRecovery?"artifacts/docker-sample-health-recovery.json":"artifacts/docker-sample-lifecycle.json"); Directory.CreateDirectory(Path.GetDirectoryName(report)!);
+    string report=Path.Combine(root,applicationLibrary?"artifacts/docker-application-library.json":workflow?"artifacts/docker-sample-workflow.json":credentialRecovery?"artifacts/docker-sample-credential-recovery.json":budgetReset?"artifacts/docker-sample-budget-reset.json":retryLimits?"artifacts/docker-sample-retry-limits.json":healthRecovery?"artifacts/docker-sample-health-recovery.json":"artifacts/docker-sample-lifecycle.json"); Directory.CreateDirectory(Path.GetDirectoryName(report)!);
     await File.WriteAllTextAsync(report,JsonSerializer.Serialize(new{schemaVersion=1,observedAt=DateTimeOffset.UtcNow,dockerVersion=version.GetProperty("Version").GetString(),platform="linux/arm64",image=pinned,physical=false,tests=evidence,health=healthEvidence.ToArray(),attempts=store.Attempts.ToArray(),budgetResets=store.BudgetResets.ToArray(),credentialWaits=store.CredentialWaits.ToArray()},new JsonSerializerOptions{WriteIndented=true}));
-    Console.WriteLine($"PASS Docker sample {(workflow?"integrated workflow":credentialRecovery?"credential recovery":budgetReset?"budget reset":retryLimits?"retry limits":healthRecovery?"health/recovery":"lifecycle")} conformance. Evidence: "+report);
+    Console.WriteLine($"PASS Docker sample {(applicationLibrary?"application library":workflow?"integrated workflow":credentialRecovery?"credential recovery":budgetReset?"budget reset":retryLimits?"retry limits":healthRecovery?"health/recovery":"lifecycle")} conformance. Evidence: "+report);
 
     async Task<JsonElement> Inspect()=>await engine.GetFromJsonAsync<JsonElement>($"/v1.47/containers/{container}/json");
     async Task Post(string path) { using var response=await broker.PostAsync(path,null); response.EnsureSuccessStatusCode(); }

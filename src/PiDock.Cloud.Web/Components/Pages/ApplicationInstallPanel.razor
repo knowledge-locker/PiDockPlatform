@@ -1,0 +1,40 @@
+@inject PiDock.Cloud.Web.ApplicationLibrary Library
+@inject ApplicationCommandStore Commands
+@inject AuthenticationStateProvider Authentication
+<section class="card"><div class="section-heading"><h2>Install an application</h2><a href="/applications">Application library →</a></div>
+<p>Cloud installation permission: @(Device.Applications?.InstallEnabled == true ? "Allowed" : "Off"). Set this separately under PiDockOS → Cloud connection. Required runtime features, credentials, image approvals and UI grants remain local requirements.</p>
+@if (canManage)
+{
+    <label>Application version<select @bind="selection"><option value="">Choose a release</option>
+    @foreach (var release in releases.Where(r => r.Package.Installation is not null)) { <option value="@(release.AppId + "/" + release.Version)">@release.AppId · @release.Version</option> }
+    </select></label>
+    @if (Selected is { } chosen) { <small style="overflow-wrap:anywhere">@chosen.Package.Manifest.Image</small><ApplicationDefinitionReview Definition="chosen.Package" /> }
+    <button disabled="@(busy || !Ready || Selected is null)" @onclick="Install">Install selected application</button>
+    @if (!Ready) { <p>The appliance must be online and report local permission for cloud application installation.</p> }
+}
+else { <p>Workspace owner or administrator access is required.</p> }
+<p role="status">@message</p><p>Follow the request under Recent operations in Managed containers. If a request expires or its outcome is unknown, check the appliance before retrying. Use local app version controls for upgrades.</p>
+</section><ReauthenticationDialog @ref="confirmation" Cloud="true" />
+@code {
+    [Parameter, EditorRequired] public StoredDevice Device { get; set; } = default!;
+    private ReauthenticationDialog confirmation = default!;
+    private PublishedApplicationRelease[] releases = [];
+    private string selection = "", message = ""; private bool busy, canManage;
+    private PublishedApplicationRelease? Selected => releases.FirstOrDefault(r => r.AppId + "/" + r.Version == selection);
+    private bool Ready => Device.HasLiveContact && Device.ReceivedAt >= DateTimeOffset.UtcNow.AddSeconds(-90) &&
+        Device.Applications is { InstallEnabled: true } inventory && inventory.ObservedAt >= DateTimeOffset.UtcNow.AddSeconds(-90);
+    protected override async Task OnParametersSetAsync() { var user = (await Authentication.GetAuthenticationStateAsync()).User; releases = Library.List(user); canManage = EnrollmentStore.CanManage(user); }
+    private async Task Install()
+    {
+        if (busy || !Ready || Selected is not { } release) return;
+        busy = true; var deviceId = Device.DeviceId;
+        try {
+            if (!await confirmation.Request("Install application", $"Install {release.AppId} {release.Version} on {Device.Snapshot.Hostname}. Definition digest: {release.Digest}. The appliance downloads its image from the registry.")) return;
+            Commands.QueueInstall((await Authentication.GetAuthenticationStateAsync()).User, deviceId, release, Library);
+            message = "Installation queued. Follow the device result under Managed containers; registry downloads can take several minutes.";
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or UnauthorizedAccessException or IOException)
+        { message = e is ArgumentException or InvalidOperationException ? e.Message : "Installation request could not be saved."; }
+        finally { busy = false; }
+    }
+}

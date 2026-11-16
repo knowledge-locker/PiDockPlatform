@@ -10,4 +10,6 @@ Approval expiry/revocation prevents new installations and update candidates. It 
 
 Local private operations are `GET /applications/install-trust/support`, `GET/POST /applications/install-trust/approvals` and `DELETE /applications/install-trust/approvals/{manifestSha256}`. Ordinary app credentials and MCP discovery have no approval or installation authority. The current record is protected with broker Data Protection keys; preserve broker state/keys. Up to 64 records are retained, with expired records reclaimable when capacity is reached. This is current approval metadata, not an append-only full audit history.
 
-Full package manifests/version migrations, publisher PKI/signature verification, registry credential delivery, upload/import, transactional installation and UI-registration/grant reconciliation remain separate development. The initial local conformance fixture uses this exact-digest review without claiming those capabilities exist.
+Full package manifests/version migrations, publisher PKI/signature verification, registry credential delivery, image archive upload, transactional installation and UI-registration/grant reconciliation remain separate development. The initial local conformance fixture uses this exact-digest review without claiming those capabilities exist.
+
+Definition upload/import and individually authorized cloud installation now use this same exact-runtime approval policy. See [application library](Application-Library.md). Uploading a definition does not approve or install its image.

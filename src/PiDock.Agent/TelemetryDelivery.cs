@@ -49,7 +49,7 @@ public sealed class MqttTelemetryPublisher : ITelemetryPublisher, IDisposable
         {
             try
             {
-                if (e.ApplicationMessage.Topic == IdentityRules.ReceiptTopic(connection.TenantId, connection.DeviceId) && e.ApplicationMessage.Payload.Length <= 4096)
+                if (e.ApplicationMessage.Topic == IdentityRules.ReceiptTopic(connection.TenantId, connection.DeviceId) && e.ApplicationMessage.Payload.Length <= ApplicationCommands.MaximumReceiptBytes)
                 {
                     var receipt = JsonSerializer.Deserialize<TelemetryReceipt>(e.ApplicationMessage.Payload.ToArray(), StateFiles.Json);
                     if (receipt is { SchemaVersion: 1 } && receipt.TenantId == connection.TenantId && receipt.DeviceId == connection.DeviceId)

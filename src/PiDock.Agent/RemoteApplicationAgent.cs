@@ -6,7 +6,7 @@ using PiDock.Core;
 
 namespace PiDock.Agent;
 
-public sealed record LocalApplicationPolicy(bool Enabled, IReadOnlyList<ProcessedApplicationCommand> Processed);
+public sealed record LocalApplicationPolicy(bool Enabled, IReadOnlyList<ProcessedApplicationCommand> Processed, bool InstallEnabled = false);
 public sealed record ProcessedApplicationCommand(ApplicationCommand Command, ApplicationCommandResult Result);
 
 public sealed class RemoteApplicationAgent : BackgroundService
@@ -20,12 +20,16 @@ public sealed class RemoteApplicationAgent : BackgroundService
         this.broker = broker; this.mqtt = mqtt; this.clock = clock;
         path = Path.Combine(StateFiles.PrepareDirectory(directory ?? configuration["PiDock:StateDirectory"] ?? Path.Combine(Directory.GetCurrentDirectory(), "data")), "remote-applications.json");
         policy = File.Exists(path) ? JsonSerializer.Deserialize<LocalApplicationPolicy>(File.ReadAllText(path), StateFiles.Json)! : new(false, []);
-        current = new(clock.GetUtcNow(), policy.Enabled, "Waiting for container inventory", [], policy.Processed.TakeLast(8).Select(p => p.Result).ToArray());
+        current = new(clock.GetUtcNow(), policy.Enabled, "Waiting for container inventory", [], policy.Processed.TakeLast(8).Select(p => p.Result).ToArray(), policy.InstallEnabled);
     }
     public RemoteApplicationSnapshot Current { get { lock (gate) return current; } }
     public void SetEnabled(bool enabled)
     {
-        lock (gate) { Save(policy with { Enabled = enabled }); current = current with { ControlEnabled = enabled }; }
+        lock (gate) { Save(policy with { Enabled = enabled, InstallEnabled = enabled && policy.InstallEnabled }); current = current with { ControlEnabled = enabled, InstallEnabled = policy.InstallEnabled }; }
+    }
+    public void SetInstallEnabled(bool enabled)
+    {
+        lock (gate) { Save(policy with { InstallEnabled = enabled }); current = current with { InstallEnabled = enabled }; }
     }
     public bool Enqueue(ApplicationCommand command)
     {
@@ -43,21 +47,22 @@ public sealed class RemoteApplicationAgent : BackgroundService
             if (retained.Count >= 128) return;
             // Persist acceptance before touching the runtime. A crash never re-executes an accepted command.
             retained.Add(new(command, new(command.Id, "Unknown", "Interrupted operation; inspect container state before retrying.", now)));
-            Save(new(policy.Enabled, retained));
+            Save(policy with { Processed = retained });
         }
-        string state = "Rejected", message = "Remote container control is disabled by the local owner.";
+        string state = "Rejected", message = "This remote application operation is disabled by the local owner.";
         try
         {
-            if (Current.ControlEnabled && broker.Configured)
+            if ((command.Action == "install" ? Current.InstallEnabled : Current.ControlEnabled) && broker.Configured)
             {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct); timeout.CancelAfter(TimeSpan.FromSeconds(20));
-                if (command.Action == "restart") await broker.Restart(command.ContainerId, timeout.Token);
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct); timeout.CancelAfter(command.Action == "install" ? TimeSpan.FromMinutes(3) : TimeSpan.FromSeconds(20));
+                if (command.Action == "install") await broker.DeployDefinition(command.Definition!, timeout.Token);
+                else if (command.Action == "restart") await broker.Restart(command.ContainerId, timeout.Token);
                 else await broker.ChangeState(command.ContainerId, command.Action == "start", timeout.Token);
                 state = "Completed"; message = "Container operation completed.";
             }
         }
         catch (Exception ex) when (ex is IOException or HttpRequestException or InvalidOperationException or OperationCanceledException or ArgumentException)
-        { state = "Failed"; message = "Container operation unavailable. Check the local runtime and broker permissions."; }
+        { state = "Failed"; message = "Application operation unavailable. Check required runtime features, exact-image approval, credentials, registry access and broker permissions."; }
         lock (gate)
         {
             var result = new ApplicationCommandResult(command.Id, state, message, clock.GetUtcNow());
@@ -81,7 +86,7 @@ public sealed class RemoteApplicationAgent : BackgroundService
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException) { status = "Container runtime unavailable"; }
-        lock (gate) current = new(clock.GetUtcNow(), policy.Enabled, status, apps, policy.Processed.TakeLast(8).Select(p => p.Result).ToArray());
+        lock (gate) current = new(clock.GetUtcNow(), policy.Enabled, status, apps, policy.Processed.TakeLast(8).Select(p => p.Result).ToArray(), policy.InstallEnabled);
     }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

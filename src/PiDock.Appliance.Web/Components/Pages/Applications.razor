@@ -6,6 +6,7 @@
 <p class="eyebrow">APPLIANCE / APPLICATIONS</p><h1>Applications</h1><p>Run digest-pinned Linux ARM64 images through the restricted host broker.</p>
 <section class="card"><h2>Application workspaces</h2>@if (UiRegistry.Read().Length == 0) { <p>No application interfaces are registered.</p> } else { <ul>@foreach (var contribution in UiRegistry.Read()) { <li><a href="@ApplicationUiRules.LaunchPath(contribution.Contribution)">@contribution.Contribution.Title</a><small> · @(contribution.Bridge is null ? "isolated read-only UI preview" : "authenticated app bridge")</small></li> }</ul> }</section>
 <div class="notice">Preview deployments use a non-root user, read-only filesystem, isolated network, CPU/memory/process limits and loopback-only ports. Managed data and credential delivery require broker opt-in and a compatible app image. Image signature verification and archive upload are not yet available. Deploy only images you trust.</div>
+<ApplicationDefinitionUpload Installed="Load" />
 <p><a href="/app-backups">App data backups and restore</a> · <a href="/app-storage">App storage</a> · <a href="/app-removal">Remove an app</a></p>
 <section class="card"><div class="section-heading"><h2>Managed applications</h2><button class="secondary" @onclick="Load">Refresh</button></div>
 @if (!Broker.Configured) { <p>Host broker is not connected.</p> }

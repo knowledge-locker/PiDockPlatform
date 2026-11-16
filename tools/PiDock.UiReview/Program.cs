@@ -31,6 +31,8 @@ if(reviewBroker is not null)
 builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["PiDock:StateDirectory"] = state, ["Mqtt:Enabled"] = "false", ["Broker:SocketPath"] = reviewBroker, ["AllowedHosts"] = "localhost;127.0.0.1" });
 builder.AddPiDockAuthentication("Review-" + surface);
 builder.AddApplicationUi();
+builder.Services.AddSingleton<ApplicationCatalog>();
+builder.Services.AddSingleton<ApplicationLibrary>();
 builder.WebHost.ConfigureKestrel(k => k.Listen(IPAddress.Loopback, builder.Configuration.GetValue<int?>("Review:Port") ?? (surface == "appliance" ? 7351 : 7352)));
 builder.Services.AddAuthentication(o => { o.DefaultAuthenticateScheme = "ReviewFixture"; o.DefaultChallengeScheme = "ReviewFixture"; })
     .AddScheme<AuthenticationSchemeOptions, ReviewAuthenticationHandler>("ReviewFixture", _ => { });
@@ -89,7 +91,7 @@ if (surface == "appliance") app.MapApplicationUi();
 #if PIDOCK_APPLIANCE_REVIEW
 if (connectedReview is not null) { PiDock.Appliance.Web.SharedApplicationEndpoints.MapSharedApplicationServices(app); PiDock.Appliance.Web.ApplicationIoEndpoints.MapApplicationIo(app); PiDock.Appliance.Web.ApplicationEngineeringEndpoints.MapApplicationEngineering(app); }
 #endif
-if (surface == "cloud") DeviceHistory.MapExport(app);
+if (surface == "cloud") { DeviceHistory.MapExport(app); app.MapApplicationLibrary(); }
 else app.MapGet("/api/telemetry/export", (DateTimeOffset from, DateTimeOffset to, string? format, string? signals, HttpContext context, HistoryStore history) =>
 {
     if (!TelemetryExport.TrySelection(from, to, format, signals, out var metrics)) return Results.BadRequest();

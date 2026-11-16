@@ -35,6 +35,31 @@ public sealed class ApplicationCommandStore
             next.Add(new(command)); Save(next); return command;
         }
     }
+    public ApplicationCommand QueueInstall(ClaimsPrincipal user, string device, PublishedApplicationRelease approved, ApplicationLibrary library)
+    {
+        if (!CanControl(user) || !fleet.HasAccess(user)) throw new UnauthorizedAccessException();
+        var release = library.Find(user, approved.AppId, approved.Version) ?? throw new ArgumentException("Choose a release in this workspace.");
+        if (release.TenantId != approved.TenantId || release.Digest != approved.Digest) throw new InvalidOperationException("The workspace or release changed. Review the installation again.");
+        ApplicationDefinition.Validate(release.Package);
+        var app = release.AppId;
+        var target = fleet.For(user).SingleOrDefault(d => d.DeviceId == device) ?? throw new UnauthorizedAccessException();
+        var now = clock.GetUtcNow();
+        if (!target.HasLiveContact || target.ReceivedAt < now.AddSeconds(-90) || target.ReceivedAt > now.AddSeconds(30) ||
+            target.Applications is not { InstallEnabled: true } inventory || inventory.ObservedAt < now.AddSeconds(-90) || inventory.ObservedAt > now.AddSeconds(30))
+            throw new InvalidOperationException("The device must be online and allow cloud application installation locally.");
+        if (inventory.Applications.Any(a => a.Names.Contains("/pidock-" + app) || a.Names.Contains("pidock-" + app)))
+            throw new InvalidOperationException("This app is already installed. Use its local version controls to update it.");
+        var command = new ApplicationCommand(Guid.NewGuid(), target.TenantId, device, "install", "", now, now.AddMinutes(2), user.Identity!.Name!, release.Package);
+        if (!ApplicationCommands.Valid(command, target.TenantId, device, now)) throw new ArgumentException("Invalid application installation.");
+        lock (gate)
+        {
+            if (entries.Any(e => e.Command.TenantId == target.TenantId && e.Command.DeviceId == device && e.Result is null && e.Command.ExpiresAt > now))
+                throw new InvalidOperationException("Wait for the current device operation to finish or expire.");
+            var next = entries.Where(e => e.Command.IssuedAt > now.AddDays(-1)).ToList();
+            if (next.Count >= 512) throw new InvalidOperationException("Remote operation capacity reached.");
+            next.Add(new(command)); Save(next); return command;
+        }
+    }
     public ApplicationCommand? ForReceipt(TelemetryEnvelope frame)
     {
         var now = clock.GetUtcNow();

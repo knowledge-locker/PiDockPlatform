@@ -9,6 +9,7 @@ public interface IApplicationRuntime
     Task<ApplicationSummary[]> List(CancellationToken ct = default);
     Task ChangeState(string id, bool start, CancellationToken ct = default);
     Task Restart(string id, CancellationToken ct = default);
+    Task DeployDefinition(ApplicationReleaseRequest definition, CancellationToken ct = default) => throw new InvalidOperationException("Application installation is unavailable.");
 }
 public sealed class BrokerClient(IConfiguration configuration, IApplicationCredentialSource? credentials = null) : IDisposable, IApplicationRuntime
 {
@@ -76,12 +77,25 @@ public sealed class BrokerClient(IConfiguration configuration, IApplicationCrede
         using var response = await http.DeleteAsync($"/gpio/leases/{session:D}"); response.EnsureSuccessStatusCode();
     }
     public async Task<ApplicationSummary[]> List(CancellationToken ct = default) => http is null ? [] : await http.GetFromJsonAsync<ApplicationSummary[]>("/applications", StateFiles.Json, ct) ?? [];
-    public async Task Deploy(ApplicationManifest manifest)
+    public async Task Deploy(ApplicationManifest manifest, CancellationToken ct = default)
     {
         manifest.Validate(); if (http is null) throw new InvalidOperationException("Host broker is not configured.");
         using var response = manifest.Resources?.Requested == true
-            ? await http.PostAsJsonAsync("/applications/prepared",new ApplicationDeploymentRequest(manifest,Resolve(manifest.Name,manifest.Resources.CredentialIds)))
-            : await http.PostAsJsonAsync("/applications", manifest); response.EnsureSuccessStatusCode();
+            ? await http.PostAsJsonAsync("/applications/prepared",new ApplicationDeploymentRequest(manifest,Resolve(manifest.Name,manifest.Resources.CredentialIds)), ct)
+            : await http.PostAsJsonAsync("/applications", manifest, ct); response.EnsureSuccessStatusCode();
+    }
+    public async Task DeployDefinition(ApplicationReleaseRequest definition, CancellationToken ct = default)
+    {
+        ApplicationDefinition.Validate(definition);
+        var manifest = definition.Installation!.Runtime;
+        var resources = manifest.Resources;
+        if (resources?.Requested == true && (await ResourceSupport(ct))?.Enabled != true ||
+            resources?.AutomaticRecovery == true && (await LifecycleSupport(ct))?.Enabled != true ||
+            resources?.Health is not null && (await HealthSupport(ct))?.Enabled != true ||
+            resources is not null && (resources.ManagedLifecycle || resources.RequiredApps.Length > 0) && (await OrchestrationSupport(ct))?.Enabled != true ||
+            resources?.Updates is not null && (await UpdateSupport(ct))?.Enabled != true)
+            throw new InvalidOperationException("Required app runtime features are not enabled on this appliance.");
+        await Deploy(manifest, ct);
     }
     public async Task ChangeState(string id, bool start, CancellationToken ct = default)
     {

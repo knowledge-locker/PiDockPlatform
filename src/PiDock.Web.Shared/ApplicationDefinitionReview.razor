@@ -1,0 +1,20 @@
+@using PiDock.Core
+@if (Definition.Installation is { } installation)
+{
+    var runtime = installation.Runtime;
+    var resources = runtime.Resources;
+    <dl>
+        <dt>Resource limits</dt><dd>@runtime.MemoryMiB MiB memory · @runtime.CpuLimit CPU cores</dd>
+        <dt>Persistent app data</dt><dd>@(resources?.PersistentData == true ? "Required" : "Not requested")</dd>
+        <dt>Health monitoring</dt><dd>@(resources?.Health is null ? "Not requested" : "Required")</dd>
+        <dt>Automatic recovery</dt><dd>@(resources?.AutomaticRecovery == true ? "Requested" : "Off")</dd>
+        <dt>Named credentials</dt><dd>@((resources?.CredentialIds.Length ?? 0) == 0 ? "None" : string.Join(", ", resources!.CredentialIds))</dd>
+        <dt>Required applications</dt><dd>@((resources?.RequiredApps.Length ?? 0) == 0 ? "None" : string.Join(", ", resources!.RequiredApps.Select(d => d.AppId)))</dd>
+        <dt>Requested capabilities</dt><dd>@(Definition.Manifest.RequestedCapabilities.Length == 0 ? "None declared" : string.Join(", ", Definition.Manifest.RequestedCapabilities))</dd>
+        <dt>Application workspace</dt><dd>@(installation.Ui?.Title ?? "None declared")</dd>
+    </dl>
+    <details><summary>All installation settings</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">@System.Text.Json.JsonSerializer.Serialize(installation, new System.Text.Json.JsonSerializerOptions(StateFiles.Json) { WriteIndented = true })</pre></details>
+}
+@code {
+    [Parameter, EditorRequired] public ApplicationReleaseRequest Definition { get; set; } = default!;
+}

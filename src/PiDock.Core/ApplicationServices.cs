@@ -4,7 +4,8 @@ using System.Text.RegularExpressions;
 
 namespace PiDock.Core;
 
-public sealed record ApplicationReleaseRequest(int SchemaVersion, PlatformApplicationManifest Manifest, string ReleaseNotes);
+public sealed record ApplicationReleaseRequest(int SchemaVersion, PlatformApplicationManifest Manifest, string ReleaseNotes,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ApplicationAuthoringPlan? Installation = null);
 public sealed record PublishedApplicationRelease(string TenantId, string AppId, string Version, string Digest,
     string PublishedBy, DateTimeOffset PublishedAt, ApplicationReleaseRequest Package);
 public sealed record CloudApplicationDiscovery(int SchemaVersion, string TenantId, string CatalogEndpoint,
@@ -36,6 +37,15 @@ public static partial class ApplicationContractRules
             m.RequestedCapabilities.Distinct(StringComparer.Ordinal).Count() != m.RequestedCapabilities.Length)
             throw new ArgumentException("Invalid versioned package manifest, compatibility or release metadata.");
         new ApplicationManifest(m.Id, m.Image).Validate();
+        if (request.Installation is { } installation)
+        {
+            if (JsonSerializer.SerializeToUtf8Bytes(request, StateFiles.Json).Length > ApplicationDefinition.MaximumBytes)
+                throw new ArgumentException("Installable app definitions must be at most 16 KiB.");
+            var report = ApplicationAuthoring.Check(JsonSerializer.SerializeToUtf8Bytes(installation, StateFiles.Json));
+            if (!report.Valid || installation.Runtime.Name != m.Id || installation.Runtime.Image != m.Image ||
+                !(installation.RequiredCapabilities ?? []).Order(StringComparer.Ordinal).SequenceEqual(m.RequestedCapabilities.Order(StringComparer.Ordinal)))
+                throw new ArgumentException("Installation settings must be valid and match the release identity, image and capabilities.");
+        }
     }
     public static string Digest(ApplicationReleaseRequest package)
     {
