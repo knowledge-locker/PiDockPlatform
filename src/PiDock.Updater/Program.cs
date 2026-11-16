@@ -47,6 +47,13 @@ if (args is ["pack", var directory, var output, var version, var runtime, var ke
     Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(OsUpdatePackage.Create(directory, output, version, runtime, keyId, File.ReadAllText(keyFile)).Info, StateFiles.Json));
     return;
 }
+if (args is ["verify-update", var updatePackage, var updateTrust, var updateRuntime])
+{
+    var verified = OsUpdatePackage.Verify(updatePackage, updateTrust, updateRuntime);
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { verified.Info, verified.Manifest.SchemaVersion,
+        verified.Manifest.ImageSequence, verified.Manifest.MinimumImageSequence, Files = verified.Manifest.Files.Count }, StateFiles.Json));
+    return;
+}
 if(args is ["verify-factory",var factoryPackage,var factoryTrust])
 {
     var verified=FactoryImages.Verify(factoryPackage,factoryTrust);

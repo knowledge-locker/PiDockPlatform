@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "11d26848348f6b633ca0c5dc766439cb6aa873fe",
+  "image": {
+    "version": "1.0.0-beta.2",
+    "runtime": "linux-arm64",
+    "kind": "image",
+    "keyId": "pidock-prod-20261112",
+    "sha256": "7c510f3a238b38e20463f315b1b9c525e0de19f9f742e14b973f762ec0aca883",
+    "bytes": 309706547,
+    "imageSequence": 9,
+    "minimumImageSequence": 0,
+    "signature": "OpenSSL P-256 verification passed",
+    "fileDigestsVerified": 3,
+    "unexpectedPayloads": false
+  },
+  "legacyService": {
+    "version": "0.1.0-dev.19",
+    "runtime": "linux-arm64",
+    "kind": "services",
+    "keyId": "pidock-dev-20261111",
+    "sha256": "5d14972969c50a1be67e4b9205bd7d89e1d6f7d64ddb28d6ddc62ee78e05f4db",
+    "bytes": 2384265,
+    "imageSequence": null,
+    "minimumImageSequence": null,
+    "signature": "OpenSSL P-256 verification passed",
+    "fileDigestsVerified": 53,
+    "unexpectedPayloads": false
+  },
+  "platformTestsPassed": 456,
+  "logicEngineTestsPassed": 59,
+  "nativeArm64Checks": {
+    "targetFilesystem": true,
+    "compressedDrivers": true,
+    "mainAndNodeImport": true,
+    "ownerReplayPreserved": true,
+    "sanitizedInstallerReport": true,
+    "runtimeCryptoAndGlobalization": true,
+    "brokerUnixHealth": true,
+    "nonRootApplianceHttps": true,
+    "freshMonitoring": true,
+    "bootWrapperSignatures": true,
+    "beta1BootTrustPreserved": true
+  },
+  "localAppDefinitionUpload": true,
+  "separateCloudInstallationOptIn": true,
+  "managedAppRuntimeSupportV1": true,
+  "existingBrokerFeatureGatesRetained": true,
+  "cloudInstallationDefaultsOff": true,
+  "physicalGpioOutputs": "disabled",
+  "installedOnPhysicalPi": false,
+  "publishedToCloudCatalog": false
+}
