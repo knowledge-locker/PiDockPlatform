@@ -30,8 +30,14 @@ def verify(target):
         if values.get('Gpio',{}).get('Outputs'):raise ValueError('Image must not approve GPIO outputs')
     state=target/'var/lib/pidock'
     if state.exists() and any(p.is_file() for p in state.rglob('*')):raise ValueError('Public image contains per-device managed state')
+    if any((target/'lib/modules').rglob('*.ko.xz')):
+        kmod=resolve_target(target,'/usr/lib/libkmod.so.2')
+        # Buildroot enables kmod's dlopen mode, so liblzma need not be DT_NEEDED.
+        if b'liblzma.so.5' not in kmod.read_bytes() or not resolve_target(target,'/usr/lib/liblzma.so.5').is_file():
+            raise ValueError('XZ-compressed kernel modules require kmod XZ support and liblzma')
     profile=json.loads((target/'etc/pidock/image-profile.json').read_text())
-    if profile.get('version')!='1.0.0-alpha.5' or profile.get('sequence')!=5 or not profile.get('development'):raise ValueError('Unexpected development image profile')
+    expected=json.loads((Path(__file__).resolve().parents[1]/'buildroot/board/pidock/image-profile.json').read_text())
+    if any(profile.get(k)!=expected[k] for k in ('version','sequence','development')):raise ValueError('Unexpected development image profile')
     if profile.get('setupSchema')!=2 or profile.get('usbNodeProtocol')!=1:raise ValueError('Expanded setup and USB node protocol must be declared by the signed image')
     if len(profile.get('sourceCommit',''))!=40:raise ValueError('Image source revision is missing')
     return dict(serviceExecutables=len(checked),gpioOutputs='disabled',privateState='absent',profile=profile)
