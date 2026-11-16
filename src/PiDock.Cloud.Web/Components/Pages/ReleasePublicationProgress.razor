@@ -1,0 +1,28 @@
+<div class="notice" role="region" aria-label="Release publication progress" aria-busy="true">
+    <p><strong>@Title</strong></p>
+    @if (Progress.Phase == OsReleasePublicationPhase.Uploading && TotalBytes > 0)
+    {
+        <progress max="@TotalBytes" value="@Math.Min(Progress.BytesTransferred, TotalBytes)" aria-label="Release upload" aria-valuetext="@($"{Percent}% uploaded")" style="width:100%;height:1rem;accent-color:var(--accent)">@Percent%</progress>
+        <p role="status" aria-live="polite">@Percent% · @Format.Bytes(Progress.BytesTransferred) of @Format.Bytes(TotalBytes) uploaded</p>
+    }
+    else
+    {
+        <progress aria-label="@Title" style="width:100%;height:1rem;accent-color:var(--accent)">In progress</progress>
+        <p role="status" aria-live="polite">@Explanation</p>
+    }
+</div>
+@code {
+    [Parameter, EditorRequired] public OsReleasePublicationProgress Progress { get; set; } = default!;
+    [Parameter] public long TotalBytes { get; set; }
+    private long Percent => Math.Clamp(Progress.BytesTransferred * 100 / Math.Max(1, TotalBytes), 0, 100);
+    private string Title => Progress.Phase switch {
+        OsReleasePublicationPhase.Uploading => "Uploading release · Step 1 of 3",
+        OsReleasePublicationPhase.Verifying => "Verifying release · Step 2 of 3",
+        _ => "Publishing release · Step 3 of 3"
+    };
+    private string Explanation => Progress.Phase switch {
+        OsReleasePublicationPhase.Uploading => $"{Format.Bytes(Progress.BytesTransferred)} uploaded. Keep this page open.",
+        OsReleasePublicationPhase.Verifying => "Upload complete. Checking the signature and every package file. Large images can take a little while; keep this page open.",
+        _ => "Verification passed. Saving the release to your workspace catalog."
+    };
+}

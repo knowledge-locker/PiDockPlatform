@@ -1,0 +1,10 @@
+@page "/release-progress-review"
+<PageTitle>Release progress · UI review</PageTitle>
+<h1>Release publication progress</h1>
+<section class="card">
+    <h2>Publish a release</h2>
+    <p>Example display for a 295 MiB image package.</p>
+    <div class="button-row"><button @onclick="() => phase = OsReleasePublicationPhase.Uploading">Upload</button><button @onclick="() => phase = OsReleasePublicationPhase.Verifying">Verify</button><button @onclick="() => phase = OsReleasePublicationPhase.Saving">Publish</button></div>
+    <ReleasePublicationProgress Progress="@(new(phase, phase == OsReleasePublicationPhase.Uploading ? 125L << 20 : 309706547))" TotalBytes="309706547" />
+</section>
+@code { private OsReleasePublicationPhase phase = OsReleasePublicationPhase.Uploading; }

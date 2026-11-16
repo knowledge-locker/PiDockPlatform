@@ -115,10 +115,11 @@ public static class OsUpdatePackage
         while ((count = input.Read(buffer)) > 0) { if (output.Length + count > maximum) throw new InvalidDataException("Release metadata is too large."); output.Write(buffer, 0, count); }
         return output.ToArray();
     }
-    public static async Task CopyBounded(Stream source, Stream target, CancellationToken ct = default)
+    public static Task CopyBounded(Stream source, Stream target, CancellationToken ct = default) => CopyBounded(source, target, ct, null);
+    public static async Task CopyBounded(Stream source, Stream target, CancellationToken ct, Action<long>? transferred)
     {
         var buffer = new byte[65536]; long length = 0; int count;
-        while ((count = await source.ReadAsync(buffer, ct)) > 0) { length += count; if (length > OsUpdateRules.MaximumPackageBytes) throw new InvalidDataException("Package exceeds 512 MiB."); await target.WriteAsync(buffer.AsMemory(0, count), ct); }
+        while ((count = await source.ReadAsync(buffer, ct)) > 0) { length += count; if (length > OsUpdateRules.MaximumPackageBytes) throw new InvalidDataException("Package exceeds 512 MiB."); await target.WriteAsync(buffer.AsMemory(0, count), ct); transferred?.Invoke(length); }
     }
     public static OsRelease Create(string directory, string output, string version, string runtime, string keyId, string privateKeyPem)
     {

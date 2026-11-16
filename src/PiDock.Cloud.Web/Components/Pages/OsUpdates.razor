@@ -1,14 +1,17 @@
 @page "/os-updates"
+@implements IDisposable
 @attribute [Authorize(Roles = "Owner,Administrator")]
 @inject OsUpdateStore Store
 @inject AuthenticationStateProvider Authentication
 <PageTitle>PiDockOS releases · PiDockCloud</PageTitle>
 <p class="eyebrow">PIDOCKCLOUD / SOFTWARE</p><h1>PiDockOS releases</h1>
-<p>Publish a signed PiDockOS service package for your organization. Approve installation on an individual device from its dashboard.</p>
+<p>Publish a signed PiDockOS update package for your organization. Approve installation on an individual device from its dashboard.</p>
 <section class="card"><h2>Publish a release</h2><p>The cloud verifies the package against its configured release-signing public keys. Each appliance independently verifies it against its own trusted keys. Release versions are immutable for each runtime.</p>
-<InputFile OnChange="e => file = e.File" accept=".zip" disabled="@busy" />
+<InputFile OnChange="SelectFile" accept=".zip" disabled="@busy" />
 @if (file is not null) { <p>@file.Name · @Format.Bytes(file.Size)</p> }
-<button disabled="@(busy || file is null)" @onclick="Publish">@(busy ? "Verifying release…" : "Publish signed release")</button><p role="status">@message</p></section>
+<button disabled="@(busy || file is null)" @onclick="Publish">@(busy ? BusyLabel : "Publish signed release")</button>
+@if (busy && publicationProgress is not null) { <ReleasePublicationProgress Progress="publicationProgress" TotalBytes="uploadSize" /> }
+<p role="status">@message</p></section>
 <section class="card"><h2>Organization releases</h2>
 @if (releases.Length == 0) { <p>No PiDockOS releases published yet.</p> }
 else { <div class="table-scroll"><table><thead><tr><th>Version</th><th>Runtime</th><th>Signer</th><th>Published</th><th>SHA-256</th></tr></thead><tbody>@foreach (var entry in releases) { <tr><td>@entry.Release.Version</td><td>@entry.Release.Runtime</td><td>@entry.Release.KeyId</td><td>@entry.PublishedAt.UtcDateTime.ToString("u")<br/><small>@entry.PublishedBy</small></td><td><small style="overflow-wrap:anywhere">@entry.Release.Digest</small></td></tr> }</tbody></table></div> }
@@ -16,19 +19,25 @@ else { <div class="table-scroll"><table><thead><tr><th>Version</th><th>Runtime</
 <ReauthenticationDialog @ref="confirmation" Cloud="true" />
 @code {
     private ReauthenticationDialog confirmation = default!;
-    private IBrowserFile? file; private bool busy; private string message = ""; private PublishedOsRelease[] releases = [];
+    private IBrowserFile? file; private bool busy, disposed;
+    private OsReleasePublicationProgress? publicationProgress; private long uploadSize; private int publicationId;
+    private string BusyLabel => publicationProgress?.Phase switch { OsReleasePublicationPhase.Uploading => "Uploading release…", OsReleasePublicationPhase.Verifying => "Verifying release…", OsReleasePublicationPhase.Saving => "Publishing release…", _ => "Waiting for confirmation…" };
+    public void Dispose() => disposed = true;
+    private void SelectFile(InputFileChangeEventArgs args) { if (busy) return; file = args.File; message = ""; publicationProgress = null; }
+    private string message = ""; private PublishedOsRelease[] releases = [];
     protected override async Task OnInitializedAsync() => releases = Store.Releases((await Authentication.GetAuthenticationStateAsync()).User);
     private async Task Publish()
     {
-        if (busy || file is null) return; busy = true;
+        if (busy || file is null) return; busy = true; var operation = ++publicationId; var selected = file; uploadSize = selected.Size; publicationProgress = null; message = "";
         try {
             var user = (await Authentication.GetAuthenticationStateAsync()).User;
-            if (!await confirmation.Request("Publish signed release", $"Publish {file.Name} to your organization’s release catalog. Devices still require individual installation approval.")) return;
+            if (!await confirmation.Request("Publish signed release", $"Publish {selected.Name} to your organization’s release catalog. Devices still require individual installation approval.")) return;
             user = (await Authentication.GetAuthenticationStateAsync()).User;
-            await using var input = file.OpenReadStream(OsUpdateRules.MaximumPackageBytes);
-            var release = await Store.Publish(user, input); releases = Store.Releases(user); file = null; message = $"Version {release.Release.Version} verified and published. Select a device to approve installation.";
+            await using var input = selected.OpenReadStream(OsUpdateRules.MaximumPackageBytes);
+            var progress = new Progress<OsReleasePublicationProgress>(value => { if (disposed || !busy || operation != publicationId) return; publicationProgress = value; StateHasChanged(); });
+            var release = await Store.Publish(user, input, CancellationToken.None, progress); releases = Store.Releases(user); file = null; message = $"Version {release.Release.Version} verified and published. Select a device to approve installation.";
         }
         catch (Exception e) when (e is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException or OperationCanceledException) { message = "Release rejected. Check package signature, trusted signer, runtime, size, immutable version and storage quota."; }
-        finally { busy = false; }
+        finally { busy = false; publicationProgress = null; }
     }
 }
