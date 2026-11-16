@@ -1,6 +1,12 @@
 using PiDock.Core;
 using PiDock.Updater;
 
+if(args is ["host-first-boot-log"] or ["host-first-boot-log-once"])
+{
+    await FirstBootDiagnostics.Run(args[0].EndsWith("-once", StringComparison.Ordinal));
+    return;
+}
+
 if(args is ["host-runtime-check"])
 {
     if(!OperatingSystem.IsLinux()||System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture!=System.Runtime.InteropServices.Architecture.Arm64)

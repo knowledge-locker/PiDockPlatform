@@ -138,7 +138,7 @@ def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode
         copy_binary(target, root, "/bin/busybox")
         copy_binary(target, root, "/usr/lib/pidock/boot-reboot")
         (root / "bin/boot-reboot").symlink_to("/usr/lib/pidock/boot-reboot")
-        for name in ("sh", "mount", "switch_root", "sleep", "reboot", "seq", "grep", "mkdir", "chmod", "date", "cat"):
+        for name in ("sh", "mount", "umount", "sync", "switch_root", "sleep", "reboot", "seq", "grep", "mkdir", "chmod", "date", "cat"):
             (root / "bin" / name).symlink_to("busybox")
         for program in ("veritysetup", "blkid"):
             found = next((folder + "/" + program for folder in ("/sbin", "/usr/sbin", "/bin", "/usr/bin") if resolve_target(target, folder + "/" + program).is_file()), None)
@@ -149,6 +149,8 @@ def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode
                 (root / "bin" / program).symlink_to(found)
         copy_loader_layout(target, root)
         shutil.copy2(init, root / "init")
+        shutil.copy2(init.parent / "boot-status", root / "bin/pidock-boot-status")
+        (root / "bin/pidock-boot-status").chmod(0o755)
         (root / "init").chmod(0o755)
         (root / "etc/root.env").write_text(f"ROOT_PARTUUID={DISK_SIGNATURE}-{partition:02d}\nROOT_HASH={root_hash}\nHASH_OFFSET={hash_offset}\nBOOT_MODE={mode}\n")
         (root / "etc/build-epoch").write_text(str(epoch)+"\n")
@@ -195,6 +197,8 @@ def make_recovery_initramfs(target, scripts, output, epoch):
         copy_loader_layout(target, root)
         shutil.copy2(scripts / "recovery-init", root / "init")
         shutil.copy2(scripts / "recovery-menu", root / "bin/pidock-recovery")
+        shutil.copy2(scripts / "boot-status", root / "bin/pidock-boot-status")
+        (root / "bin/pidock-boot-status").chmod(0o755)
         for path in (root / "init", root / "bin/pidock-recovery"):
             path.chmod(0o755)
         (root / "etc/build-epoch").write_text(str(epoch)+"\n")

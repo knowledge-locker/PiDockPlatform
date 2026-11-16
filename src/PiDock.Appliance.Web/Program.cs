@@ -70,6 +70,14 @@ app.MapGet("/api/telemetry/export", (DateTimeOffset from, DateTimeOffset to, str
     return TelemetryExport.Download("local", from, to, format!, metrics, history.Range(from, to));
 }).RequireAuthorization();
 app.MapGet("/api/status", (MonitoringService monitor) => monitor.Current).RequireAuthorization();
+app.MapGet("/api/diagnostics/installer", (HttpContext context) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    var file = new FileInfo(BootDiagnostics.LogPath);
+    if (!file.Exists || file.Length > BootDiagnostics.MaximumBytes || file.Attributes.HasFlag(FileAttributes.ReparsePoint))
+        return Results.NotFound();
+    return Results.File(file.FullName, "text/plain; charset=utf-8", "pidock-install.log");
+}).RequireAuthorization(policy => policy.RequireRole("Owner"));
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode().RequireAuthorization();
 app.Run();
 public partial class Program;
