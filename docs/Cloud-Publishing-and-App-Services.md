@@ -1,6 +1,6 @@
 # Cloud publishing and shared app services
 
-This engineering increment adds working registry-reference package publishing to PiDockCloud and shared structured logging, measurements, system reads and alarm lifecycle APIs to PiDockOS. The same contracts are available through platform schemas. These APIs do not yet satisfy the full platform conformance gate for product apps: physical hardware, package installation, container credential injection, stdout collection and cloud alarm/log delivery remain separate work.
+This engineering increment adds working registry-reference package publishing to PiDockCloud and shared structured logging, measurements, system reads and alarm lifecycle APIs to PiDockOS. The same contracts are available through platform schemas. These APIs do not yet satisfy the full platform conformance gate for product apps: physical hardware, stdout collection and cloud alarm/log delivery remain separate work. Later increments provide managed credential injection and definition-based installation; see the application library guide below.
 
 ## Service identities and setup
 
@@ -59,6 +59,8 @@ The environment equivalents use array indexes, for example `PiDock__Apps__Creden
 
 ## Cloud releases
 
+Installable definitions, browser library publication/download, local definition upload and separately opted-in cloud installation now extend this API. See [application library](Application-Library.md) for the shared format and workflows. Metadata-only publishing below remains supported.
+
 | Endpoint | Scope |
 | --- | --- |
 | `GET /api/applications/v1/discovery` | Any authenticated publisher/catalog identity |
@@ -85,7 +87,7 @@ Publish this package shape, with a real digest-pinned image you own:
 
 Version syntax is bounded `major.minor.patch` with an optional alphanumeric prerelease suffix. The server validates the version, image reference and manifest shape and records a canonical SHA-256 package digest, authenticated publisher, tenant and receipt time. Capability order is normalized for digest calculation. A repeated identical release is idempotent (200); a new version is durably saved before 201; changed content at an existing version is rejected (409). Download the exact release and recompute its package digest using `ApplicationContractRules.Digest` before later installation work.
 
-Catalog lists return the latest 100 releases; exact versions remain retrievable. Preview quotas are 1,000 releases per tenant, 10,000 globally, a 16 MiB catalog snapshot and a protected disk reserve. Publication never fetches or executes an image, proves its actual architecture, verifies publisher signatures or installs a container. This first format is `registry-reference-v1`: image archives, an integrated OCI registry, binary artifact uploads, channels, withdrawal, device-target rollout tracking and local installation/approval are still pending. Registry availability is required to obtain the images later.
+Catalog lists return the latest 100 releases; exact versions remain retrievable. Preview quotas are 1,000 releases per tenant, 10,000 globally, a 16 MiB catalog snapshot and a protected disk reserve. Publication never fetches or executes an image, proves its actual architecture, verifies publisher signatures or installs a container. This first format is `registry-reference-v1`: image archives, an integrated OCI registry, binary artifact uploads, channels, withdrawal and bulk rollout tracking remain pending. Local definition installation, exact-image approval and individual cloud installation requests are described in the application library guide. Registry availability is required to obtain the images later.
 
 ## MCP publishing
 

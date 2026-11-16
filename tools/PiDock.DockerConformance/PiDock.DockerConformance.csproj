@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><StaticWebAssetsEnabled>false</StaticWebAssetsEnabled></PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/PiDock.Cloud.Web/PiDock.Cloud.Web.csproj" />
     <ProjectReference Include="../../src/PiDock.Appliance.Web/PiDock.Appliance.Web.csproj" />
     <ProjectReference Include="../../src/PiDock.Appliance.Broker/PiDock.Appliance.Broker.csproj" />
     <ProjectReference Include="../PiDock.AppUi.Sample/PiDock.AppUi.Sample.csproj" />

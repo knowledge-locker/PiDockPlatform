@@ -1,0 +1,61 @@
+@page "/applications"
+@inject PiDock.Cloud.Web.ApplicationLibrary Library
+@inject AuthenticationStateProvider Authentication
+<PageTitle>Application library · PiDockCloud</PageTitle>
+<p class="eyebrow">PIDOCKCLOUD / APPLICATIONS</p><h1>Application library</h1>
+<p>Publish app definitions for this workspace. PiDockOS downloads the exact Linux ARM64 image from its registry when installing; definitions contain no image or credentials.</p>
+@if (canManage)
+{
+    <section class="card"><h2>Upload app definition</h2><InputFile OnChange="Select" accept=".json" disabled="@busy" />
+    @if (selected is { } definition)
+    {
+        <h3>@definition.Manifest.Id · @definition.Manifest.Version</h3><p>@definition.ReleaseNotes</p>
+        <small style="overflow-wrap:anywhere">@definition.Manifest.Image</small><ApplicationDefinitionReview Definition="definition" />
+        <button disabled="@busy" @onclick="Publish">Publish to library</button>
+    }</section>
+}
+<section class="card"><div class="section-heading"><h2>Workspace releases</h2><button class="secondary" @onclick="Load">Refresh</button></div>
+<label>Find an application<input @bind="search" @bind:event="oninput" maxlength="80" /></label>
+<p>The workspace library holds up to 1,000 releases. Existing app versions are immutable. Publishing does not install an app or grant permissions.</p>
+@if (releases.Length == 0) { <p>No applications have been published to this workspace.</p> }
+@foreach (var release in releases.Where(r => r.AppId.Contains(search, StringComparison.OrdinalIgnoreCase)))
+{
+    <article><h3>@release.AppId · @release.Version</h3><p>@release.Package.ReleaseNotes</p><small style="overflow-wrap:anywhere">@release.Package.Manifest.Image</small>
+    <small style="overflow-wrap:anywhere">Published @release.PublishedAt.UtcDateTime.ToString("u") by @release.PublishedBy · @release.Digest</small>
+    @if (release.Package.Installation is not null) { <p><a href="@($"/api/application-library/{release.AppId}/{release.Version}/definition")">Download app definition</a></p> }
+    else { <p>Metadata-only release: publish a new version with installation settings to enable installation.</p> }
+    </article>
+}
+<p>To install locally, download a definition and upload it under PiDockOS → Applications. To install on a registered appliance, open its device dashboard.</p>
+</section><p role="status">@message</p>
+<ReauthenticationDialog @ref="confirmation" Cloud="true" />
+@code {
+    private ReauthenticationDialog confirmation = default!;
+    private ApplicationReleaseRequest? selected;
+    private PublishedApplicationRelease[] releases = [];
+    private string search = "", message = "";
+    private bool busy, canManage;
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load() { var user = (await Authentication.GetAuthenticationStateAsync()).User; releases = Library.List(user); canManage = EnrollmentStore.CanManage(user); }
+    private async Task Select(InputFileChangeEventArgs args)
+    {
+        selected = null; message = "";
+        try { await using var input = args.File.OpenReadStream(ApplicationDefinition.MaximumBytes); selected = await ApplicationDefinition.Read(input); }
+        catch (Exception e) when (e is IOException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException) { message = "Definition rejected. Check the JSON format, 16 KiB limit, matching identity/image, and installation settings."; }
+    }
+    private async Task Publish()
+    {
+        if (busy || selected is null) return;
+        busy = true; var definition = selected;
+        try {
+            var reviewedTenant = (await Authentication.GetAuthenticationStateAsync()).User.FindFirst("tenant")?.Value;
+            if (!await confirmation.Request("Publish application", $"Publish {definition.Manifest.Id} {definition.Manifest.Version} to this workspace. This version cannot be changed later.")) return;
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            if (user.FindFirst("tenant")?.Value != reviewedTenant) { message = "The workspace changed. Review publication again."; return; }
+            Library.Publish(user, definition);
+            selected = null; message = "Application published. Download its definition or select it from a device dashboard."; await Load();
+        }
+        catch (Exception e) when (e is UnauthorizedAccessException or ArgumentException or IOException or PlatformConflictException or PlatformCapacityException) { message = e is ArgumentException or PlatformConflictException or PlatformCapacityException ? e.Message : "Publication unavailable. Check workspace access and storage."; }
+        finally { busy = false; }
+    }
+}

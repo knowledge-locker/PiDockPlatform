@@ -171,6 +171,30 @@ public sealed class ApplicationServicesTests
         Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/apps/v1/system")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/platform/v1/discovery")).StatusCode);
     }
+    [Fact]
+    public async Task PublisherApiPreservesInstallableDefinitionsAndRejectsRuntimeMismatch()
+    {
+        using var cloud = new ServiceFactory<PiDock.Cloud.Web.CloudMarker>(true);
+        using var client = cloud.Client("publisher");
+        var definition = ApplicationLibraryTests.Definition();
+        definition = definition with {
+            Manifest = definition.Manifest with { Id = "pump" },
+            Installation = definition.Installation! with { Runtime = definition.Installation.Runtime with { Name = "pump" } }
+        };
+        var response = await client.PostAsJsonAsync("/api/applications/v1/releases", definition);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var read = await client.GetFromJsonAsync<PublishedApplicationRelease>("/api/applications/v1/releases/pump/1.0.0");
+        Assert.Equal(ApplicationContractRules.Digest(definition), read!.Digest);
+        Assert.Equal(JsonSerializer.Serialize(definition.Installation, StateFiles.Json), JsonSerializer.Serialize(read.Package.Installation, StateFiles.Json));
+        var bad = definition with { Manifest = definition.Manifest with { Version = "1.0.1" }, Installation = definition.Installation! with { Runtime = definition.Installation.Runtime with { Name = "other" } } };
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/applications/v1/releases", bad)).StatusCode);
+        using var other = cloud.Client("other");
+        Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync("/api/applications/v1/releases/pump/1.0.0")).StatusCode);
+        using var anonymous = cloud.Client(null);
+        var download = await anonymous.GetAsync("/api/application-library/pump/1.0.0/definition");
+        Assert.False(download.IsSuccessStatusCode);
+    }
+
     private sealed class ServiceFactory<T>(bool cloud, bool requireClock=false) : WebApplicationFactory<T> where T : class
     {
         public string Root { get; } = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pidock-app-api-" + Guid.NewGuid());

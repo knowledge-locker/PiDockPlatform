@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace PiDock.Core;
 
-// An offline authoring input, not an accepted package manifest or installation grant.
+// Shared authoring settings, optionally carried by an installable release. Never an installation or capability grant.
 public sealed record ApplicationAuthoringPlan(int SchemaVersion, ApplicationManifest Runtime,
     ApplicationUiContribution? Ui = null, string? ServiceOrigin = null,
     string[]? PublicAssets = null, ApplicationUiBridgeGrant? Bridge = null,

@@ -18,9 +18,9 @@ public sealed class ApplicationCatalog
         releases = File.Exists(path) ? JsonSerializer.Deserialize<PublishedApplicationRelease[]>(File.ReadAllText(path), StateFiles.Json)
             ?? throw new IOException("Invalid application catalog.") : [];
     }
-    public PublishedApplicationRelease[] List(string tenant)
+    public PublishedApplicationRelease[] List(string tenant, int limit = 100)
     {
-        lock (gate) return releases.Where(r => r.TenantId == tenant).OrderByDescending(r => r.PublishedAt).Take(100).ToArray();
+        lock (gate) return releases.Where(r => r.TenantId == tenant).OrderByDescending(r => r.PublishedAt).Take(Math.Clamp(limit, 1, 1000)).ToArray();
     }
     public PublishedApplicationRelease? Find(string tenant, string app, string version)
     {

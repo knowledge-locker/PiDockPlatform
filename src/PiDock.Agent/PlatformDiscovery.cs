@@ -40,8 +40,8 @@ public sealed class PlatformDiscovery(CloudEnrollmentClient enrollment, GpioSimu
             new("logging.central", CapabilityState.Available, "Shared structured app/PiDock host journal; Docker stdout collection remains planned.", ["logs.read", "logs.write"]),
             new("alarms.shared", CapabilityState.Available, "Durable app raise/update/acknowledge/clear and priority-triggered local conditions; optional local notifications are discovered separately.", ["alarms.read", "alarms.raise", "alarms.acknowledge"]),
             new("alarms.notifications.local", CapabilityState.Available, "Opt-in bounded durable app notification inbox and separate receipts. Probe app-diagnostics; no external delivery.", ["app-diagnostics.read"]),
-            new("packages.upload", CapabilityState.Planned, "Direct application package upload is not implemented.", []),
-            new("packages.cloud", CapabilityState.Planned, "Compatible PiDockCloud supports registry-reference publishing via separate credentials; appliance installation remains planned.", [])
+            new("packages.upload", CapabilityState.Planned, "Binary image/archive upload is not implemented. Local Owner registry-reference definition upload is available through Applications; discovery credentials grant no upload authority.", []),
+            new("packages.cloud", CapabilityState.Available, "Compatible PiDockCloud supports a workspace application library and registry-reference definitions. Local Owner upload and separately opted-in cloud installation use the same runtime settings; discovery credentials grant no install authority.", [])
         ], PlatformContracts.List().Select(c => c.Id).ToArray(), ["discovery.read", "contracts.read"]);
 
     private CloudTarget ReadCloud()

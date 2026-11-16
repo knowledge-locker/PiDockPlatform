@@ -18,9 +18,12 @@
 <section class="card"><h2>Registered with PiDockCloud</h2><dl><dt>Server</dt><dd>@connection.CloudUrl</dd><dt>Organization</dt><dd>@connection.TenantId</dd><dt>Device</dt><dd>@connection.DeviceId</dd><dt>Certificate expires (UTC)</dt><dd>@connection.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</dd><dt>Telemetry</dt><dd>@Monitoring.TransportStatus</dd></dl><p>Registration is saved. Check the overview for delivery receipts and the cloud fleet for live contact.</p>
 <h3>Retry cloud connection</h3><p>Reset the MQTT connection using this device’s saved identity. Buffered telemetry stays queued.</p>
 <button disabled="@(busy || !Enrollment.Enabled)" @onclick="Retry">Retry cloud connection</button>
-<p><a href="/telemetry">Manage telemetry channels →</a></p><h3>Remote container management</h3><p>Allow organization owners and administrators in your connected cloud to start, stop and restart PiDock-managed containers. Changes require fresh cloud authentication. Image deployment, system containers, shell access and device I/O stay unavailable remotely.</p>
+<p><a href="/telemetry">Manage telemetry channels →</a></p><h3>Remote container management</h3><p>Allow organization owners and administrators in your connected cloud to start, stop and restart PiDock-managed containers. Changes require fresh cloud authentication. Application installation has a separate permission below. System containers, shell access and device I/O stay unavailable remotely.</p>
 <label><input type="checkbox" style="width:auto" @bind="allowRemoteControl" /> Allow cloud container control</label>
-<button class="secondary" disabled="@(busy || !Enrollment.Enabled)" @onclick="SaveRemotePolicy">Save container access</button><p>Current setting: @(Applications.Current.ControlEnabled ? "Allowed" : "Off").</p></section>
+<button class="secondary" disabled="@(busy || !Enrollment.Enabled)" @onclick="SaveRemotePolicy">Save container access</button><p>Current setting: @(Applications.Current.ControlEnabled ? "Allowed" : "Off").</p>
+<h3>Cloud application installation</h3><p>Allow workspace owners and administrators to install definitions from the cloud application library. Image approval, runtime features and named credentials must be configured here first. Turning off container access also turns off installation access.</p>
+<label><input type="checkbox" style="width:auto" @bind="allowInstall" /> Allow cloud application installation</label>
+<button class="secondary" disabled="@(busy || !Enrollment.Enabled)" @onclick="SaveInstallPolicy">Save installation access</button><p>Current setting: @(Applications.Current.InstallEnabled ? "Allowed" : "Off").</p></section>
 @if (!moving && !isRemote) { <section class="card"><h2>Change cloud server</h2><p>Move this appliance to another trusted cloud. Its current connection remains active until the new registration is verified. Local history stays here; queued readings remain assigned to their original cloud. Remote interface, container and update permissions will turn off.</p>
 <button class="secondary" disabled="@busy" @onclick="BeginMove">Change cloud server</button></section> }
 }
@@ -36,10 +39,10 @@
 <ReauthenticationDialog @ref="confirmation" />
 @code {
     private ReauthenticationDialog confirmation = default!;
-    private string server = "", enrollmentCode = "", caPem = "", message = ""; private bool busy, moving, isRemote, allowRemoteControl; private CloudConnection? connection;
+    private string server = "", enrollmentCode = "", caPem = "", message = ""; private bool busy, moving, isRemote, allowRemoteControl, allowInstall; private CloudConnection? connection;
     private readonly CancellationTokenSource stop = new(); private Task? refresh;
-    protected override async Task OnInitializedAsync() { connection = Enrollment.Connection; allowRemoteControl = Applications.Current.ControlEnabled; server = MediaSetup.PreferredUrl ?? Settings["Enrollment:DefaultCloudUrl"] ?? "https://pidock.knowledgelocker.ai"; isRemote = (await Authentication.GetAuthenticationStateAsync()).User.HasClaim(c => c.Type == "pidock_remote"); refresh = Refresh(); }
-    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2)); while(await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(() => { if(connection is null && Enrollment.Connection is {} registered) { connection=registered;allowRemoteControl=Applications.Current.ControlEnabled; } StateHasChanged(); }); } catch(OperationCanceledException) { } }
+    protected override async Task OnInitializedAsync() { connection = Enrollment.Connection; allowRemoteControl = Applications.Current.ControlEnabled; allowInstall = Applications.Current.InstallEnabled; server = MediaSetup.PreferredUrl ?? Settings["Enrollment:DefaultCloudUrl"] ?? "https://pidock.knowledgelocker.ai"; isRemote = (await Authentication.GetAuthenticationStateAsync()).User.HasClaim(c => c.Type == "pidock_remote"); refresh = Refresh(); }
+    private async Task Refresh() { try { using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2)); while(await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(() => { if(connection is null && Enrollment.Connection is {} registered) { connection=registered;allowRemoteControl=Applications.Current.ControlEnabled;allowInstall=Applications.Current.InstallEnabled; } StateHasChanged(); }); } catch(OperationCanceledException) { } }
     public async ValueTask DisposeAsync() { await stop.CancelAsync(); if(refresh is not null) await refresh; stop.Dispose(); }
     private void StartOver() { moving = false; enrollmentCode = ""; caPem = ""; message = "Cloud change cancelled. The existing registration is retained."; }
     private async Task BeginMove() {
@@ -52,8 +55,19 @@
     {
         if(busy || !Enrollment.Enabled) return; busy = true;
         var allowed = allowRemoteControl;
-        try { if(!await confirmation.Request("Save container access", allowed ? "Allow your cloud organization’s owners and administrators to control managed containers." : "Reject new container operations from PiDockCloud.")) return; Applications.SetEnabled(allowed); message = allowed ? "Cloud container control allowed. Its status will appear after the next telemetry update." : "Cloud container control is off. New remote operations will be rejected."; }
+        try { if(!await confirmation.Request("Save container access", allowed ? "Allow your cloud organization’s owners and administrators to control managed containers." : "Reject new container operations from PiDockCloud.")) return; Applications.SetEnabled(allowed); allowInstall = Applications.Current.InstallEnabled; message = allowed ? "Cloud container control allowed. Its status will appear after the next telemetry update." : "Cloud container control is off. New remote operations will be rejected."; }
         catch(IOException) { message = "Container access could not be saved."; }
+        finally { busy = false; }
+    }
+    private async Task SaveInstallPolicy()
+    {
+        if (busy || !Enrollment.Enabled) return;
+        var allowed = allowInstall; busy = true;
+        try {
+            if (!await confirmation.Request("Save application installation access", allowed ? "Allow this cloud workspace’s owners and administrators to install applications from its library. Local image approval and credential policies still apply." : "Reject new application installation requests from PiDockCloud.")) return;
+            Applications.SetInstallEnabled(allowed); message = "Installation permission saved. Its status will appear after the next telemetry update.";
+        }
+        catch (IOException) { message = "Installation access could not be saved."; }
         finally { busy = false; }
     }
     private async Task Retry()
@@ -83,7 +97,7 @@
                     RemoteInterface.SetAllowed(false, user.Identity!.Name!);
                     Applications.SetEnabled(false);
                 }, caPem, stopMove.Token);
-                allowRemoteControl = false; moving = false; Delivery.RetryConnection();
+                allowRemoteControl = false; allowInstall = false; moving = false; Delivery.RetryConnection();
             } else connection = await Enrollment.ConnectAsync(server, enrollmentCode, caPem);
             enrollmentCode = ""; caPem = "";
             message = "Device registered. Monitoring will connect automatically; allow up to a minute for the first live reading.";

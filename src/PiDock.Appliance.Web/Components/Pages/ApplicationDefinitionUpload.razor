@@ -1,0 +1,63 @@
+@inject BrokerClient Broker
+@inject AuthenticationStateProvider Authentication
+<section class="card"><h2>Install from an app definition</h2>
+<p>Upload the same .pidock.json definition offered by PiDockCloud, or one supplied by an app publisher. Cloud registration is optional. Installation downloads the digest-pinned Linux ARM64 image from its registry.</p>
+<InputFile OnChange="Select" accept=".json" disabled="@busy" />
+@if (selected is { } definition)
+{
+    <h3>@definition.Manifest.Id · @definition.Manifest.Version</h3><p>@definition.ReleaseNotes</p><small style="overflow-wrap:anywhere">@definition.Manifest.Image</small>
+    <p style="overflow-wrap:anywhere">Definition digest: @ApplicationContractRules.Digest(definition)</p>
+    <ApplicationDefinitionReview Definition="definition" />
+    <p>Named credentials and access grants must already be configured on this appliance. Uploading grants no permissions. Registry access must be available from the host; private registry credential delivery is not included.</p>
+    @if (definition.Installation!.Ui is not null) { <p class="notice">This app requests a workspace. Its UI and bridge must be separately registered in host configuration; installation does not grant UI access.</p> }
+    @if (trust?.Enabled == true)
+    {
+        <label>Reason for trusting this image<input @bind="reason" maxlength="512" /></label>
+        <button class="secondary" disabled="@busy" @onclick="Approve">Approve these exact installation settings</button>
+    }
+    <button disabled="@(busy || !Broker.Configured)" @onclick="Install">@(busy ? "Working…" : "Download and install application")</button>
+}
+<p role="status">@message</p></section>
+<ReauthenticationDialog @ref="confirmation" />
+@code {
+    [Parameter] public EventCallback Installed { get; set; }
+    private ReauthenticationDialog confirmation = default!;
+    private ApplicationReleaseRequest? selected; private ApplicationInstallSupport? trust;
+    private string reason = "", message = ""; private bool busy;
+    private async Task Select(InputFileChangeEventArgs args)
+    {
+        selected = null; reason = ""; message = "";
+        try {
+            await using var input = args.File.OpenReadStream(ApplicationDefinition.MaximumBytes);
+            selected = await ApplicationDefinition.Read(input); trust = await Broker.InstallTrustSupport();
+        }
+        catch (Exception e) when (e is IOException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException or HttpRequestException or OperationCanceledException)
+        { selected = null; message = "Definition could not be loaded. Check its format, 16 KiB limit, installation settings and broker availability."; }
+    }
+    private async Task Approve()
+    {
+        if (busy || selected is null) return;
+        if (!ApplicationContractRules.Text(reason, 512) || reason.Any(char.IsControl)) { message = "Enter a reason for trusting this exact image."; return; }
+        var definition = selected; var approvedReason = reason; busy = true;
+        try {
+            if (!await confirmation.Request("Approve application settings", $"Trust the exact image and runtime settings for {definition.Manifest.Id} {definition.Manifest.Version} for one hour. This does not start the app.")) return;
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            await Broker.ApproveInstall(new(definition.Installation!.Runtime, user.Identity!.Name!, approvedReason, DateTimeOffset.UtcNow.AddHours(1)));
+            message = "Exact settings approved for one hour. Install locally or request this version from PiDockCloud.";
+        }
+        catch (Exception e) when (e is ArgumentException or HttpRequestException or InvalidOperationException or OperationCanceledException) { message = "Approval unavailable. Check the image approval policy and broker."; }
+        finally { busy = false; }
+    }
+    private async Task Install()
+    {
+        if (busy || selected is null) return;
+        var definition = selected; busy = true;
+        try {
+            if (!await confirmation.Request("Install application", $"Download and run {definition.Manifest.Id} {definition.Manifest.Version} using the exact settings shown above.")) return;
+            await Broker.DeployDefinition(definition); message = "Application installed."; await Installed.InvokeAsync();
+        }
+        catch (Exception e) when (e is ArgumentException or HttpRequestException or InvalidOperationException or OperationCanceledException)
+        { message = e is ArgumentException or InvalidOperationException ? e.Message : "Installation failed or its result is uncertain. Check managed applications, runtime features, exact-image approval, named credentials and registry access before retrying."; }
+        finally { busy = false; }
+    }
+}

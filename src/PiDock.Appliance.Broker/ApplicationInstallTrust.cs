@@ -65,7 +65,7 @@ public sealed partial class DockerOperations
         ["Explicit unsigned-image exception; publisher signatures are not verified.",
          "Approval covers app ID, pinned image and every runtime-manifest setting for at most 24 hours; no implicit capability or UI grants.",
          "Linux ARM64 image metadata is verified before container creation. Approval expiry/revocation prevents new installations and update candidates, not existing-container restarts.",
-         "Package import/upload, publisher PKI, registry credential delivery and transactional UI registration remain separate work."]);
+         "Image archive upload, publisher PKI, registry credential delivery and transactional UI registration remain separate work."]);
     public ApplicationInstallApproval[] InstallApprovals() => installTrustStore?.Read() ?? [];
     public async Task<ApplicationInstallApproval> ApproveInstall(ApplicationInstallApprovalRequest request, CancellationToken ct)
     {

@@ -151,3 +151,15 @@ The host is explicitly restarted in Development for live simulator checks. The t
 Graceful restarts target only the tool-owned actual broker/appliance executables. Broker restart must stop/resume the container with current delivery, retained data and cleared forces. Appliance-host restart must invalidate old leases, clear engineering state and restore simulator fallback; the disconnected sample holds unavailable until explicit app Restart, which must reinitialize without forces. Intentional Stop must survive restarting both services and a sixteen-second observation. Retained session keys and rejection of an unrelated decryption key ring are checked. These are service-process restarts, not systemd, Docker-daemon, VM, host reboot or power-loss tests.
 
 The non-secret `artifacts/target-security-restart.json` records target versions, image identity, source revision/dirty status, platform assembly hashes, and all five result groups. Cleanup removes only owned processes, containers/networks, registry anonymous volume, sample volume/image and temporary private state; dependency images/build cache may remain. A passing run contributes evidence to the explicit [development gate review](../../docs/Application-Development-Gate.md); it does not approve production/physical operation on its own.
+
+## Application library and registry installation
+
+```sh
+dotnet run --project tools/PiDock.DockerConformance -c Release -- "$PWD" --application-library
+```
+
+This mutually exclusive mode uses the disposable sample, an isolated HTTPS cloud with real publisher and browser-session endpoints, a loopback registry, private broker state/vault and the normal restricted Docker deployment path. It publishes an installable definition, verifies idempotency and immutable-version rejection, denies anonymous download, signs into the fixture cloud normally, downloads the attachment and imports its bytes through the shared local reader. No hosted account or Logic Engine source is used.
+
+The actual broker denies installation before exact-runtime image approval. The test then approves those settings and removes the built image from Docker's image store before both local and cloud-command installation. Each install must resolve the digest through the registry; the sample runs as Linux ARM64, receives current private credentials/data/health resources, reaches Ready and passes the latch/delay/Stop exercise. Cloud command validation checks live local opt-in, rejects stale claimed permission when the actual local policy is off, exercises a receipt over the old 4 KiB bound, and records completion without replaying an accepted command. The command receipt is serialized and delivered in-process; this mode does not claim a separate live MQTT-network or physical Pi acceptance.
+
+Non-secret evidence is written to `artifacts/docker-application-library.json`. Cleanup removes only the fixture containers, networks, image, private state, registry and sample data volume. Other local preview containers remain intact. The same idle-managed-inventory and absent-sample-volume guards apply.

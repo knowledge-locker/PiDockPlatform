@@ -364,6 +364,35 @@ public sealed class WorkspaceTests : IDisposable
         var action=await client.PostAsync("/workspaces/role",new FormUrlEncodedContent(new Dictionary<string,string>{["username"]="browser-user",["role"]="Viewer",["__RequestVerificationToken"]=Field(html,"__RequestVerificationToken")}));
         Assert.Equal(HttpStatusCode.BadRequest,action.StatusCode); // Reaches the last-Administrator guard, rather than origin rejection.
     }
+    [Fact]
+    public async Task ApplicationLibraryDownloadsRequireCurrentWorkspaceSessionAndRoundTripExactly()
+    {
+        using var factory = new WorkspaceFactory();
+        using var alpha = factory.Client(); using var beta = factory.Client();
+        var users = factory.Services.GetRequiredService<UserStore>(); Bootstrap(users);
+        foreach (var (client, name, tenant) in new[] { (alpha, "library-alpha", "alpha"), (beta, "library-beta", "beta") })
+        {
+            var secret = Totp.NewSecret(); users.Add(name, Password, secret, tenant, "Administrator", false, -1);
+            var login = await client.GetStringAsync("/auth/login");
+            var signedIn = await client.PostAsync("/auth/login", new FormUrlEncodedContent(new Dictionary<string, string> {
+                ["username"] = name, ["password"] = Password, ["code"] = Code(secret), ["__RequestVerificationToken"] = Field(login, "__RequestVerificationToken") }));
+            Assert.Equal(HttpStatusCode.Redirect, signedIn.StatusCode);
+        }
+        var definition = ApplicationLibraryTests.Definition();
+        var release = factory.Services.GetRequiredService<ApplicationCatalog>().Publish("alpha", "publisher", definition).Release;
+        const string path = "/api/application-library/logic-engine/1.0.0/definition";
+        var response = await alpha.GetAsync(path);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType!.MediaType);
+        Assert.Equal("attachment", response.Content.Headers.ContentDisposition!.DispositionType);
+        Assert.True(response.Headers.CacheControl!.NoStore);
+        await using var content = await response.Content.ReadAsStreamAsync();
+        var restored = await ApplicationDefinition.Read(content);
+        Assert.Equal(release.Digest, ApplicationContractRules.Digest(restored));
+        Assert.Equal(HttpStatusCode.NotFound, (await beta.GetAsync(path)).StatusCode);
+        Assert.Contains("logic-engine", await alpha.GetStringAsync("/applications"));
+        Assert.DoesNotContain("logic-engine", await beta.GetStringAsync("/applications"));
+    }
     private static string Field(string html, string name) => WebUtility.HtmlDecode(Regex.Match(html, "name=[\"']" + name + "[\"'] value=[\"']([^\"']*)").Groups[1].Value);
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
     private sealed class WorkspaceFactory : WebApplicationFactory<CloudMarker>

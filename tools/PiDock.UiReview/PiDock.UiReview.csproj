@@ -15,6 +15,8 @@
     <Compile Include="../../src/PiDock.Cloud.Web/RemoteAccessService.cs" Link="Services/RemoteAccessService.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/OsUpdateStore.cs" Link="Services/OsUpdateStore.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/FactoryImageStore.cs" Link="Services/FactoryImageStore.cs" />
+    <Compile Include="../../src/PiDock.Cloud.Web/ApplicationCatalog.cs" Link="Services/ApplicationCatalog.cs" />
+    <Compile Include="../../src/PiDock.Cloud.Web/ApplicationLibrary.cs" Link="Services/ApplicationLibrary.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/ApplicationCommandStore.cs" Link="Services/ApplicationCommandStore.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/FleetStore.cs" Link="Services/FleetStore.cs" />
     <Compile Include="../../src/PiDock.Cloud.Web/IngestionService.cs" Link="Services/IngestionService.cs" />

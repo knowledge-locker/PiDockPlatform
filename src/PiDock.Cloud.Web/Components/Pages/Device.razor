@@ -28,12 +28,13 @@ else {
 <div class="table-scroll"><table><thead><tr><th>Container</th><th>State</th><th>Image</th><th>Actions</th></tr></thead><tbody>
 @foreach (var app in inventory.Applications) { <tr><td>@string.Join(", ", app.Names.Select(n => n.TrimStart('/')))</td><td><span class="pill status-neutral">@app.State</span><br/><small>@app.Status</small></td><td><small>@app.Image</small></td><td>@if(canControl) { <div class="button-row"><button class="secondary" disabled="@(!CanOperate || busy)" @onclick="() => ControlState(app)">@(app.State == "running" ? "Stop" : "Start")</button><button class="secondary" disabled="@(!CanOperate || busy || app.State != "running")" @onclick="() => Restart(app)">Restart</button></div> } else { <small>Owner / administrator required</small> }</td></tr> }
 </tbody></table></div>
-@if(inventory.Applications.Count == 0) { <p>No managed containers reported. Install applications locally through PiDockOS; system containers are excluded.</p> }
+@if(inventory.Applications.Count == 0) { <p>No managed containers reported. Choose an app below or install locally through PiDockOS; system containers are excluded.</p> }
 @if(canControl) { <small>Each operation requires fresh authentication, expires after two minutes, and is sent with the next live telemetry receipt.</small> }
 }
 <p role="status">@message</p>
 @if(operations.Count > 0) { <h3>Recent operations</h3><div class="table-scroll"><table><thead><tr><th>Operation</th><th>Requested</th><th>Result</th></tr></thead><tbody>@foreach(var operation in operations) { <tr><td>@operation.Command.Action</td><td>@Format.Ago(operation.Command.IssuedAt)</td><td>@(operation.Result?.State ?? (operation.Command.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired — verify device state before retrying" : "Queued — waiting for device"))<br/><small>@operation.Result?.Message</small></td></tr> }</tbody></table></div> }
 </details>
+<ApplicationInstallPanel @key="(typeof(ApplicationInstallPanel), DeviceId)" Device="device" />
 <OsUpdatePanel @key="(typeof(OsUpdatePanel), DeviceId)" Device="device" />
 <ResourceTrends @key="DeviceId" Query="ReadHistory" ExportPath="@($"/api/devices/{Uri.EscapeDataString(DeviceId)}/export")" />
 }
