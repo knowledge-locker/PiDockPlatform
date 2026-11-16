@@ -1,5 +1,7 @@
 # Shared application readiness
 
+November 16 update: the shared app platform is merged with current main, **440 combined tests pass**, cloud/container images and the signed alpha.7 factory image are rebuilt and validated. The local preview is updated. See the [exact release identities and deployment boundaries](Reconciled-Images-2026-11-16.md). The simulation-first development gate remains PASS; physical/Production commissioning is separate.
+
 Current assessment: November 15, 2026. **The simulation-first development gate PASSES on the reviewed Docker Desktop Linux ARM64 target.** See the explicit [gate decision and scope](Application-Development-Gate.md). Logic Engine may start product development within that scope. Production/Pi commissioning and physical GPIO remain unapproved; physical GPIO is **unavailable**. Historical evidence below records earlier gate states and is superseded by this scoped decision.
 
 This assessment applies to all PiDockOS apps. Start with live target discovery, feature-specific support metadata and explicit grants. The [UI integration contract](Application-UI-Integration.md) and `PlatformContracts.AuthoringGuide` remain authoritative for shared styling, isolated hosting and authenticated operations. Features default off where documented; source availability does not enable an appliance.

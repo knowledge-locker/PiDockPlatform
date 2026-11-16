@@ -1,5 +1,7 @@
 # Release integration audit — 2026-11-12
 
+November 16 update: the shared app platform is merged with current main, **440 combined tests pass**, cloud/container images and the signed alpha.7 factory image are rebuilt and validated. The local preview is updated. See the [exact release identities and deployment boundaries](Reconciled-Images-2026-11-16.md). The simulation-first development gate remains PASS; physical/Production commissioning is separate.
+
 ## Reconciliation update — 2026-11-13
 
 PR #1, merged at `8322aa0c7b53117d7fb1532fcb5f7e666b396db0`, reconciles the unique application-platform work against the release branch. The combined implementation includes authenticated discovery and versioned schemas, the local MCP stdio bridge, local-owner agent registrations, scoped shared app services and tenant/application-bound cloud publishing. Newer remembered sessions, trusted-clock enforcement, signed updates, secure remote access and isolated certificate signing are retained. Agent credential actions use the shared MFA popup, require a local current owner, and invalidate issued tokens after ownership recovery. Commissioning diagnostics retain clock metadata while redacting MFA values.

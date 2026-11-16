@@ -1,5 +1,7 @@
 # Application development gate: Docker simulation target
 
+November 16 update: the shared app platform is merged with current main, **440 combined tests pass**, cloud/container images and the signed alpha.7 factory image are rebuilt and validated. The local preview is updated. See the [exact release identities and deployment boundaries](Reconciled-Images-2026-11-16.md). The simulation-first development gate remains PASS; physical/Production commissioning is separate.
+
 Decision: **PASS for simulation-first application development**, reviewed November 15, 2026 (final run recorded November 16 at 03:16 UTC). This completes the three-batch pre-app queue. No further shared validation batch is required before starting Logic Engine within this scope. This is a development decision, not production commissioning or physical GPIO approval.
 
 ## Reviewed target and scope
