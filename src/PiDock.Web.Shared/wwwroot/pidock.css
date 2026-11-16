@@ -1,23 +1,24 @@
+@import url('./ui/1.0/tokens.css');
 /* Raspberry-inspired palette: raspberry actions, leaf-green health, warm neutral surfaces. */
 :root {
-    font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-family:var(--pd-font);
     color:var(--text);
     background:var(--canvas);
     font-synthesis:none;
     color-scheme:light;
-    --muted:#6c626b;
-    --accent:#c51a4a;
-    --line:#e4dce0;
-    --panel:#ffffff;
-    --text:#29232a;
-    --canvas:#f6f4f3;
-    --sidebar:#ffffff;
-    --input:#ffffff;
-    --input-border:#cbbec5;
-    --accent-strong:#97113b;
-    --accent-soft:#fce8ee;
-    --leaf:#4f8f35;
-    --focus:#9e153e;
+    --muted:var(--pd-muted);
+    --accent:var(--pd-accent);
+    --line:var(--pd-line);
+    --panel:var(--pd-panel);
+    --text:var(--pd-text);
+    --canvas:var(--pd-canvas);
+    --sidebar:var(--pd-panel);
+    --input:var(--pd-input);
+    --input-border:var(--pd-input-border);
+    --accent-strong:var(--pd-accent-strong);
+    --accent-soft:var(--pd-accent-soft);
+    --leaf:var(--pd-leaf);
+    --focus:var(--pd-focus);
 }
 * {
     box-sizing:border-box;
@@ -29,7 +30,7 @@ a {
     color:var(--accent);
     text-decoration:none;
 }
-button,input {
+button,input,select {
     font:inherit;
 }
 button {
@@ -59,7 +60,7 @@ button.text-button {
     color:var(--accent);
     font-weight:500;
 }
-input {
+input,select {
     display:block;
     width:100%;
     background:var(--input);
@@ -545,7 +546,7 @@ td:first-child,th:first-child {
     border-color:#d9cbd2;
     background:#f4f0f2;
 }
-button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible {
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible {
     outline:3px solid var(--focus);
     outline-offset:4px;
 }
@@ -682,3 +683,25 @@ textarea { width:100%; box-sizing:border-box; padding:12px; border:1px solid var
 .telemetry-help::backdrop { background:#28242955; }
 .telemetry-help .section-heading { gap:16px; align-items:center; }
 .telemetry-help h2 { margin:0; }
+
+.os-update-select { display:block; width:100%; font:inherit; background:var(--input); color:var(--text); border:1px solid var(--input-border); border-radius:7px; padding:11px; margin-top:8px; }
+.os-update-select:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+
+/* Account setup and team management share the platform's visual language. */
+.account-page { width: min(880px, calc(100% - 40px)); margin: 48px auto; }
+.account-page > .brand { margin-bottom: 28px; }
+.account-page .card { margin: 24px 0; }
+.account-page form { max-width: 560px; margin: 16px 0; }
+.account-page label { display: grid; gap: 6px; margin: 16px 0; }
+.account-page input, .account-page select { width: 100%; }
+.setup-key { overflow-wrap: anywhere; user-select: all; }
+.workspace-select { display: flex; align-items: center; gap: 8px; margin: 0; }
+.workspace-select select { max-width: 220px; }
+.account-page select, .workspace-select select { font: inherit; background: var(--input); color: var(--text); border: 1px solid var(--input-border); border-radius: 7px; padding: 10px; }
+.workspace > header { min-height: 78px; height: auto; gap: 12px; padding-top: 12px; padding-bottom: 12px; flex-wrap: wrap; }
+.workspace > header > div { flex-wrap: wrap; gap: 14px; }
+@media(max-width:650px) { .workspace-select { flex-wrap: wrap; } .account-page { margin: 20px auto; padding: 18px 0; } }
+
+/* Isolated app surface retains the platform shell and uses the shared design tokens. */
+.app-ui-frame { display:block; width:100%; min-height:680px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+.app-ui-notice { margin:12px 0; font-size:13px; }

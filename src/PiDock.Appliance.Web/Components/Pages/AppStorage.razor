@@ -1,0 +1,31 @@
+@page "/app-storage"
+@attribute [Authorize(Roles = "Owner")]
+@inject BrokerClient Broker
+<PageTitle>App storage · PiDockOS</PageTitle>
+<p class="eyebrow">APPLIANCE / APPLICATIONS</p><h1>App storage</h1>
+<p><a href="/applications">Applications</a> · <a href="/app-backups">Backups and restore</a></p>
+<section class="card"><div class="section-heading"><h2>Storage capacity</h2><button class="secondary" disabled="@busy" @onclick="Load">Refresh</button></div>
+<p>@(support?.Enabled == true ? "New app data volumes require sufficient space above the configured storage reserve." : "Storage admission is not enabled on this appliance.")</p>
+<p>This check applies when allocating a new volume. It does not limit ongoing app writes. Docker usage is an estimate; unknown usage is not zero.</p>
+@if (status?.Capacity is { } budget) { <p>Free: @Size(budget.FreeBytes) · Reserved: @Size(budget.ReserveBytes) · Available above reserve: @Size(budget.AllocatableBytes)</p><p>New volume allocation: @(budget.CanAllocate ? "Space available" : "Blocked by storage reserve")</p> }
+<p role="status">@message</p></section>
+<section class="card"><h2>Managed data volumes</h2>
+<table><thead><tr><th>App</th><th>Estimated usage</th><th>Container references</th></tr></thead><tbody>
+@foreach (var volume in status?.Volumes ?? []) { <tr><td>@volume.AppId</td><td>@(volume.UsedBytes is { } bytes ? Size(bytes) : "Unknown")</td><td>@(volume.ContainerReferences?.ToString() ?? "Unknown")</td></tr> }
+</tbody></table>
+<p>Stop and restart retain app data. Snapshot retention is managed separately. Hard per-app quotas and volume migration are not available.</p></section>
+@code {
+    private ApplicationStorageSupport? support;
+    private ApplicationStorageStatus? status;
+    private string? message;
+    private bool busy;
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load()
+    {
+        if (busy) return; busy = true;
+        try { support = await Broker.StorageSupport(); status = await Broker.StorageStatus(); message = status is null ? "Storage status is unavailable." : "Usage checked " + status.ObservedAt.ToLocalTime().ToString("T"); }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException) { status = null; message = "Storage status unavailable. Check the host broker and Docker runtime."; }
+        finally { busy = false; }
+    }
+    private static string Size(long bytes) => (bytes / 1048576d).ToString("N1") + " MiB";
+}

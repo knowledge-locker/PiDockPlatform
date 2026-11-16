@@ -6,4 +6,5 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup><EmbeddedResource Include="../../sdk/health-probe/pidock-health-probe.c" LogicalName="PiDock.HealthProbe.v1.c" /></ItemGroup>
 </Project>

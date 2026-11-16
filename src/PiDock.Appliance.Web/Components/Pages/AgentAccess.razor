@@ -1,0 +1,144 @@
+@page "/agent-access"
+@attribute [Authorize(Roles = "Owner")]
+@implements IAsyncDisposable
+@inject RegisteredAgentStore Agents
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+@inject IConfiguration Settings
+@using Microsoft.JSInterop
+@inject Microsoft.JSInterop.IJSRuntime JS
+<PageTitle>Agent access · PiDockOS</PageTitle>
+<p class="eyebrow">PIDOCKOS / AGENT ACCESS</p>
+<h1>Agent access</h1>
+<p>Register a third-party application to give its AI agent access to this appliance’s platform discovery. Each application has its own token, expiry and revocation control.</p>
+@if (!Agents.Enabled) { <div class="notice">Isolated UI review. Creating and revealing credentials requires a commissioned PiDockOS appliance.</div> }
+<div class="columns">
+<section class="card">
+<h2>Register an application</h2>
+<label>Application name<input @bind="name" maxlength="80" autocomplete="off" placeholder="My development agent" /></label>
+<label>Appliance HTTPS address<input type="url" @bind="origin" maxlength="512" autocomplete="off" placeholder="https://your-pidockos/" /></label>
+<p>Use the address the remote application can reach. Verify its certificate and hostname before sharing access.</p>
+<label>Token lifetime<select @bind="lifetimeDays"><option value="1">1 day</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select></label>
+<label><input type="checkbox" @bind="systemRead" style="width:auto" /> Also allow reading system resources</label>
+<p>Discovery is read-only. This registration does not grant deployment, hardware changes, cloud publishing or access to other applications’ logs.</p>
+<button disabled="@(busy || !Agents.Enabled)" @onclick="Create">Register application</button>
+</section>
+<section class="card">
+<h2>Confirm local ownership</h2>
+<p>Creating, revealing, rotating or revoking access requires your password and a fresh authenticator code.</p>
+<label>Your appliance password<input type="password" @bind="password" maxlength="256" autocomplete="current-password" /></label>
+<label>Fresh authenticator code<input @bind="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code" /></label>
+<p>Tokens are encrypted in the appliance’s protected storage. You can reveal the same token again until it expires, is rotated or is revoked.</p>
+<p role="status" aria-live="polite">@message</p>
+</section>
+</div>
+@if (details is not null)
+{
+<section class="card" aria-labelledby="connection-title">
+<div class="section-heading"><h2 id="connection-title">Connection prompt · @details.Application.Name</h2><button class="secondary" @onclick="Hide">Hide credentials</button></div>
+<p>Copy this prompt into the trusted third-party application. It contains a secret token and will be hidden here after two minutes.</p>
+<label>Discovery URL<input readonly value="@details.Application.DiscoveryUrl" /></label>
+<label>Generated token<input readonly value="@details.Token" autocomplete="off" spellcheck="false" /></label>
+<label for="agent-connection-prompt">Copy-and-paste prompt</label>
+<textarea id="agent-connection-prompt" @bind="connectionPrompt" rows="17" readonly autocomplete="off" spellcheck="false" style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
+<button @onclick="Copy">Copy connection prompt</button>
+<p>Only paste into applications you trust. Revoking the registration blocks subsequent authenticated requests; it cannot erase copies already made elsewhere.</p>
+</section>
+}
+<section class="card">
+<div class="section-heading"><h2>Registered applications</h2><button class="secondary" @onclick="Refresh">Refresh</button></div>
+@if (registrations.Length == 0) { <p>No applications registered. Remote agents have no access until you create a registration or explicitly configure a separate service credential.</p> }
+@foreach (var registration in registrations)
+{
+<article style="padding:16px 0;border-bottom:1px solid var(--line)">
+<div class="section-heading"><h3>@registration.Name</h3><span class="pill">@(registration.RevokedAt is not null ? "Revoked" : registration.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired" : "Active")</span></div>
+<p style="overflow-wrap:anywhere">@registration.DiscoveryUrl</p>
+<p><small>Expires @registration.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm") UTC · @string.Join(", ", registration.Scopes)</small></p>
+<div class="actions">
+<button class="secondary" disabled="@(busy || !Agents.Enabled || registration.RevokedAt is not null || registration.ExpiresAt <= DateTimeOffset.UtcNow)" @onclick="() => Reveal(registration.Id)">Reveal / copy again</button>
+<button class="secondary" disabled="@(busy || !Agents.Enabled || registration.RevokedAt is not null || registration.ExpiresAt <= DateTimeOffset.UtcNow)" @onclick="() => Rotate(registration.Id)">Rotate token</button>
+<button class="secondary" disabled="@(busy || !Agents.Enabled || registration.RevokedAt is not null)" @onclick="() => Revoke(registration.Id)">Revoke access</button>
+</div>
+</article>
+}
+</section>
+@code {
+    private string name = "", origin = "", password = "", code = "", message = "", connectionPrompt = "";
+    private int lifetimeDays = 30;
+    private bool systemRead, busy;
+    private AgentConnectionDetails? details;
+    private RegisteredAgentSummary[] registrations = [];
+    private Microsoft.JSInterop.IJSObjectReference? module;
+    private readonly CancellationTokenSource stop = new();
+    private Task? watch;
+    private long revealedAt;
+    protected override async Task OnInitializedAsync()
+    {
+        origin = Settings["PiDock:PublicOrigin"] ?? Navigation.BaseUri;
+        await Refresh(); watch = Watch();
+    }
+    private async Task Refresh()
+    {
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        try
+        {
+            registrations = Agents.List(user);
+            if (details is not null && !registrations.Any(r => r.Id == details.Application.Id && r.RevokedAt is null &&
+                r.ExpiresAt > DateTimeOffset.UtcNow && r.ExpiresAt == details.Application.ExpiresAt)) Hide();
+        }
+        catch (UnauthorizedAccessException) { Hide(); registrations = []; }
+    }
+    private async Task Run(Func<System.Security.Claims.ClaimsPrincipal, AgentConnectionDetails?> action, string success)
+    {
+        if (busy || !Agents.Enabled) return;
+        busy = true; Hide();
+        try
+        {
+            details = action((await Authentication.GetAuthenticationStateAsync()).User);
+            connectionPrompt = details?.Prompt ?? ""; revealedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            message = success; await Refresh();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or UnauthorizedAccessException) { message = ex.Message; }
+        catch (Exception ex) when (ex is IOException or System.Security.Cryptography.CryptographicException)
+        { message = "Agent registration could not be saved or decrypted. Check the appliance’s protected storage."; }
+        finally { password = ""; code = ""; busy = false; }
+    }
+    private Task Create() => Run(user => Agents.Create(user, password, code, name, origin, lifetimeDays, systemRead), "Application registered. Copy its connection prompt below.");
+    private Task Reveal(Guid id) => Run(user => Agents.Reveal(user, password, code, id), "Connection prompt revealed.");
+    private Task Rotate(Guid id) => Run(user => Agents.Rotate(user, password, code, id, lifetimeDays), "Token rotated. The previous token no longer works. Copy the replacement below.");
+    private Task Revoke(Guid id) => Run(user => { Agents.Revoke(user, password, code, id); return null; }, "Access revoked. Subsequent requests using this token will be rejected.");
+    private void Hide() { details = null; connectionPrompt = ""; }
+    private async Task Copy()
+    {
+        if (details is null) return;
+        try
+        {
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            var current = Agents.List(user).FirstOrDefault(r => r.Id == details.Application.Id);
+            if (current is null || current.RevokedAt is not null || current.ExpiresAt <= DateTimeOffset.UtcNow) { Hide(); return; }
+            module ??= await JS.InvokeAsync<Microsoft.JSInterop.IJSObjectReference>("import", ["./_content/PiDock.Web.Shared/pidock-agent-access.js"]);
+            var copied = await module.InvokeAsync<bool>("copyPrompt", ["agent-connection-prompt"]);
+            message = copied ? "Connection prompt copied." : "Select the prompt text and copy it manually.";
+        }
+        catch (UnauthorizedAccessException) { Hide(); }
+        catch (Microsoft.JSInterop.JSException) { message = "Select the prompt text and copy it manually."; }
+    }
+    private async Task Watch()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(stop.Token)) await InvokeAsync(async () =>
+            {
+                if (details is not null && System.Diagnostics.Stopwatch.GetElapsedTime(revealedAt) >= TimeSpan.FromMinutes(2)) Hide();
+                await Refresh(); StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException) { }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        await stop.CancelAsync(); if (watch is not null) await watch; stop.Dispose(); Hide();
+        if (module is not null) try { await module.DisposeAsync(); } catch (Microsoft.JSInterop.JSDisconnectedException) { }
+    }
+}

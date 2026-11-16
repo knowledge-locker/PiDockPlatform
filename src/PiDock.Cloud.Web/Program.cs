@@ -9,11 +9,13 @@ using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddPiDockAuthentication("Cloud");
+builder.AddApplicationCatalog();
 builder.Services.AddHttpsRedirection(options => options.HttpsPort = 443);
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddScoped<AuthenticationStateProvider, SessionAuthenticationStateProvider>();
 builder.Services.AddSingleton<FleetStore>();
 builder.Services.AddSingleton<ApplicationCommandStore>();
+builder.Services.AddSingleton<OsUpdateStore>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddSingleton<IDeviceCertificateIssuer, DeviceCertificateIssuer>();
 builder.Services.AddSingleton<EnrollmentStore>();
@@ -38,6 +40,8 @@ if (!app.Environment.IsDevelopment())
 app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter(); app.UseAntiforgery();
 app.MapPiDockAuthentication("Cloud"); app.MapStaticAssets();
 app.MapDeviceEnrollment();
+app.MapApplicationCatalog();
+app.MapOsUpdates();
 app.MapGet("/api/devices", (System.Security.Claims.ClaimsPrincipal user, FleetStore store) => store.For(user)).RequireAuthorization();
 app.MapGet("/api/devices/{device}/history", (string device, System.Security.Claims.ClaimsPrincipal user, FleetStore store) => store.HistoryFor(user, device)).RequireAuthorization();
 DeviceHistory.MapExport(app);

@@ -21,7 +21,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PiDock.Core\PiDock.Core.csproj" />
+    <ProjectReference Include="../../src/PiDock.Updater/PiDock.Updater.csproj" />
+    <ProjectReference Include="../../tools/PiDock.AppData.Helper/PiDock.AppData.Helper.csproj" />
+    <ProjectReference Include="../../tools/PiDock.AppUi.Sample/PiDock.AppUi.Sample.csproj" />
     <ProjectReference Include="..\..\src\PiDock.Agent\PiDock.Agent.csproj" />
+    <ProjectReference Include="..\..\src\PiDock.Agent.Mcp\PiDock.Agent.Mcp.csproj" />
     <ProjectReference Include="..\..\src\PiDock.Web.Shared\PiDock.Web.Shared.csproj" />
     <ProjectReference Include="..\..\src\PiDock.Cloud.Web\PiDock.Cloud.Web.csproj" />
     <ProjectReference Include="..\..\src\PiDock.Appliance.Web\PiDock.Appliance.Web.csproj" />

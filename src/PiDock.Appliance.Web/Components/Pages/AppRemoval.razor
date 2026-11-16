@@ -1,0 +1,78 @@
+@page "/app-removal"
+@attribute [Authorize(Roles = "Owner")]
+@inject BrokerClient Broker
+@inject UserStore Users
+@inject AuthenticationStateProvider Authentication
+@inject ApplicationUiRegistry UiRegistry
+@inject ApplicationCredentialVault Vault
+@inject IConfiguration Configuration
+<PageTitle>Remove an app · PiDockOS</PageTitle>
+<p class="eyebrow">APPLIANCE / APPLICATIONS</p><h1>Remove an app</h1>
+<p><a href="/applications">Applications and maintenance controls</a></p>
+<section class="card"><div class="section-heading"><h2>Runtime removal</h2><button class="secondary" disabled="@busy" @onclick="Load">Refresh</button></div>
+<p>Finish a maintenance pause before removing a managed app. Its containers and private networks are removed. App data, snapshots and image cache are retained.</p>
+@if (support?.Enabled != true) { <p>Managed removal is not enabled on this appliance.</p> }
+<label>App<select @bind="selectedId"><option value="">Choose an app</option>@foreach (var app in applications) { <option value="@app.Id">@string.Join(", ", app.Names)</option> }</select></label>
+<button disabled="@(busy || support?.Enabled != true || string.IsNullOrEmpty(selectedId) || ApplicationRemovalRules.BlocksStartup(operation))" @onclick="Remove">Remove runtime and retain data</button>
+@if (operation is not null)
+{
+    <p role="status">@operation.AppId · @Phase(operation.Phase)</p>
+    @if (ApplicationRemovalRules.BlocksStartup(operation)) { <p class="notice">Startup remains blocked until removal and external access cleanup are complete. Maintenance remains paused afterward.</p> }
+    @if (operation.Phase is "prepared" or "removing" or "metadata") { <button class="secondary" disabled="@busy" @onclick="Retry">Retry interrupted removal</button> }
+    @if (operation.Phase == "awaiting_external_cleanup")
+    {
+        <ul>@foreach (var action in operation.RemainingActions) { <li>@action</li> }</ul>
+        <p>Disable app UI registrations, revoke app credentials using <a href="/app-resources">App credentials</a>, and remove configured credentials and grants. Configuration-owned entries must be changed in the host configuration.</p>
+        <label><input type="checkbox" @bind="cleanupConfirmed" /> I have completed the listed access and lease cleanup.</label>
+        <button disabled="@(busy || !cleanupConfirmed)" @onclick="Complete">Confirm cleanup and finish removal</button>
+    }
+}
+</section>
+<section class="card"><h2>Confirm owner credentials</h2><p>Each change requires your password and a fresh authenticator code.</p>
+<label>Password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label>
+<label>Authenticator code<input @bind="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code" /></label><p role="status">@message</p></section>
+@code {
+    private ApplicationRemovalSupport? support;
+    private ApplicationRemovalStatus? operation;
+    private ApplicationSummary[] applications = [];
+    private string selectedId = "", password = "", code = "";
+    private string? message;
+    private bool busy, cleanupConfirmed;
+    protected override Task OnInitializedAsync() => Load();
+    private async Task Load()
+    {
+        try { support = await Broker.RemovalSupport(); operation = await Broker.RemovalStatus(); applications = await Broker.List(); }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException) { support = null; message = "Removal status unavailable. Check the host broker."; }
+    }
+    private Task Remove()
+    {
+        var app = applications.SingleOrDefault(a => a.Id == selectedId);
+        return app is null ? Task.CompletedTask : Change(_ => Broker.RemoveApplication(app.Id, new(Guid.NewGuid(), app.Image)), "Runtime removed. Complete the listed access cleanup before resuming apps.");
+    }
+    private Task Retry() => operation is null ? Task.CompletedTask : Change(_ => Broker.RemoveApplication(operation.ContainerId, new(operation.OperationId, operation.Image)), "Runtime removal advanced. Refresh the remaining cleanup steps.");
+    private Task Complete() => Change(user =>
+    {
+        if (operation is null || !cleanupConfirmed) throw new InvalidOperationException("Confirm the listed cleanup first.");
+        var appId = operation.AppId;
+        if (UiRegistry.Read().Any(r => r.Contribution.AppId == appId) ||
+            Vault.Read().Any(c => c.AppId == appId && !c.Revoked && c.ExpiresAt > DateTimeOffset.UtcNow) ||
+            (Configuration.GetSection("PiDock:Apps:Credentials").Get<ServiceCredential[]>() ?? []).Any(c => c.Subject == appId && c.ExpiresAt > DateTimeOffset.UtcNow) ||
+            (Configuration.GetSection("PiDock:Apps:Io:Grants").Get<ApplicationIoGrant[]>() ?? []).Any(g => g.AppId == appId))
+            throw new InvalidOperationException("Enabled UI registrations, active credentials or I/O grants still exist for this app. Remove them before confirming cleanup.");
+        return Broker.CompleteRemoval(new(operation.OperationId, user.Identity!.Name!, true));
+    }, "Removal complete. App data and snapshots were retained. Review maintenance before resuming apps.");
+    private async Task Change(Func<System.Security.Claims.ClaimsPrincipal, Task> action, string success)
+    {
+        if (busy) return;
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        bool authorized = Users.IsCurrent(user) && user.IsInRole("Owner") && Users.Authenticate(user.Identity!.Name!, password, code, DateTimeOffset.UtcNow) is not null;
+        password = ""; code = "";
+        if (!authorized) { message = "Fresh owner password and authenticator code required."; return; }
+        busy = true;
+        try { await action(user); message = success; }
+        catch (InvalidOperationException e) { message = e.Message; }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or IOException or System.Security.Cryptography.CryptographicException) { message = "Removal could not be confirmed. Refresh status before retrying its recorded operation."; }
+        finally { await Load(); busy = false; }
+    }
+    private static string Phase(string phase) => phase switch { "prepared" => "Ready to remove", "removing" => "Removing runtime", "metadata" => "Updating runtime records", "awaiting_external_cleanup" => "Waiting for access cleanup", "completed" => "Complete", _ => "Needs attention" };
+}

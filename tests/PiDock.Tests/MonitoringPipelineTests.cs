@@ -211,6 +211,63 @@ public sealed class MonitoringPipelineTests : IDisposable
         Assert.ThrowsAny<IOException>(() => monitor.Observe(sample)); Directory.Delete(Path.Combine(Local, "alarm-state.json"));
         Assert.Single(monitor.Observe(sample)); Assert.Single(new AlarmMonitor(Local, store, clock, [new("cpu", "CPU", AlarmMetric.CpuPercent, 90, 80, 0)]).Active);
     }
+    [Fact]
+    public void LocalHistoryCombinesStandalonePendingAndAcknowledgedSamplesAcrossRestart()
+    {
+        var store = Store(); var now = clock.GetUtcNow();
+        var offline = Frame(observed: now.AddMinutes(-3));
+        var acknowledged = Frame(observed: now.AddMinutes(-2));
+        var pending = Frame(observed: now.AddMinutes(-1));
+        var outside = Frame(observed: now.AddHours(-2));
+        Assert.True(store.Append(HistoryClass.Telemetry, offline));
+        Assert.True(store.Enqueue("old-server", acknowledged));
+        Assert.True(store.Acknowledge("old-server", acknowledged.MessageId));
+        Assert.True(store.Enqueue("new-server", pending));
+        Assert.True(store.Append(HistoryClass.Telemetry, outside));
+        // Legacy non-envelope records and malformed segments do not prevent browsing valid history.
+        Assert.True(store.Append(HistoryClass.Telemetry, new { message = "legacy" }));
+        StateFiles.WriteAtomic(Path.Combine(Local, "history", "Telemetry", "malformed.json"), "{");
+        var reopened = new HistoryStore(Local, new Capacity());
+        var range = reopened.Range(now.AddHours(-1), now);
+        Assert.Equal(new[] { offline.MessageId, acknowledged.MessageId, pending.MessageId }, range.Select(f => f.MessageId));
+        Assert.Single(reopened.PendingBatch("new-server"));
+        Assert.Throws<ArgumentException>(() => reopened.Range(now, now));
+        Assert.Throws<ArgumentException>(() => reopened.Range(now.AddDays(-32), now));
+    }
+    [Fact]
+    public async Task FullLocalMeasurementsSurviveCloudFilteringDeliveryAndRestart()
+    {
+        var store = Store(); var original = Frame();
+        var filtered = new TelemetryChannels(false, false, false, false, false, false, false).Filter(original);
+        Assert.True(store.Enqueue("server", filtered, original.Snapshot));
+        await new TelemetryDeliveryPump(store, clock).DeliverAsync("server", original.BootId, new Publisher(sent =>
+        {
+            Assert.Null(sent.Snapshot.CpuPercent);
+            Assert.Null(sent.Snapshot.TemperatureC);
+            Assert.Null(DeviceHistory.Value(sent.Snapshot, "storage"));
+            Assert.True(store.Acknowledge("server", sent.MessageId));
+            return Task.CompletedTask;
+        }));
+        var reopened = new HistoryStore(Local, new Capacity());
+        var local = Assert.Single(reopened.Range(clock.GetUtcNow().AddHours(-1), clock.GetUtcNow()));
+        Assert.Equal(original.Snapshot.CpuPercent, local.Snapshot.CpuPercent);
+        Assert.Equal(original.Snapshot.TemperatureC, local.Snapshot.TemperatureC);
+        Assert.Equal(original.Snapshot.Storage.TotalBytes, local.Snapshot.Storage.TotalBytes);
+        Assert.Null(local.Snapshot.Channels);
+        Assert.Equal(0, reopened.Status().PendingSegments);
+        Assert.Single(Directory.GetFiles(Path.Combine(Local, "history", "Telemetry")));
+    }
+    [Fact]
+    public void LocalBrowsingCannotRecoverPurgedSamples()
+    {
+        var store = Store(small: true); var first = Frame();
+        Assert.True(store.Enqueue("server", first, first.Snapshot));
+        for (int i = 0; i < 20; i++) { var frame = Frame(); Assert.True(store.Enqueue("server", frame, frame.Snapshot)); }
+        var range = new HistoryStore(Local, new Capacity(true)).Range(clock.GetUtcNow().AddHours(-1), clock.GetUtcNow());
+        Assert.NotEmpty(range);
+        Assert.DoesNotContain(range, f => f.MessageId == first.MessageId);
+        Assert.True(store.Status().DeletedSegments > 0);
+    }
     private sealed class Publisher(Func<TelemetryEnvelope, Task> send) : ITelemetryPublisher
     { public Task PublishAsync(TelemetryEnvelope envelope, CancellationToken ct) => send(envelope); }
     private sealed class Capacity(bool small = false) : ICapacityProbe

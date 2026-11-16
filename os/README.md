@@ -16,3 +16,17 @@ Before selecting the production defconfig:
 - Validate power loss, full volume, application storage abuse, invalid updates and recovery without internet.
 
 The systemd units are integration templates. They do not create users/groups, install .NET, set trusted HTTPS certificates, provision secrets, configure the firewall or implement secure boot. Do not enable them on an unattended device without completing those steps. Production RTC/NTS gating and physical recovery are required before release.
+
+Signed updates for the current Linux-hosted appliance and broker services are implemented through a separate updater. Local uploads and cloud-approved releases share signature verification, service health checks and journaled rollback. See [PiDockOS updates](../docs/PiDockOS-Updates.md) for the one-time bootstrap and limits. These service packages do not implement the planned production A/B boot-image update system.
+
+## Supervised app recovery
+
+The broker unit defaults `Broker__EnableAppRecovery=false`. Enable it together with managed app resources and lifecycle/deployment permissions to allow per-app opt-in recovery. The PiDockOS appliance host must run: it supplies current credentials and coordinates recovery without browser/cloud access. Persist and protect `/var/lib/pidock-broker` and its keys across OS updates. See [shared lifecycle rules](../docs/Application-Lifecycle.md) for durable Stop intent, retry limits, migration of existing apps and remaining health/hardware limits.
+
+## Ordered app shutdown
+
+`Broker__EnableAppOrchestration=false` remains the supplied default. Enabling it requires resources and lifecycle/deployment permission. A graceful broker stop journals and stops resource apps dependent-first; host-shutdown intent resumes in order after broker restart. Explicit maintenance pause remains paused until Owner Resume. The appliance unit orders after the broker and the broker after Docker; broker stop timeout is 220 seconds around a 180-second batch. Preserve private state/keys/journal across upgrades. See [orchestration boundaries](../docs/Application-Orchestration.md); forced shutdown and physical I/O safety remain separate concerns.
+
+## App image update opt-in
+
+`Broker__EnableAppUpdates=false` is the supplied default. Enabling it requires resources, orchestration and lifecycle permissions. Preserve the private `updates` journals and broker key ring across service/OS upgrades, including accepted operations. The appliance update worker uses current credentials; the broker integrates active-update interruption into coordinated shutdown. See [image-only compatibility and rollback limits](../docs/Application-Updates.md).

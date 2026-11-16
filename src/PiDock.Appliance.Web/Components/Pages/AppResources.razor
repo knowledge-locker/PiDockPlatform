@@ -1,0 +1,35 @@
+@page "/app-resources"
+@attribute [Authorize(Roles = "Owner")]
+@inject ApplicationCredentialVault Vault
+@inject AuthenticationStateProvider Authentication
+<PageTitle>App credentials · PiDockOS</PageTitle>
+<p class="eyebrow">APPLIANCE / APPLICATIONS</p><h1>App credentials</h1>
+<p>Create credentials for managed app delivery. Secret values stay on the server and are delivered as private files when an app starts through PiDockOS.</p>
+<section class="card"><h2>Assigned credentials</h2>
+<table><thead><tr><th>App / credential</th><th>Purpose</th><th>Version</th><th>Expires</th><th>State</th><th>Control</th></tr></thead><tbody>
+@foreach (var entry in entries) { <tr><td>@entry.AppId / @entry.Id</td><td>@entry.Purpose</td><td>@entry.Version</td><td>@entry.ExpiresAt.ToLocalTime().ToString("g")</td><td>@(entry.Revoked ? "Revoked" : entry.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired" : "Active")</td><td><button class="secondary" disabled="@entry.Revoked" @onclick="() => Revoke(entry)">Revoke</button></td></tr> }
+</tbody></table></section>
+<div class="columns"><section class="card"><h2>Create or rotate</h2>
+<label>App ID<input @bind="appId" maxlength="40" /></label><label>Credential name<input @bind="credentialId" maxlength="40" /></label>
+<label>Purpose<select @bind="purpose"><option value="ui-bridge">Authenticated app interface</option><option value="platform">Shared platform services</option></select></label>
+<label>Expires in days<input type="number" min="1" max="90" @bind="days" /></label>
+@if (purpose == "platform") { <label>Allowed scopes, separated by commas<input @bind="scopes" /></label><small>system.read, logs.read, logs.write, telemetry.read, telemetry.write, alarms.read, alarms.raise, alarms.acknowledge, io.read, io.write, io.simulate, signals.runtime, signals.engineer, notifications.read, notifications.acknowledge. I/O and engineering require separate target enablement and grants. Reads are limited to the app's own records.</small> }
+<button @onclick="Issue">Create or rotate credential</button><p>Use the app ID and credential name in the deployment form. For an app interface, use the same name in its bridge registration.</p>
+</section><section class="card"><h2>Confirm owner credentials</h2><p>Each change requires a fresh authenticator code. Rotation and revocation take effect immediately in PiDockOS. Restart the app through PiDockOS to deliver a replacement file.</p>
+<label>Password<input type="password" @bind="password" autocomplete="current-password" maxlength="256" /></label><label>Authenticator code<input @bind="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code" /></label><p role="status">@message</p></section></div>
+@code {
+    private ApplicationCredentialInfo[] entries = [];
+    private string appId = "", credentialId = "", purpose = "ui-bridge", scopes = "logs.write,telemetry.write", password = "", code = "";
+    private int days = 30;
+    private string? message;
+    protected override void OnInitialized() => entries = Vault.Read();
+    private async Task Issue() => await Change(user => Vault.Issue(user,password,code,appId,credentialId,purpose,DateTimeOffset.UtcNow.AddDays(Math.Clamp(days,1,90)),purpose == "platform" ? scopes.Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries) : []));
+    private async Task Revoke(ApplicationCredentialInfo entry) => await Change(user => Vault.Revoke(user,password,code,entry.AppId,entry.Id));
+    private async Task Change(Action<System.Security.Claims.ClaimsPrincipal> action)
+    {
+        try { action((await Authentication.GetAuthenticationStateAsync()).User); entries = Vault.Read(); message = "Credential updated. Restart the app through PiDockOS to refresh its credential files."; }
+        catch (Exception e) when (e is ArgumentException or UnauthorizedAccessException or InvalidOperationException) { message = e.Message; }
+        catch (Exception e) when (e is IOException or System.Security.Cryptography.CryptographicException) { message = "Credential storage is unavailable."; }
+        finally { password = ""; code = ""; }
+    }
+}

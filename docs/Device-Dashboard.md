@@ -4,11 +4,13 @@ Open the eye icon in **Fleet overview → Device inventory** to view one device.
 
 ## Historian workspace
 
+PiDockOS → **Telemetry** (`/telemetry`) and the PiDockCloud device dashboard use the same resource trend interface. PiDockOS queries its own retained history and downloads directly from the appliance; discovery, viewing and export require no cloud registration, connection or permission. Sign in with the local appliance account. Cloud reporting settings remain below the local historian.
+
 Choose a preset (1h, 6h, 1d, 7d or 30d) or a custom UTC range of at most 31 days. Live mode moves the window forward; editing a range pauses it. Earlier/later controls pan by the window width, and Zoom in halves the window. Select CPU, memory, storage, temperature and/or uptime signals. Each signal has its own labelled scale and min/max/latest values. Hovering shows an approximate chart cursor; the sample table gives exact values for the latest 50 points.
 
-Unknown readings remain blank. Lines do not bridge gaps longer than two minutes. Replayed historical samples are included and identified. CSV/JSON downloads contain all retained samples in the selected device/time window and selected signals, rather than only the visible table rows. CSV cells are escaped for spreadsheet safety. Export is authenticated, tenant-scoped and marked no-store.
+Unknown readings remain blank. Lines do not bridge gaps longer than two minutes. Replayed historical samples are included and identified. CSV/JSON downloads contain all retained samples in the selected device/time window and selected signals, rather than only the visible table rows. CSV cells are escaped for spreadsheet safety. Exports require authentication and are marked no-store. Cloud exports are tenant-scoped; local exports contain the appliance’s retained samples.
 
-The preview archive remains globally bounded to 100 MiB / 10,000 frames. Choosing a long time window does not recover purged history or imply a guaranteed retention period. The interface reports the actual retained sample count. Sampling is normally every 30 seconds. This increment does not add a new historical database or change the retention budget.
+The cloud preview archive remains globally bounded to 100 MiB / 10,000 frames. Local history uses the existing appliance data policy and telemetry budget, including its reserve protection and oldest-first cleanup. Choosing a long time window does not recover purged history or imply a guaranteed retention period. The interface reports the actual retained sample count. Sampling is normally every 30 seconds. This increment does not add a new historical database or change the retention budget.
 
 ## Remote installed-container controls
 
@@ -41,7 +43,9 @@ This uses disposable cloud/broker state and a fake local Unix runtime. It valida
 
 ### Appliance telemetry channels and visible control status
 
-PiDockOS → **Telemetry channels** (`/telemetry`) configures CPU, memory, storage/history budget, temperature, uptime, interface counters and resource alarms independently. All default on. A local Owner password and fresh OTP are required to save the private, atomic `telemetry-channels.json` policy in the shared state directory. Policy survives updates/restarts. Local monitoring and alarm protection continue; the filter applies only when queuing new cloud reports. Previously buffered reports retain their original content and hashes.
+PiDockOS → **Telemetry** (`/telemetry`) configures CPU, memory, storage/history budget, temperature, uptime, interface counters and resource alarms independently. All default on. A local Owner password and fresh OTP are required to save the private, atomic `telemetry-channels.json` policy in the shared state directory. Policy survives updates/restarts. Local monitoring and alarm protection continue; the filter applies only when queuing new cloud reports. Previously buffered reports retain their original content and hashes.
+
+New cloud queue records also retain the full local host snapshot inside the same storage segment. Only the filtered envelope is transmitted; the local snapshot stays on the appliance after acknowledgement and survives restarts. With cloud reporting disabled, standalone full snapshots continue to be retained. Local browsing reads both formats and earlier queued records. Measurements removed from historical reports before this update cannot be recovered. A longer selected window cannot restore samples already purged by the data policy.
 
 Identity, timing/clock health, heartbeat, managed-container inventory and control results remain in the management envelope every 30 seconds. Alarms are independently selectable and can disclose measured resource values. Disabling a measurement does not suppress alarms unless the alarm channel is also disabled. No additional MQTT topics, permissions or network listeners are introduced.
 

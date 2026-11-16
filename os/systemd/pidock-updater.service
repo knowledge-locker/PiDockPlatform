@@ -1,0 +1,31 @@
+[Unit]
+Description=PiDockOS signed service updater and recovery
+After=network.target
+Before=pidock-appliance.service
+
+[Service]
+User=root
+Group=pidock
+WorkingDirectory=/usr/lib/pidock/updater
+ExecStartPre=/usr/bin/rm -f /run/pidock-updater/update.sock
+ExecStart=/usr/bin/dotnet /usr/lib/pidock/updater/PiDock.Updater.dll
+Environment=ASPNETCORE_ENVIRONMENT=Production
+RuntimeDirectory=pidock-updater
+RuntimeDirectoryMode=0750
+StateDirectory=pidock/updater
+UMask=0007
+Restart=on-failure
+TimeoutStartSec=10min
+TimeoutStopSec=10min
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+ReadWritePaths=/usr/lib/pidock /var/lib/pidock/updater /run/pidock-updater
+
+[Install]
+WantedBy=multi-user.target

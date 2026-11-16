@@ -2,10 +2,12 @@ using System.Text.RegularExpressions;
 namespace PiDock.Core;
 
 public sealed record ApplicationManifest(string Name, string Image, int MemoryMiB = 128, double CpuLimit = 0.5,
-    int? ContainerPort = null, int? HostPort = null)
+    int? ContainerPort = null, int? HostPort = null, ApplicationResources? Resources = null)
 {
     public void Validate()
     {
+        Resources?.Validate();
+        if (Resources is not null) ApplicationDependencyGraph.Validate(Resources.RequiredApps,Name);
         if (!IdentityRules.IsId(Name) || Name.Length > 40 ||
             !Regex.IsMatch(Image, @"\A[a-z0-9][a-z0-9./:_-]{0,200}@sha256:[a-f0-9]{64}\z", RegexOptions.CultureInvariant) ||
             MemoryMiB is < 32 or > 2048 || !double.IsFinite(CpuLimit) || CpuLimit is < 0.1 or > 4 ||
@@ -13,7 +15,7 @@ public sealed record ApplicationManifest(string Name, string Image, int MemoryMi
             throw new ArgumentException("Use a simple application name, a Linux ARM64 image pinned by sha256 digest, memory 32–2048 MiB, CPU 0.1–4, and optional paired ports (host ≥1024).");
     }
 }
-public sealed record ApplicationSummary(string Id, string[] Names, string Image, string State, string Status);
+public sealed record ApplicationSummary(string Id, string[] Names, string Image, string State, string Status, Dictionary<string,string>? Labels = null);
 public static class UnixHttp
 {
     public static HttpClient Connect(string socketPath, TimeSpan? timeout = null)

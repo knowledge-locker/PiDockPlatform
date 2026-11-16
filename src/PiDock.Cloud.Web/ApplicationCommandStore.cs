@@ -16,7 +16,7 @@ public sealed class ApplicationCommandStore
         entries = File.Exists(path) ? JsonSerializer.Deserialize<List<CloudApplicationCommand>>(File.ReadAllText(path), StateFiles.Json)! : [];
     }
     public static bool CanControl(ClaimsPrincipal user) => EnrollmentStore.CanManage(user);
-    public IReadOnlyList<CloudApplicationCommand> For(ClaimsPrincipal user, string device) { lock (gate) return user.Identity?.IsAuthenticated == true ? entries.Where(e => e.Command.TenantId == user.FindFirstValue("tenant") && e.Command.DeviceId == device).TakeLast(20).Reverse().ToArray() : []; }
+    public IReadOnlyList<CloudApplicationCommand> For(ClaimsPrincipal user, string device) { lock (gate) return fleet.HasAccess(user) ? entries.Where(e => e.Command.TenantId == user.FindFirstValue("tenant") && e.Command.DeviceId == device).TakeLast(20).Reverse().ToArray() : []; }
     public ApplicationCommand Queue(ClaimsPrincipal user, string device, string action, string container)
     {
         if (!CanControl(user)) throw new UnauthorizedAccessException();

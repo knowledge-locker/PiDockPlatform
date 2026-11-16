@@ -1,30 +1,152 @@
+@inject ApplicationUiRegistry UiRegistry
 @page "/applications"
 @inject BrokerClient Broker
 @inject AuthenticationStateProvider Authentication
 @inject UserStore Users
 <PageTitle>Applications · PiDockOS</PageTitle>
 <p class="eyebrow">APPLIANCE / APPLICATIONS</p><h1>Applications</h1><p>Run digest-pinned Linux ARM64 images through the restricted host broker.</p>
-<div class="notice">Preview deployments use a non-root user, read-only filesystem, isolated network, CPU/memory/process limits and loopback-only ports. Image signature verification, archive upload and persistent volumes are not yet available. Deploy only images you trust.</div>
-<section class="card"><div class="section-heading"><h2>Managed applications</h2><button class="secondary" @onclick="Load">Refresh</button></div>@if(!Broker.Configured){<p>Host broker is not connected. Configure Broker:SocketPath to enable runtime access.</p>}<table><thead><tr><th>Name</th><th>State</th><th>Image</th><th>Control</th></tr></thead><tbody>@foreach(var app in applications){<tr><td>@string.Join(", ",app.Names)</td><td>@app.Status</td><td><small>@app.Image</small></td><td><button class="secondary" @onclick="()=>Control(app.Id,app.State != Running)">@(app.State=="running"?"Stop":"Start")</button></td></tr>}</tbody></table></section>
-<div class="columns"><section class="card"><h2>Deploy application</h2><label>Name<input @bind="name" maxlength="40" /></label><label>Image with sha256 digest<input @bind="image" placeholder="registry/image@@sha256:…" /></label><label>Memory limit (MiB)<input type="number" @bind="memory" /></label><label>CPU cores<input type="number" step="0.1" @bind="cpu" /></label><button disabled="@(!Broker.Configured || busy)" @onclick="Deploy">Pull and deploy</button><p>Ports and data mounts will be exposed through the manifest editor in a later increment. The broker supports an optional loopback port pair.</p></section>
+<section class="card"><h2>Application workspaces</h2>@if (UiRegistry.Read().Length == 0) { <p>No application interfaces are registered.</p> } else { <ul>@foreach (var contribution in UiRegistry.Read()) { <li><a href="@ApplicationUiRules.LaunchPath(contribution.Contribution)">@contribution.Contribution.Title</a><small> · @(contribution.Bridge is null ? "isolated read-only UI preview" : "authenticated app bridge")</small></li> }</ul> }</section>
+<div class="notice">Preview deployments use a non-root user, read-only filesystem, isolated network, CPU/memory/process limits and loopback-only ports. Managed data and credential delivery require broker opt-in and a compatible app image. Image signature verification and archive upload are not yet available. Deploy only images you trust.</div>
+<p><a href="/app-backups">App data backups and restore</a> · <a href="/app-storage">App storage</a> · <a href="/app-removal">Remove an app</a></p>
+<section class="card"><div class="section-heading"><h2>Managed applications</h2><button class="secondary" @onclick="Load">Refresh</button></div>
+@if (!Broker.Configured) { <p>Host broker is not connected.</p> }
+<p>Automatic recovery: @(lifecycleSupport?.Enabled == true ? "available for opted-in apps" : "not enabled on this appliance"). Stop remembers your choice across host restarts. Start or Restart clears a paused retry budget.</p>
+@if(orchestrationSupport?.Enabled==true)
+{
+    <p>Dependency ordering is enabled for resource apps. Legacy Docker apps are outside coordinated shutdown. Stopping or restarting a provider stops its dependents first; their running requests are retained.</p>
+    <p>Maintenance: @(orchestrationState?.Paused==true ? $"Paused ({orchestrationState.Phase} · {orchestrationState.Stopped}/{orchestrationState.Total} stopped)" : "Active")</p>
+    <button class="secondary" disabled="@busy" @onclick="Pause">Pause supervised apps</button>
+    <button class="secondary" disabled="@(busy||orchestrationState?.Paused!=true)" @onclick="Resume">Resume requested apps</button>
+}
+@if(orchestrationSupport?.Enabled!=true && orchestrationState?.Paused==true) { <p class="notice">A saved shutdown pause blocks startup. Re-enable app orchestration to finish or resume it.</p> }
+<table><thead><tr><th>Name</th><th>State / readiness</th><th>Recovery</th><th>Control</th></tr></thead><tbody>
+@foreach (var app in applications)
+{
+    var lifecycle = lifecycles.SingleOrDefault(item => item.ContainerId == app.Id);
+    <tr><td>@(lifecycle?.AppId ?? string.Join(", ",app.Names))<small>@app.Image</small></td><td>@app.Status
+    @if (lifecycle?.Health is { } health) { <small>@HealthState(health.State)</small><small>@HealthReason(health.Reason)</small>
+        @if (health.CheckedAt is { } checkedAt) { <small>Checked @checkedAt.ToLocalTime().ToString("T") · failed checks @health.Failures</small> }
+    }</td>
+    <td>@if (lifecycle is not null) {
+        <span>@(lifecycle.Revision == 0 ? "Requested state not yet saved" : lifecycle.DesiredRunning ? "Requested: running" : "Requested: stopped") · @(lifecycle.RecoveryEnabled ? "Recovery enabled" : "Recovery disabled")</span>
+        @if(lifecycle.PendingStart){<small>Start pending</small>}
+        @foreach(var dependency in lifecycle.Dependencies??[]){<small>@dependency.AppId · @dependency.Condition · @(dependency.Satisfied ? "Available" : DependencyReason(dependency.Reason))</small>}
+        <small>@Outcome(lifecycle.Outcome) · attempts @lifecycle.Attempts / @ApplicationRecoveryRules.MaximumAttempts</small>
+        @if (lifecycle.NextAttemptAt is { } next && lifecycle.RuntimeState != Running && lifecycle.Attempts < ApplicationRecoveryRules.MaximumAttempts && lifecycle.DesiredRunning && lifecycle.RecoveryEnabled) { <small>Next check after @next.ToLocalTime().ToString("T")</small> }
+    } else { <small>Legacy Docker lifecycle</small> }</td>
+    <td><button class="secondary" disabled="@busy" @onclick="() => Control(app.Id,app.State != Running)">@(app.State == Running ? "Stop" : "Start")</button>
+    <button class="secondary" disabled="@busy" @onclick="() => Restart(app.Id)">Restart</button>
+    @if (lifecycle is not null && lifecycle.Outcome != "startup_record_unavailable") { <button class="secondary" disabled="@(busy || (!lifecycle.RecoveryEnabled && lifecycleSupport?.Enabled != true))" @onclick="() => Recovery(app.Id,!lifecycle.RecoveryEnabled)">@(lifecycle.RecoveryEnabled ? "Disable recovery" : "Enable recovery")</button> }
+    </td></tr>
+}
+</tbody></table></section>
+<section class="card"><div class="section-heading"><h2>App versions</h2><button class="secondary" @onclick="RefreshVersions">Refresh versions</button></div>
+<p>Image-only updates retain configuration and app data. Apps must declare backward-compatible data and health reporting. Rollback restores an image and does not undo data writes or migrations.</p>
+@if(updateSupport?.Enabled!=true){<p>App updates are not enabled on this appliance.</p>}
+@foreach(var version in versions)
+{
+    <div><h3>@version.AppId</h3><small>Current: @version.CurrentImage</small>
+    @if(version.TargetImage is not null && version.TargetImage!=version.CurrentImage){<small>Requested image: @version.TargetImage</small>}
+    @if(version.PreviousImage is not null){<small>Retained: @version.PreviousImage</small>}
+    <p>@UpdatePhase(version.Phase) · @UpdateOutcome(version.Outcome)</p>
+    @if(version.CanConfigure){<button class="secondary" disabled="@busy" @onclick="()=>EnableUpdates(version)">Enable backward-compatible updates</button>}
+    @if(version.CanUpdate){<label>New immutable image<input value="@newImages.GetValueOrDefault(version.AppId)" @onchange="e=>newImages[version.AppId]=e.Value?.ToString()??string.Empty" placeholder="registry/image@@sha256:…" /></label><button disabled="@busy" @onclick="()=>Update(version)">Stage app update</button>}
+    @if(version.CanRollback){<button class="secondary" disabled="@busy" @onclick="()=>VersionAction(version,RollbackAction)">Restore previous version</button>}
+    @if(version.CanDiscard){<button class="secondary" disabled="@busy" @onclick="()=>VersionAction(version,DiscardAction)">Discard retained previous container</button><small>Discards the rollback container; app data is retained. Required before another update.</small>}
+    </div>
+}
+</section>
+<section class="card"><h2>Image approvals</h2>
+<p>@(installSupport?.Enabled == true ? "New deployments and update candidates require approval of the exact app image and runtime settings." : "Exact-image approval policy is not enabled on this appliance.")</p>
+<p>Approval records an Owner decision to trust an unsigned, digest-pinned image. Publisher signatures are not verified. Changing any deployment setting requires a new approval.</p>
+@foreach (var approval in approvals) { <p>@approval.AppId · @approval.Image<small>@approval.Owner · @approval.Reason · expires @approval.ExpiresAt.ToLocalTime().ToString("g") · @(approval.Revoked ? "Revoked" : "Recorded")</small><button class="secondary" disabled="@(busy || approval.Revoked || installSupport?.Enabled != true)" @onclick="() => Change(() => Broker.RevokeInstallApproval(approval.ManifestSha256))">Revoke approval</button></p> }
+</section>
+<div class="columns"><section class="card"><h2>Deploy application</h2><label>Name<input @bind="name" maxlength="40" /></label><label>Image with sha256 digest<input @bind="image" placeholder="registry/image@@sha256:…" /></label><label>Memory limit (MiB)<input type="number" @bind="memory" /></label><label>CPU cores<input type="number" step="0.1" @bind="cpu" /></label><label><input type="checkbox" @bind="persistentData" /> Keep app data across starts and replacements</label><label><input type="checkbox" @bind="automaticRecovery" disabled="@(lifecycleSupport?.Enabled != true)" /> Recover automatically after exit or host restart</label><label><input type="checkbox" @bind="healthReporting" disabled="@(healthSupport?.Enabled != true)" /> Monitor app liveness and readiness</label>
+@if (healthReporting) { <label>Startup grace (seconds)<input type="number" min="15" max="300" @bind="startupSeconds" /></label><label>Report freshness (seconds)<input type="number" min="10" max="120" @bind="freshnessSeconds" /></label><label>Failed checks before recovery<input type="number" min="1" max="10" @bind="failureThreshold" /></label><label><input type="checkbox" @bind="restartUnhealthy" /> Permit unhealthy-app restarts when automatic recovery is enabled</label> }
+@if(orchestrationSupport?.Enabled==true) { <label><input type="checkbox" @bind="managedLifecycle" /> Include in managed lifecycle without other app resources</label><label>Required app IDs, separated by commas<input @bind="dependencyNames" maxlength="328" /></label><label>Required state<select @bind="dependencyCondition"><option value="ready">Ready (fresh health report)</option><option value="running">Running (bootstrap completed)</option></select></label><label>Shutdown grace (seconds)<input type="number" min="1" max="10" @bind="shutdownSeconds" /></label> }
+<label><input type="checkbox" @bind="allowUpdates" disabled="@(updateSupport?.Enabled!=true)" /> Allow image updates with backward-compatible data</label>
+@if(allowUpdates){<p>Requires health reporting and compatibility with retained data and existing app interfaces.</p><label>Update readiness deadline (seconds)<input type="number" min="30" max="120" @bind="updateReadiness" /></label><label>Continuous Ready before commit (seconds)<input type="number" min="5" max="30" @bind="updateStability" /></label>}
+<label>Credential names, separated by commas<input @bind="credentialNames" maxlength="328" /></label><p><a href="/app-resources">Manage app credentials</a>. Recovery-enabled images must support the PiDockOS startup protocol. Persistent data requires a data directory prepared for user 1654.</p>@if (installSupport?.Enabled == true) { <label>Reason for trusting this image<input @bind="approvalReason" maxlength="512" /></label><p>Approval covers the exact settings above for one hour. Approving does not install or start the app.</p><button class="secondary" disabled="@busy" @onclick="ApproveDeployment">Approve these deployment settings</button> }
+<button disabled="@(!Broker.Configured || busy)" @onclick="Deploy">Pull and deploy</button><p>App data is mounted at /var/lib/pidock/app-data. Storage admission and local backups are separately enabled platform capabilities. Hard volume quotas and automatic purge are not available. The broker supports an optional loopback port pair.</p></section>
 <section class="card"><h2>Confirm owner credentials</h2><p>Each runtime change requires your password and a fresh authenticator code.</p><label>Password<input type="password" @bind="password" autocomplete="current-password" /></label><label>Authenticator code<input @bind="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" /></label><p role="status">@message</p></section></div>
 @code {
+    private ApplicationInstallSupport? installSupport; private ApplicationInstallApproval[] approvals = []; private string approvalReason = "";
+    private bool persistentData, automaticRecovery, healthReporting, restartUnhealthy, managedLifecycle, allowUpdates;
+    private ApplicationUpdateSupport? updateSupport;private ApplicationUpdateStatus[] versions=[];
+    private readonly Dictionary<string,string> newImages=[];private int updateReadiness=60,updateStability=10;
+    private const string RollbackAction="rollback",DiscardAction="discard-previous";
+    private int startupSeconds = 60, freshnessSeconds = 15, failureThreshold = 3;
+    private ApplicationHealthSupport? healthSupport;
+    private ApplicationOrchestrationSupport? orchestrationSupport;
+    private ApplicationOrchestrationStatus? orchestrationState;
+    private string dependencyNames="",dependencyCondition="ready";private int shutdownSeconds=10;
+    private ApplicationLifecycleStatus[] lifecycles = [];
+    private ApplicationLifecycleSupport? lifecycleSupport; private string credentialNames = "";
     private const string Running = "running";
     private ApplicationSummary[] applications=[]; private string name="", image="",password="",code="";private int memory=128;private double cpu=.5;private bool busy;private string? message;
     protected override Task OnInitializedAsync()=>Load();
-    private async Task Load(){try{applications=await Broker.List();}catch(HttpRequestException){message="Runtime unavailable. Check broker socket and Docker engine.";}}
+    private async Task Load()
+    {
+        try { installSupport = await Broker.InstallTrustSupport(); approvals = await Broker.InstallApprovals(); updateSupport=await Broker.UpdateSupport();versions=await Broker.UpdateStatus();applications = await Broker.List(); orchestrationSupport=await Broker.OrchestrationSupport(); orchestrationState=await Broker.OrchestrationStatus(); healthSupport = await Broker.HealthSupport(); lifecycleSupport = await Broker.LifecycleSupport(); lifecycles = await Broker.LifecycleStatus(); }
+        catch (Exception e) when (e is HttpRequestException or System.Text.Json.JsonException or TaskCanceledException) { message = "Runtime unavailable. Check broker and Docker availability."; }
+    }
+    private static string Outcome(string outcome) => outcome switch {
+        "orchestration_disabled" => "Enable orchestration to satisfy dependencies", "dependencies_waiting" => "Waiting for dependencies", "dependency_catalog_unavailable" => "Dependency catalog unavailable", "shutdown_paused" => "Paused for coordinated shutdown", "waiting_for_health" => "Waiting for readiness", "startup_incomplete" => "Startup acknowledgement incomplete", "startup_record_unavailable" => "Startup record unavailable", "credential_unavailable" => "Waiting for current credentials",
+        "suspended" => "Recovery paused; Start or Restart to retry", "stable" => "Running steadily", "observing" => "Observing startup",
+        "recovering" => "Recovering", "start_failed" => "Start failed", "stopped_by_operator" => "Stopped by operator",
+        "recovery_enabled" => "Recovery enabled", "recovery_disabled" => "Recovery disabled", "waiting" => "Waiting for recovery", _ => "Ready" };
+    private static string HealthState(string state) => state switch {
+        "ready" => "Ready", "starting" => "Starting", "not_ready" => "Not ready", "unhealthy" => "Unhealthy",
+        "stopped" => "Stopped", "not_configured" => "Health reporting not configured", _ => "Health unknown" };
+    private static string HealthReason(string reason) => reason switch {
+        "ready" => "App reports live and ready", "not_ready" => "App is not accepting work",
+        "liveness_failed" => "App reports a critical-work failure", "readiness_timeout" => "Startup readiness deadline exceeded",
+        "probe_unavailable" => "Required health reader is unavailable", "report_missing" => "Heartbeat report missing", "report_invalid" => "Heartbeat report invalid",
+        "report_stale_or_invalid" => "Heartbeat expired or does not match this startup", "observation_expired" => "Health observation expired",
+        "check_unavailable" => "Health check could not reach the runtime", "awaiting_report" => "Waiting for the first check",
+        "bootstrap_incomplete" => "Waiting for startup delivery", _ => "" };
+    private async Task RefreshVersions(){try{versions=await Broker.UpdateStatus();}catch(Exception e)when(e is HttpRequestException or TaskCanceledException){message="Version status unavailable.";}}
+    private Task EnableUpdates(ApplicationUpdateStatus version)=>Change(()=>Broker.ConfigureUpdatePolicy(version.ActiveContainerId,new ApplicationUpdatePolicy()));
+    private Task Update(ApplicationUpdateStatus version)=>Change(()=>Broker.Update(version.ActiveContainerId,new(Guid.NewGuid(),version.CurrentImage,newImages.GetValueOrDefault(version.AppId)??"")),"Version operation queued. Refresh versions to follow progress.");
+    private Task VersionAction(ApplicationUpdateStatus version,string action)=>Change(()=>Broker.VersionControl(version.ActiveContainerId,action,version.OperationId!.Value),"Version operation queued. Refresh versions to follow progress.");
+    private static string UpdatePhase(string phase)=>phase switch {"idle"=>"No update active", "queued"=>"Update queued", "staging"=>"Preparing image", "staged"=>"Replacement staged", "switching"=>"Switching versions", "verifying"=>"Checking replacement readiness", "committed"=>"Update committed", "rollback_pending"=>"Restoring previous version", "rollback_verifying"=>"Checking restored version", "rollback_failed"=>"Rollback needs Owner attention", "rollback_cleanup"=>"Previous version restored; cleaning up", "rolled_back"=>"Previous version restored", "discarding"=>"Discarding previous container", "accepted"=>"Current version accepted", "stage_cleanup"=>"Cleaning up failed staging", _=>"Update failed"};
+    private static string UpdateOutcome(string outcome)=>outcome switch {"credential_unavailable"=>"Waiting for current credentials", "image_pull_failed"=>"Image could not be downloaded", "staging_failed"=>"Image could not be staged", "readiness_failed"=>"Replacement did not pass readiness", "replacement_failed"=>"Replacement startup failed", "rollback_needs_attention"=>"Restore failed; correct the fault and retry or Stop", "cleanup_pending"=>"Cleanup will retry", "observing_ready"=>"Observing continuous Ready status", "operator_stop"=>"Aborted by Stop", "shutdown_interrupted_update"=>"Interrupted for coordinated shutdown", _=>"Version status recorded"};
+    private static string DependencyReason(string reason)=>reason switch {"missing"=>"Not installed", "requested_stopped"=>"Requested stopped", "not_running"=>"Not running", "bootstrap_incomplete"=>"Startup incomplete", "health_not_configured"=>"No health contract", "not_ready"=>"Not ready", _=>"Required service unavailable"};
+    private Task Pause()=>Change(()=>Broker.OrchestrationControl("pause"));
+    private Task Resume()=>Change(()=>Broker.OrchestrationControl("resume"));
     private async Task<bool> Confirm()
     {
         var user=(await Authentication.GetAuthenticationStateAsync()).User;
         bool valid=Users.IsCurrent(user)&&user.IsInRole("Owner")&&Users.Authenticate(user.Identity!.Name!,password,code,DateTimeOffset.UtcNow) is not null;
         password="";code="";if(!valid)message="Fresh owner password and authenticator code required.";return valid;
     }
+    private ApplicationManifest DeploymentManifest() => new(name,image,memory,cpu,Resources:new(persistentData,credentialNames.Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries),automaticRecovery,healthReporting ? new ApplicationHealthPolicy(startupSeconds,freshnessSeconds,failureThreshold,restartUnhealthy) : null,dependencyNames.Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries).Select(id=>new ApplicationDependency(id,dependencyCondition)).ToArray(),shutdownSeconds,managedLifecycle,allowUpdates?new ApplicationUpdatePolicy("backward-compatible",updateReadiness,updateStability):null));
+    private async Task ApproveDeployment()
+    {
+        try
+        {
+            var manifest = DeploymentManifest(); manifest.Validate();
+            if (!ApplicationContractRules.Text(approvalReason, 512) || approvalReason.Any(char.IsControl)) { message = "Enter a brief reason for trusting this exact image."; return; }
+            await Change(async () => { var user = (await Authentication.GetAuthenticationStateAsync()).User; await Broker.ApproveInstall(new(manifest, user.Identity!.Name!, approvalReason, DateTimeOffset.UtcNow.AddHours(1))); }, "Exact deployment settings approved for one hour. A separate deployment action starts the app.");
+        }
+        catch (ArgumentException e) { message = e.Message; }
+    }
     private async Task Deploy()
     {
         if(busy)return;
-        try{var manifest=new ApplicationManifest(name,image,memory,cpu);manifest.Validate();if(!await Confirm())return;busy=true;await Broker.Deploy(manifest);message="Application deployed.";await Load();}
+        try{var manifest = DeploymentManifest(); manifest.Validate();if(!await Confirm())return;busy=true;await Broker.Deploy(manifest);message="Application deployed.";await Load();}
         catch(Exception e) when(e is ArgumentException or HttpRequestException or InvalidOperationException){message=e is ArgumentException?e.Message:"Deployment unavailable. Check broker logs and image compatibility.";}
         finally{busy=false;}
     }
-    private async Task Control(string id,bool start){if(!await Confirm())return;try{await Broker.ChangeState(id,start);await Load();}catch(HttpRequestException){message="Runtime operation failed.";}}
+    private Task Control(string id,bool start) => Change(() => Broker.ChangeState(id,start));
+    private Task Restart(string id) => Change(() => Broker.Restart(id));
+    private Task Recovery(string id,bool enabled) => Change(() => Broker.SetRecovery(id,enabled));
+    private async Task Change(Func<Task> action,string successMessage="Application updated.")
+    {
+        if (busy || !await Confirm()) return;
+        busy = true;
+        try { await action(); message = successMessage; }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException or TaskCanceledException or System.Text.Json.JsonException) { message = "Operation unavailable. Check recovery status, app credentials and broker availability."; }
+        finally { await Load(); busy = false; }
+    }
 }

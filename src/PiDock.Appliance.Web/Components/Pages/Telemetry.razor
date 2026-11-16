@@ -1,12 +1,16 @@
 @page "/telemetry"
+@inject HistoryStore History
 @inject TelemetryPolicy Policy
 @inject MonitoringService Monitoring
 @inject CloudEnrollmentClient Enrollment
 @inject AuthenticationStateProvider Authentication
 @inject UserStore Users
-<PageTitle>Telemetry channels · PiDockOS</PageTitle>
-<p class="eyebrow">PIDOCKOS / TELEMETRY</p><h1>Telemetry channels</h1>
-<p>Choose the measurements this appliance sends to PiDockCloud. Local monitoring and resource protection continue for every channel.</p>
+<PageTitle>Telemetry · PiDockOS</PageTitle>
+<p class="eyebrow">PIDOCKOS / TELEMETRY</p><h1>Telemetry</h1>
+<p>Discover, view, and download measurements retained on this appliance. Local history works without PiDockCloud and follows your <a href="/storage">data policy</a>.</p>
+<ResourceTrends Query="History.Range" ExportPath="/api/telemetry/export" />
+<h2>Cloud reporting settings</h2>
+<p>Choose the measurements this appliance sends to PiDockCloud. Local history and resource protection continue for every channel. Earlier samples retain the measurements recorded at the time.</p>
 <section class="card"><h2>Cloud reporting</h2><p>@Monitoring.TransportStatus · Reports every 30 seconds, with additional reports when local alarms change.</p>
 <TelemetryChannelGroup Title="System telemetry">
 <li><label><input type="checkbox" @bind="temperature" />Board temperature</label></li>

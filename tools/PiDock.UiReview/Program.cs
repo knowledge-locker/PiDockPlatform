@@ -11,20 +11,46 @@ using PiDock.UiReview;
 
 var builder = WebApplication.CreateBuilder(args);
 if (!builder.Environment.IsDevelopment()) throw new InvalidOperationException("The isolated UI review tool can run only in Development.");
+// Private disposable workflow configuration; permits observing registration/credential revocation.
+if(builder.Configuration["Review:RegistrationFile"] is {Length:>0} registrations)
+{
+    if(!Path.IsPathFullyQualified(registrations) || !File.Exists(registrations) || File.GetAttributes(registrations).HasFlag(FileAttributes.ReparsePoint))
+        throw new InvalidOperationException("Use an existing private workflow registration file.");
+    builder.Configuration.AddJsonFile(registrations,optional:false,reloadOnChange:true);
+}
 var surface = typeof(ReviewSurface).Assembly.GetName().Name!.Contains("Cloud", StringComparison.Ordinal) ? "cloud" : "appliance";
 var state = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pidock-ui-review-" + Guid.NewGuid());
-builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["PiDock:StateDirectory"] = state, ["Mqtt:Enabled"] = "false", ["Broker:SocketPath"] = null, ["AllowedHosts"] = "localhost;127.0.0.1" });
+var reviewBroker=builder.Configuration["Review:BrokerSocket"];
+if(reviewBroker is not null)
+{
+    var directory=new DirectoryInfo(Path.GetDirectoryName(Path.GetFullPath(reviewBroker))!);
+    if(!Path.IsPathFullyQualified(reviewBroker) || Path.GetFileName(reviewBroker)!="b.sock" || !directory.Name.StartsWith("pdc-",StringComparison.Ordinal) || !directory.Exists || directory.Attributes.HasFlag(FileAttributes.ReparsePoint) ||
+        (!OperatingSystem.IsWindows() && (File.GetUnixFileMode(directory.FullName)&(UnixFileMode.GroupRead|UnixFileMode.GroupWrite|UnixFileMode.OtherRead|UnixFileMode.OtherWrite))!=0))
+        throw new InvalidOperationException("Only the private disposable Docker workflow broker may be selected.");
+}
+builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["PiDock:StateDirectory"] = state, ["Mqtt:Enabled"] = "false", ["Broker:SocketPath"] = reviewBroker, ["AllowedHosts"] = "localhost;127.0.0.1" });
 builder.AddPiDockAuthentication("Review-" + surface);
-builder.WebHost.ConfigureKestrel(k => k.Listen(IPAddress.Loopback, surface == "appliance" ? 7351 : 7352));
+builder.AddApplicationUi();
+builder.WebHost.ConfigureKestrel(k => k.Listen(IPAddress.Loopback, builder.Configuration.GetValue<int?>("Review:Port") ?? (surface == "appliance" ? 7351 : 7352)));
 builder.Services.AddAuthentication(o => { o.DefaultAuthenticateScheme = "ReviewFixture"; o.DefaultChallengeScheme = "ReviewFixture"; })
     .AddScheme<AuthenticationSchemeOptions, ReviewAuthenticationHandler>("ReviewFixture", _ => { });
+builder.Services.AddAuthorization(options => options.AddPolicy("AppUiOwner", policy =>
+    policy.AddAuthenticationSchemes("ReviewFixture").RequireAuthenticatedUser().RequireRole("Owner")));
+#if PIDOCK_APPLIANCE_REVIEW
+using var connectedReview = ReviewConnectedHost.Configure(builder, state);
+#endif
 builder.Services.AddSingleton<ReviewIdentity>();
 builder.Services.AddSingleton(new ReviewSurface(surface));
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddScoped<AuthenticationStateProvider, SessionAuthenticationStateProvider>();
 builder.Services.AddSingleton<ICapacityProbe, ReviewCapacity>();
 builder.Services.AddSingleton(sp => new HistoryStore(state, sp.GetRequiredService<ICapacityProbe>()));
+builder.Services.AddSingleton<IOsUpdater, OsUpdaterClient>();
+builder.Services.AddSingleton(sp => new OsUpdateAgent(sp.GetRequiredService<IOsUpdater>(), sp.GetRequiredService<CloudEnrollmentClient>(), sp.GetRequiredService<MqttConnection>(), state));
+builder.Services.AddHostedService(sp => sp.GetRequiredService<OsUpdateAgent>());
+builder.Services.AddSingleton<OsUpdateStore>();
 builder.Services.AddSingleton<HostMonitor>(); builder.Services.AddSingleton<BrokerClient>();
+builder.Services.AddSingleton<ApplicationCredentialVault>();
 builder.Services.AddSingleton<IApplicationRuntime>(sp => sp.GetRequiredService<BrokerClient>());
 builder.Services.AddSingleton(sp => new RemoteApplicationAgent(builder.Configuration, sp.GetRequiredService<IApplicationRuntime>(), sp.GetRequiredService<MqttConnection>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<StateDirectory>().Path));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RemoteApplicationAgent>());
@@ -33,6 +59,7 @@ builder.Services.AddSingleton(sp => new CloudEnrollmentClient(state, sp.GetRequi
 builder.Services.AddSingleton<IDeviceCertificateIssuer, DeviceCertificateIssuer>();
 builder.Services.AddSingleton<EnrollmentStore>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton(sp => new RegisteredAgentStore(sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(), sp.GetRequiredService<StateDirectory>(), sp.GetRequiredService<UserStore>(), sp.GetRequiredService<TimeProvider>(), enabled: false));
 builder.Services.AddSingleton<AgentSession>();
 builder.Services.AddSingleton<DeliveryStatus>();
 builder.Services.AddSingleton(sp => new AlarmMonitor(state, sp.GetRequiredService<HistoryStore>(), sp.GetRequiredService<TimeProvider>(), builder.Configuration.GetSection("Alarms:Rules").Get<AlarmRule[]>()));
@@ -50,9 +77,22 @@ var user = users.Authenticate("review-owner", password, Totp.Code(secret, DateTi
 app.Services.GetRequiredService<ReviewIdentity>().User = new ClaimsPrincipal(new ClaimsIdentity([
     new Claim(ClaimTypes.Name,user.Username),new Claim(ClaimTypes.Role,user.Role),new Claim("tenant",user.TenantId),new Claim("stamp",user.Stamp),
     new Claim("expires",DateTimeOffset.UtcNow.AddHours(8).ToUnixTimeSeconds().ToString())], "ReviewFixture"));
-ReviewSamples.Seed(state);
-app.UseAuthentication(); app.UseAuthorization(); app.UseAntiforgery(); app.MapStaticAssets();
+#if PIDOCK_APPLIANCE_REVIEW
+connectedReview?.SeedAndMap(app);
+#endif
+ReviewSamples.Seed(state, surface == "appliance" ? app.Services.GetRequiredService<HistoryStore>() : null);
+app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter(); app.UseAntiforgery(); app.MapStaticAssets();
+if (surface == "appliance") app.MapApplicationUi();
+#if PIDOCK_APPLIANCE_REVIEW
+if (connectedReview is not null) { PiDock.Appliance.Web.SharedApplicationEndpoints.MapSharedApplicationServices(app); PiDock.Appliance.Web.ApplicationIoEndpoints.MapApplicationIo(app); PiDock.Appliance.Web.ApplicationEngineeringEndpoints.MapApplicationEngineering(app); }
+#endif
 if (surface == "cloud") DeviceHistory.MapExport(app);
+else app.MapGet("/api/telemetry/export", (DateTimeOffset from, DateTimeOffset to, string? format, string? signals, HttpContext context, HistoryStore history) =>
+{
+    if (!TelemetryExport.TrySelection(from, to, format, signals, out var metrics)) return Results.BadRequest();
+    context.Response.Headers.CacheControl = "no-store";
+    return TelemetryExport.Download("local", from, to, format!, metrics, history.Range(from, to));
+}).RequireAuthorization();
 app.MapRazorComponents<ReviewApp>().AddInteractiveServerRenderMode();
 app.MapPost("/auth/logout", () => Results.Redirect("/"));
 app.Logger.LogInformation("Isolated UI review on loopback: {Surface}. Only disposable sample state is used.", surface);

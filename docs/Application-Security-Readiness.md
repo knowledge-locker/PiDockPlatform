@@ -1,0 +1,9 @@
+# Shared application security readiness
+
+The shared app features are engineering previews, not production security or hardware approval. This increment adds regression checks for malformed/reloaded credential configuration and temporary engineering state. It does not change live accounts or commissioning policy.
+
+App authentication rejects null credential-table entries and malformed expiry/configuration rather than selecting a credential by table order or exposing an internal exception. I/O authority revalidation also fails closed when the credential configuration or managed source cannot be read; the idle sweep withdraws the affected lease and resets simulated outputs. No token or configuration exception text enters the app response.
+
+Successful engineering runtime registration always clears temporary forces and queued writes, including same-instance registration retries. A retry retains normal values and the producer sequence and may cancel testing controls. Apps must create a fresh in-memory instance GUID and register it on every process start. This preview does not independently detect a process restart that skips registration or bind each variable producer to the broker's current delivery identity. Producer fencing and trusted per-app lifecycle binding remain product requirements; do not infer them from a successful variable-service request.
+
+Before production or physical output use, validate physical-presence commissioning/recovery, trusted-clock policy, account/key protection and recovery, kernel isolation, supported-board GPIO ownership and electrical fallback, storage failure/power-loss behavior, and complete install/remove/revoke isolation. Owner configuration of a digest-pinned image is not signature verification. Local encrypted app snapshots do not include the platform key ring and cannot replace a key-recovery/disaster-recovery procedure.

@@ -1,0 +1,14 @@
+/* PiDockOS design tokens 1.0. Changes to these immutable assets require a new version. */
+:root, .pidock-app {
+  --pd-font:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --pd-text:#29232a; --pd-muted:#6c626b; --pd-accent:#c51a4a;
+  --pd-accent-strong:#97113b; --pd-accent-soft:#fce8ee; --pd-focus:#9e153e;
+  --pd-line:#e4dce0; --pd-panel:#ffffff; --pd-canvas:#f6f4f3;
+  --pd-input:#ffffff; --pd-input-border:#cbbec5; --pd-leaf:#4f8f35;
+  --pd-success:#2f641f; --pd-success-bg:#edf6e8;
+  --pd-warning:#75500b; --pd-warning-bg:#fff4d5;
+  --pd-danger:#8a263f; --pd-danger-bg:#fcebf0;
+  --pd-neutral:#62545d; --pd-neutral-bg:#f4f0f2;
+  --pd-space-1:4px; --pd-space-2:8px; --pd-space-3:12px; --pd-space-4:16px;
+  --pd-space-5:24px; --pd-space-6:32px; --pd-radius:8px; --pd-panel-radius:12px;
+}

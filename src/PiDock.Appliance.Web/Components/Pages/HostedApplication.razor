@@ -1,0 +1,112 @@
+@page "/apps/{AppId}/{ContributionId}"
+@attribute [Authorize(Roles = "Owner")]
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject ApplicationUiRegistry Registry
+@inject ApplicationUiBridgeService Bridge
+@inject AuthenticationStateProvider Authentication
+@inject IJSRuntime JS
+<PageTitle>Application workspace · PiDockOS</PageTitle>
+<p class="eyebrow">APPLIANCE / APPLICATION WORKSPACE</p>
+@if (registration is null)
+{
+    <h1>Application unavailable</h1>
+    <p role="status">This interface is no longer registered or its configuration is unsupported.</p>
+    <a href="/applications">Return to applications</a>
+}
+else
+{
+    <div class="section-heading"><h1>@registration.Contribution.Title</h1><button class="secondary" @onclick="Reload">Reload interface</button></div>
+    <p class="app-ui-notice">Isolated app workspace · operations require explicit host grants. Closing this interface does not stop the application.</p>
+    @if (!loaded) { <p role="status">Loading application interface. If its service is unavailable, restore the service and reload.</p> }
+    <iframe @ref="frame" @key="frameKey" class="app-ui-frame" title="@registration.Contribution.Title"
+        src="@ApplicationUiRules.ContentPath(registration.Contribution)" sandbox="allow-scripts" referrerpolicy="no-referrer" @onload="Loaded"></iframe>
+    <p><a href="/applications">Close interface and return to applications</a></p>
+}
+@code {
+    [Parameter] public string AppId { get; set; } = "";
+    [Parameter] public string ContributionId { get; set; } = "";
+    private ApplicationUiRegistration? registration;
+    private int frameKey, attachedKey = -1;
+    private bool loaded, disposed;
+    private ElementReference frame;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<HostedApplication>? reference;
+    private readonly SemaphoreSlim streamChanges = new(1);
+    private CancellationTokenSource? streamStop;
+    private Task streamTask = Task.CompletedTask;
+    protected override async Task OnParametersSetAsync() => await ResetFrame();
+    private async Task ResetFrame()
+    {
+        await StopStream();
+        if (module is not null && attachedKey >= 0)
+            try { await module.InvokeVoidAsync("dispose", frame); } catch (Exception ex) when (ex is JSException or JSDisconnectedException) { }
+        registration = Registry.Find(AppId, ContributionId); loaded = false; frameKey++;
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (registration is null || attachedKey == frameKey || disposed) return;
+        attachedKey = frameKey;
+        var generation = frameKey;
+        try
+        {
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "/api/platform/v1/ui/bridge/1.0/host.js");
+            if (disposed) { await module.DisposeAsync(); return; }
+            if (generation != frameKey) return;
+            reference ??= DotNetObjectReference.Create(this);
+            await module.InvokeVoidAsync("attach", frame, reference);
+        }
+        catch (JSDisconnectedException) { attachedKey = -1; }
+    }
+    private void Loaded() => loaded = true;
+    private Task Reload() => ResetFrame();
+    [JSInvokable] public async Task<ApplicationUiBridgeCapabilities> GetCapabilities() =>
+        Bridge.Capabilities((await Authentication.GetAuthenticationStateAsync()).User, AppId, ContributionId);
+    [JSInvokable] public async Task<ApplicationUiCommandResult> ExecuteCommand(ApplicationUiCommand command) =>
+        disposed ? new(1, command.CommandId, false, null, "not_authorized") :
+        await Bridge.Command((await Authentication.GetAuthenticationStateAsync()).User, AppId, ContributionId, command, CancellationToken.None);
+    [JSInvokable] public async Task StartStream(string id, ApplicationUiCursor? cursor)
+    {
+        if (!Guid.TryParse(id, out _) || disposed) return;
+        await streamChanges.WaitAsync();
+        try
+        {
+            await StopCurrent();
+            if (disposed) return;
+            streamStop = new();
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            streamTask = Pump(id, user, cursor, streamStop.Token);
+        }
+        finally { streamChanges.Release(); }
+    }
+    private async Task Pump(string id, System.Security.Claims.ClaimsPrincipal user, ApplicationUiCursor? cursor, CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var message in Bridge.Stream(user, AppId, ContributionId, cursor, ct))
+                if (module is not null && !disposed) await module.InvokeVoidAsync("publish", ct, frame, id, message);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or JSException or JSDisconnectedException or ObjectDisposedException or IOException) { }
+    }
+    [JSInvokable] public async Task StopStream()
+    {
+        await streamChanges.WaitAsync();
+        try { await StopCurrent(); } finally { streamChanges.Release(); }
+    }
+    private async Task StopCurrent()
+    {
+        streamStop?.Cancel();
+        try { await streamTask; } catch (OperationCanceledException) { }
+        streamStop?.Dispose(); streamStop = null;
+    }
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true; await StopStream();
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("dispose", frame); await module.DisposeAsync(); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or ObjectDisposedException) { }
+        }
+        reference?.Dispose();
+    }
+}

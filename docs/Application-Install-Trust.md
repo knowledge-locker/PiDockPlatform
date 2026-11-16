@@ -1,0 +1,13 @@
+# Shared local app image approval
+
+The engineering preview offers an opt-in `Broker:RequireAppImageApproval` policy for all managed app installations and image-update candidates. It requires managed resources/private broker state. Target discovery is authoritative; a schema alone does not enable the policy.
+
+An authenticated Owner reviews the exact runtime manifest and records a reason and expiry, up to 24 hours. Approval binds the app ID, immutable image reference, resource settings, ports, credentials references, health/dependency/update policy and all other runtime-manifest fields. Changing any setting requires a new approval. The protected broker record contains the manifest SHA-256, image, Owner, reason and timestamps. No credential values appear in it. The private Unix broker endpoint trusts its host caller; the PiDockOS Owner interface must perform fresh password/TOTP authentication and supply the Owner identity from that authenticated server context.
+
+This is an explicit exception for an unsigned image. It does **not** verify publisher signatures, certify code or grant UI, hardware, network, engineering or service access. Images remain digest-pinned. Before creating any container/network/volume, the broker rechecks the approval and verifies that Docker resolves the image to Linux ARM64. Deployment checks approval before pulling; updates check before queuing and again when creating the candidate. Approval revoked or expired during a pull cannot authorize subsequent container creation.
+
+Approval expiry/revocation prevents new installations and update candidates. It does not stop an existing container or prevent its normal restart/recovery. That distinction avoids turning an installation review into an undeclared runtime lease. Existing explicit credential/grant revocation rules continue to apply separately.
+
+Local private operations are `GET /applications/install-trust/support`, `GET/POST /applications/install-trust/approvals` and `DELETE /applications/install-trust/approvals/{manifestSha256}`. Ordinary app credentials and MCP discovery have no approval or installation authority. The current record is protected with broker Data Protection keys; preserve broker state/keys. Up to 64 records are retained, with expired records reclaimable when capacity is reached. This is current approval metadata, not an append-only full audit history.
+
+Full package manifests/version migrations, publisher PKI/signature verification, registry credential delivery, upload/import, transactional installation and UI-registration/grant reconciliation remain separate development. The initial local conformance fixture uses this exact-digest review without claiming those capabilities exist.
