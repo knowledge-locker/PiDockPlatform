@@ -12,10 +12,19 @@ exec 2>>/run/pidock-init-output.log
 pidock-boot-status recovery_console_open
 exec </dev/tty1 >/dev/tty1
 pidock-boot-status recovery_console_ready
+# A signed build timestamp is only a plausibility floor, never trusted time.
+# Bound the helper and handle failure explicitly: PID 1 must reach verified root
+# and networking even when clock bootstrap is unavailable. Never set the RTC here.
 pidock-boot-status clock_check
-epoch=$(cat /etc/build-epoch)
-[ "$(date +%s)" -ge "$epoch" ] || date -u -s "@$epoch" >>/run/pidock-init-output.log 2>&1
-pidock-boot-status clock_ready
+pidock-boot-status clock_set
+clock_status=0
+/bin/boot-clock "$(cat /etc/build-epoch)" >>/run/pidock-init-output.log 2>&1 || clock_status=$?
+if [ "$clock_status" -eq 0 ]; then
+    pidock-boot-status clock_ready
+else
+    printf 'Clock bootstrap failed or timed out (exit %s); continuing with untrusted time.\n' "$clock_status" >>/run/pidock-init-output.log
+    pidock-boot-status clock_deferred "$clock_status"
+fi
 pidock-boot-status recovery_confirmation
 printf '\nPiDockOS physical recovery\nNo network administration is running.\nType RECOVER within 60 seconds to continue: '
 trap - EXIT

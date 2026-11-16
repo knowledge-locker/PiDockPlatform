@@ -37,30 +37,51 @@ chroot "$root" /bin/pidock-boot-status console_ready
 [ "$before" = "$(sha256sum "$root/run/pidock-boot/pidock-early-boot.log")" ]
 printf 'Passed: stage export, uptime, errors, kernel output, exit code, previous attempt, size bound, invalid stage, ambiguous media.\n'
 
-# Exercise the actual normal init with injected pre-root clock and console failures.
+# Exercise actual startup: a failed or stalled clock helper cannot stop root discovery.
+chroot "$root" /bin/boot-clock 946684800
 if grep -q 'root_search' "$root/init"; then
     printf '#!/bin/sh\nprintf "/dev/control\\n"\n' >"$root/bin/blkid"
-    rm -f "$root/bin/date"
-    cat >"$root/bin/date" <<'DATE'
+    # Missing signed descriptor deliberately stops the test before real root discovery.
+    rm "$root/etc/root.env"
+    rm -f "$root/usr/lib/pidock/boot-clock-set"
+    cat >"$root/usr/lib/pidock/boot-clock-set" <<'CLOCK'
 #!/bin/sh
-case "$1" in +%s) echo 0;; *) echo 'injected clock failure' >&2; exit 42;; esac
-DATE
-    chmod 755 "$root/bin/date"
+echo 'injected clock failure' >&2
+exit 42
+CLOCK
+    chmod 755 "$root/usr/lib/pidock/boot-clock-set"
     : >"$root/dev/console"
     : >"$root/dev/tty1"
+    : >"$root/run/pidock-early.log"
     code=0
     chroot "$root" /init || code=$?
-    [ "$code" = 42 ]
-    grep -q 'stage=clock_set' "$root/run/pidock-boot/pidock-early-boot.log"
-    grep -q 'stage=init_failed' "$root/run/pidock-boot/pidock-early-boot.log"
+    [ "$code" -ne 0 ]
+    grep -q 'stage=clock_deferred' "$root/run/pidock-boot/pidock-early-boot.log"
     grep -q 'exit_code=42' "$root/run/pidock-boot/pidock-early-boot.log"
+    grep -q 'stage=root_descriptor' "$root/run/pidock-boot/pidock-early-boot.log"
     grep -q 'injected clock failure' "$root/run/pidock-boot/pidock-early-boot.log"
+    ! grep -q 'stage=clock_ready' "$root/run/pidock-boot/pidock-early-boot.log"
+    printf '#!/bin/sh\nexec /bin/sleep 30\n' >"$root/usr/lib/pidock/boot-clock-set"
+    : >"$root/run/pidock-early.log"
+    code=0
+    chroot "$root" /init || code=$?
+    [ "$code" -ne 0 ]
+    grep -q 'stage=clock_deferred' "$root/run/pidock-boot/pidock-early-boot.log"
+    grep -q 'stage=root_descriptor' "$root/run/pidock-boot/pidock-early-boot.log"
+    ! grep -q 'stage=clock_ready' "$root/run/pidock-boot/pidock-early-boot.log"
+    grep -q 'exit_code=124' "$root/run/pidock-boot/pidock-early-boot.log"
+    grep -q 'exceeded five seconds' "$root/run/pidock-boot/pidock-early-boot.log"
+    # Successful bootstrap follows its own path and is not reported as deferred.
+    printf '#!/bin/sh\nexit 0\n' >"$root/usr/lib/pidock/boot-clock-set"
+    : >"$root/run/pidock-early.log"
+    chroot "$root" /init || true
+    grep -q 'stage=clock_ready' "$root/run/pidock-boot/pidock-early-boot.log"
+    ! grep -q 'stage=clock_deferred' "$root/run/pidock-boot/pidock-early-boot.log"
     rm "$root/dev/console"
     code=0
     chroot "$root" /init || code=$?
     [ "$code" -ne 0 ]
     grep -q 'stage=console_open' "$root/run/pidock-boot/pidock-early-boot.log"
     grep -q 'stage=init_failed' "$root/run/pidock-boot/pidock-early-boot.log"
-    grep -q 'console' "$root/run/pidock-init-output.log"
-    echo 'Passed: actual init exports clock and console failures without a monitor.'
+    echo 'Passed: clock success, failure and actual five-second timeout; root discovery continues; console errors exported.'
 fi

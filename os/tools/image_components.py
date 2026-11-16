@@ -137,6 +137,9 @@ def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode
             (root / folder).mkdir()
         copy_binary(target, root, "/bin/busybox")
         copy_binary(target, root, "/usr/lib/pidock/boot-reboot")
+        copy_binary(target, root, "/usr/lib/pidock/boot-clock")
+        copy_binary(target, root, "/usr/lib/pidock/boot-clock-set")
+        (root / "bin/boot-clock").symlink_to("/usr/lib/pidock/boot-clock")
         (root / "bin/boot-reboot").symlink_to("/usr/lib/pidock/boot-reboot")
         for name in ("sh", "mount", "umount", "sync", "switch_root", "sleep", "reboot", "seq", "grep", "mkdir", "chmod", "date", "cat", "tail", "dmesg"):
             (root / "bin" / name).symlink_to("busybox")
@@ -166,6 +169,9 @@ def make_recovery_initramfs(target, scripts, output, epoch):
         (root / "tmp").chmod(0o1777)
         copy_binary(target, root, "/bin/busybox")
         copy_binary(target, root, "/usr/lib/pidock/boot-reboot")
+        copy_binary(target, root, "/usr/lib/pidock/boot-clock")
+        copy_binary(target, root, "/usr/lib/pidock/boot-clock-set")
+        (root / "bin/boot-clock").symlink_to("/usr/lib/pidock/boot-clock")
         (root / "bin/boot-reboot").symlink_to("/usr/lib/pidock/boot-reboot")
         for name in ("sh", "mount", "umount", "mountpoint", "sleep", "reboot", "grep", "mkdir", "chmod", "chown", "date", "sync", "cat", "tail", "dmesg"):
             (root / "bin" / name).symlink_to("busybox")
