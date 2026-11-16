@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check a public target filesystem before creating signed boot images. Never reads private owner setup."""
-import argparse,json,os,shlex,stat,subprocess
+import argparse,json,os,shlex,stat
 from pathlib import Path
 from image_components import resolve_target
 
@@ -32,8 +32,9 @@ def verify(target):
     if state.exists() and any(p.is_file() for p in state.rglob('*')):raise ValueError('Public image contains per-device managed state')
     if any((target/'lib/modules').rglob('*.ko.xz')):
         kmod=resolve_target(target,'/usr/lib/libkmod.so.2')
-        libraries=subprocess.check_output(['readelf','-d',str(kmod)],text=True)
-        if '[liblzma.so.5]' not in libraries:raise ValueError('XZ-compressed kernel modules require a kmod linked with liblzma')
+        # Buildroot enables kmod's dlopen mode, so liblzma need not be DT_NEEDED.
+        if b'liblzma.so.5' not in kmod.read_bytes() or not resolve_target(target,'/usr/lib/liblzma.so.5').is_file():
+            raise ValueError('XZ-compressed kernel modules require kmod XZ support and liblzma')
     profile=json.loads((target/'etc/pidock/image-profile.json').read_text())
     expected=json.loads((Path(__file__).resolve().parents[1]/'buildroot/board/pidock/image-profile.json').read_text())
     if any(profile.get(k)!=expected[k] for k in ('version','sequence','development')):raise ValueError('Unexpected development image profile')

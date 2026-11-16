@@ -11,5 +11,7 @@ for name in brcmfmac usb_f_ecm; do
     file=${file#"$root"}
     actual=$(chroot "$root" /usr/sbin/modinfo -F name "$file")
     [ "$actual" = "$name" ] || { echo "Cannot read packaged $name driver" >&2; exit 1; }
-    echo "Packaged driver metadata decoded: $name"
+    version=${file#/lib/modules/}; version=${version%%/*}
+    chroot "$root" /usr/sbin/modprobe --set-version "$version" --show-depends "$name"
+    echo "Packaged driver metadata and dependency index decoded: $name"
 done
