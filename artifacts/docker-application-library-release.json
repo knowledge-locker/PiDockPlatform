@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-11-16T17:07:01.308246+00:00",
+  "dockerVersion": "29.6.1",
+  "platform": "linux/arm64",
+  "image": "localhost:53072/pdc-5ab2e46f45@sha256:87621c9432a6ca7374318b7a9377d8c212366aee3b50c4d85380f8ad51bf89a8",
+  "physical": false,
+  "tests": [
+    {
+      "test": "application-library-local-and-cloud-install",
+      "passed": true,
+      "browserDefinitionDownload": true,
+      "exactDefinitionDigest": "sha256:97fc4634d8f167e3dcba52d6775ece9a8254fe6be9a2c92908f7ee4ffe35e867",
+      "imageApprovalEnforced": true,
+      "localImageEvictedBeforeEachInstall": true,
+      "separateCloudPermissionEnforced": true,
+      "receiptLargerThanFourKiB": true,
+      "registryImageResolved": true,
+      "platform": "linux/arm64"
+    },
+    {
+      "test": "latch-delay-stop",
+      "passed": true
+    }
+  ],
+  "health": [
+    {
+      "At": "2026-11-16T17:06:45.789618+00:00",
+      "State": "starting",
+      "Ready": false,
+      "Live": null,
+      "Failures": 0,
+      "Reason": "report_missing",
+      "RecoveryRequired": false
+    },
+    {
+      "At": "2026-11-16T17:06:54.39223+00:00",
+      "State": "starting",
+      "Ready": false,
+      "Live": null,
+      "Failures": 0,
+      "Reason": "report_missing",
+      "RecoveryRequired": false
+    },
+    {
+      "At": "2026-11-16T17:06:59.984659+00:00",
+      "State": "ready",
+      "Ready": true,
+      "Live": true,
+      "Failures": 0,
+      "Reason": "ready",
+      "RecoveryRequired": false
+    }
+  ],
+  "attempts": [],
+  "budgetResets": [],
+  "credentialWaits": [],
+  "sourceCommit": "db8a60cce6b8ee73114751d5ee6bbde4eb523921",
+  "sourceKind": "clean-git-archive"
+}

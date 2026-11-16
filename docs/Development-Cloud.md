@@ -1,5 +1,7 @@
 # Hosted PiDockCloud development
 
+Latest verified deployment: **0.1.0-rc.19** (November 16, 2026), with the application library. See the [release and recovery record](Application-Library-Release-2026-11-16.md). Earlier rollout sections below are historical.
+
 The development portal is https://pidock-dev.knowledgelocker.ai, hosted on `knowledgelocker-dev` through the PRX3MUS host agent. Production is separate and now runs the same promoted rc.4 image. This is the engineering preview, not a production security release.
 
 ## Deployed services

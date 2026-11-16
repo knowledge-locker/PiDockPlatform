@@ -1,5 +1,7 @@
 # Hosted PiDockCloud production
 
+Latest verified deployment: **0.1.0-rc.19** (November 16, 2026), with the application library. See the [release and recovery record](Application-Library-Release-2026-11-16.md). Earlier rollout sections below are historical.
+
 Portal: https://pidock.knowledgelocker.ai. Remote interfaces use isolated `d-<device-hash>.pidock-access.knowledgelocker.ai` origins. Both names resolve to `159.223.104.44`. This hosts the engineering preview release candidate; it does not change the product's remaining renewal, revocation or backup-scheduling limits.
 
 ## Deployment
