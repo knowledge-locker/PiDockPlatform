@@ -21,6 +21,8 @@ def verify(target):
             if not resolve_target(target,'/'+str(link.relative_to(target))).exists():raise ValueError('Dangling enabled service: '+str(link.relative_to(target)))
     broker=(units/'pidock-broker.service').read_text()
     if 'ExecStart=/usr/lib/pidock/broker/PiDock.Appliance.Broker\n' not in broker:raise ValueError('Broker must use its self-contained executable')
+    if 'Environment=Broker__StateDirectory=/var/lib/pidock/broker/apps-state\n' not in broker or 'StateDirectoryMode=0700\n' not in broker or 'TimeoutStopSec=220\n' not in broker:
+        raise ValueError('Factory broker requires private durable app state and coordinated-stop timeout')
     clock=(units/'pidock-time.service').read_text()
     if 'CapabilityBoundingSet=CAP_DAC_OVERRIDE\n' not in clock or 'ProtectClock=true\n' not in clock:
         raise ValueError('Time guard must query the chrony socket while retaining clock protection')
