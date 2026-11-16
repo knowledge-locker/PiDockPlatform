@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -10,6 +11,9 @@ namespace PiDock.Cloud.Web;
 public sealed record PublishedOsRelease(string TenantId, OsReleaseInfo Release, string PublishedBy, DateTimeOffset PublishedAt);
 public sealed record CloudOsUpdate(OsUpdateCommand Command, OsUpdateOperation? Operation = null);
 public sealed record OsCloudState(IReadOnlyList<PublishedOsRelease> Releases, IReadOnlyList<CloudOsUpdate> Commands);
+public enum OsReleasePublicationPhase { Uploading, Verifying, Saving }
+public sealed record OsReleasePublicationProgress(OsReleasePublicationPhase Phase, long BytesTransferred);
+
 public sealed class OsUpdateStore
 {
     private readonly object gate = new(); private readonly SemaphoreSlim uploads = new(1, 1);
@@ -24,7 +28,8 @@ public sealed class OsUpdateStore
     public PublishedOsRelease[] Releases(ClaimsPrincipal user) { lock (gate) return fleet.HasAccess(user) ? state.Releases.Where(r => r.TenantId == user.FindFirstValue("tenant")).OrderByDescending(r => r.PublishedAt).ToArray() : []; }
     public CloudOsUpdate[] Operations(ClaimsPrincipal user, string device) { lock (gate) return fleet.HasAccess(user) ? state.Commands.Where(c => c.Command.TenantId == user.FindFirstValue("tenant") && c.Command.DeviceId == device).TakeLast(20).Reverse().ToArray() : []; }
     private void Save(OsCloudState next) { StateFiles.WriteAtomic(path, JsonSerializer.Serialize(next, StateFiles.Json)); state = next; }
-    public async Task<PublishedOsRelease> Publish(ClaimsPrincipal user, Stream input, CancellationToken ct = default)
+    public Task<PublishedOsRelease> Publish(ClaimsPrincipal user, Stream input, CancellationToken ct = default) => Publish(user, input, ct, null);
+    public async Task<PublishedOsRelease> Publish(ClaimsPrincipal user, Stream input, CancellationToken ct, IProgress<OsReleasePublicationProgress>? progress)
     {
         if (!fleet.HasAccess(user) || !EnrollmentStore.CanManage(user) || !IdentityRules.IsId(user.FindFirstValue("tenant"))) throw new UnauthorizedAccessException();
         if (!await uploads.WaitAsync(0, ct)) throw new InvalidOperationException("Another release upload is in progress.");
@@ -33,8 +38,25 @@ public sealed class OsUpdateStore
         {
             lock (gate) if (state.Releases.Count >= 100 || Releases(user).Length >= 20) throw new InvalidOperationException("Release catalog quota reached.");
             if (new PiDock.Agent.DriveCapacityProbe().Read(root, 0).FreeBytes < (1L << 30) + OsUpdateRules.MaximumPackageBytes || new DirectoryInfo(root).GetFiles("*.zip").Sum(f => f.Length) > (8L << 30) - OsUpdateRules.MaximumPackageBytes) throw new IOException("Update artifact storage reserve reached.");
-            await using (var output = new FileStream(incoming, FileMode.Create, FileAccess.Write, FileShare.None)) { await OsUpdatePackage.CopyBounded(input, output, ct); output.Flush(true); }
-            var release = OsUpdatePackage.Verify(incoming, trust).Info;
+            progress?.Report(new(OsReleasePublicationPhase.Uploading, 0));
+            var updates = Stopwatch.StartNew();
+            long transferred;
+            await using (var output = new FileStream(incoming, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await OsUpdatePackage.CopyBounded(input, output, ct, progress is null ? null : bytes =>
+                {
+                    if (updates.ElapsedMilliseconds < 150) return;
+                    progress.Report(new(OsReleasePublicationPhase.Uploading, bytes)); updates.Restart();
+                });
+                transferred = output.Length; output.Flush(true);
+            }
+            progress?.Report(new(OsReleasePublicationPhase.Uploading, transferred));
+            progress?.Report(new(OsReleasePublicationPhase.Verifying, transferred));
+            // Signature/hash verification reads the complete expanded image. Keep it off the
+            // Blazor circuit so the verification indicator and other UI events can render.
+            var release = await Task.Run(() => OsUpdatePackage.Verify(incoming, trust).Info, ct);
+            ct.ThrowIfCancellationRequested();
+            progress?.Report(new(OsReleasePublicationPhase.Saving, transferred));
             lock (gate)
             {
                 if (!fleet.HasAccess(user)) throw new UnauthorizedAccessException();

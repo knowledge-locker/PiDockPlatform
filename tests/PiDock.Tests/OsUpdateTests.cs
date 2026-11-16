@@ -224,6 +224,80 @@ public sealed class OsUpdateTests : IDisposable
         public async Task<OsReleaseInfo> Stage(Stream input, CancellationToken ct = default) => (await engine.Stage(input, ct)).Info;
         public Task<OsUpdateOperation> Install(OsUpdateRequest request, CancellationToken ct = default) => engine.Install(request, ct);
     }
+    [Fact]
+    public async Task PublicationReportsRealUploadBytesBeforeVerificationAndCatalogSave()
+    {
+        _ = Package();
+        File.WriteAllBytes(Path.Combine(root, "files/appliance/fixture.bin"), RandomNumberGenerator.GetBytes(1 << 20));
+        var package = Path.Combine(root, "progress.zip");
+        OsUpdatePackage.Create(Path.Combine(root, "files"), package, "1.2.3", "linux-arm64", "release", key.ExportPkcs8PrivateKeyPem());
+        var cloudRoot = StateFiles.PrepareDirectory(Path.Combine(root, "progress-cloud"));
+        var store = new OsUpdateStore(new(cloudRoot), new(new(cloudRoot)), TimeProvider.System,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Updates:TrustDirectory"] = Trust }).Build());
+        var events = new List<OsReleasePublicationProgress>();
+        await using var input = new DelayedUpload(File.OpenRead(package));
+        var release = await store.Publish(User(), input, default, new PublicationObserver(events.Add));
+        var uploads = events.Where(e => e.Phase == OsReleasePublicationPhase.Uploading).ToArray();
+        Assert.Equal(0, uploads.First().BytesTransferred);
+        Assert.Equal(new FileInfo(package).Length, uploads.Last().BytesTransferred);
+        Assert.Contains(uploads, e => e.BytesTransferred > 0 && e.BytesTransferred < new FileInfo(package).Length);
+        Assert.True(uploads.Zip(uploads.Skip(1)).All(pair => pair.First.BytesTransferred <= pair.Second.BytesTransferred));
+        var verifyIndex = events.FindIndex(e => e.Phase == OsReleasePublicationPhase.Verifying);
+        var saveIndex = events.FindIndex(e => e.Phase == OsReleasePublicationPhase.Saving);
+        Assert.True(verifyIndex > 0 && saveIndex > verifyIndex);
+        Assert.Equal(OsReleasePublicationPhase.Uploading, events[verifyIndex - 1].Phase);
+        Assert.Equal(new FileInfo(package).Length, events[verifyIndex].BytesTransferred);
+        Assert.Equal(release.Release.Digest, Assert.Single(store.Releases(User())).Release.Digest);
+    }
+    [Fact]
+    public async Task FailedVerificationClearsIncomingUploadAndNeverReportsCatalogSave()
+    {
+        _ = Package();
+        var cloudRoot = StateFiles.PrepareDirectory(Path.Combine(root, "failed-progress"));
+        var store = new OsUpdateStore(new(cloudRoot), new(new(cloudRoot)), TimeProvider.System,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Updates:TrustDirectory"] = Trust }).Build());
+        var events = new List<OsReleasePublicationProgress>();
+        using var input = new MemoryStream(new byte[128]);
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.Publish(User(), input, default, new PublicationObserver(events.Add)));
+        Assert.Contains(events, e => e.Phase == OsReleasePublicationPhase.Verifying);
+        Assert.DoesNotContain(events, e => e.Phase == OsReleasePublicationPhase.Saving);
+        Assert.Empty(store.Releases(User()));
+        Assert.False(File.Exists(Path.Combine(cloudRoot, "os-updates/incoming.zip")));
+        await using var retry = File.OpenRead(Package());
+        Assert.NotNull(await store.Publish(User(), retry));
+    }
+    [Fact]
+    public async Task CancelledVerificationDoesNotPublishOrReportSaving()
+    {
+        var package = Package();
+        var cloudRoot = StateFiles.PrepareDirectory(Path.Combine(root, "cancel-progress"));
+        var store = new OsUpdateStore(new(cloudRoot), new(new(cloudRoot)), TimeProvider.System,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Updates:TrustDirectory"] = Trust }).Build());
+        using var stop = new CancellationTokenSource();
+        var events = new List<OsReleasePublicationProgress>();
+        await using var input = File.OpenRead(package);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.Publish(User(), input, stop.Token,
+            new PublicationObserver(value => { events.Add(value); if (value.Phase == OsReleasePublicationPhase.Verifying) stop.Cancel(); })));
+        Assert.Empty(store.Releases(User()));
+        Assert.DoesNotContain(events, e => e.Phase == OsReleasePublicationPhase.Saving);
+        Assert.False(File.Exists(Path.Combine(cloudRoot, "os-updates/incoming.zip")));
+    }
+    private sealed class PublicationObserver(Action<OsReleasePublicationProgress> report) : IProgress<OsReleasePublicationProgress>
+    {
+        public void Report(OsReleasePublicationProgress value) => report(value);
+    }
+    private sealed class DelayedUpload(Stream source) : Stream
+    {
+        public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;
+        public override long Length => source.Length; public override long Position { get => source.Position; set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        { await Task.Delay(20, ct); return await source.ReadAsync(buffer[..Math.Min(buffer.Length, 16384)], ct); }
+        public override void Flush() => throw new NotSupportedException(); public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException(); public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing) { if (disposing) source.Dispose(); base.Dispose(disposing); }
+    }
+
     private sealed class DownloadHandler(OsUpdateStore store) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
