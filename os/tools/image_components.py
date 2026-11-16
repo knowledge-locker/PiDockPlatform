@@ -88,6 +88,21 @@ def copy_binary(target, dest, name, seen=None):
         else:
             raise ValueError("Missing target dependency: " + library)
 
+def copy_loader_layout(target, dest):
+    """Keep the toolchain's default ELF search paths inside the minimal ramdisk."""
+    # Buildroot's AArch64 glibc searches /lib64 and /usr/lib64. Its sysroot
+    # aliases these directories to lib; copying only individual ELF files loses them.
+    for name in ("lib64", "usr/lib64"):
+        source = target / name
+        if not source.is_symlink():
+            continue
+        canonical = resolve_target(target, "/" + name)
+        if not canonical.is_dir():
+            raise ValueError("Invalid target library directory alias: " + name)
+        destination = dest / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.symlink_to(os.readlink(source))
+
 def newc(root, epoch):
     """Bounded deterministic newc archive; all files owned by root, no device nodes."""
     output = io.BytesIO()
@@ -132,6 +147,7 @@ def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode
             copy_binary(target, root, found)
             if found != "/bin/" + program:
                 (root / "bin" / program).symlink_to(found)
+        copy_loader_layout(target, root)
         shutil.copy2(init, root / "init")
         (root / "init").chmod(0o755)
         (root / "etc/root.env").write_text(f"ROOT_PARTUUID={DISK_SIGNATURE}-{partition:02d}\nROOT_HASH={root_hash}\nHASH_OFFSET={hash_offset}\nBOOT_MODE={mode}\n")
@@ -176,6 +192,7 @@ def make_recovery_initramfs(target, scripts, output, epoch):
             for pattern in ("libicu*.so*", "libssl.so*", "libcrypto.so*"):
                 for library in (target / folder).glob(pattern):
                     copy_binary(target, root, "/" + library.relative_to(target).as_posix())
+        copy_loader_layout(target, root)
         shutil.copy2(scripts / "recovery-init", root / "init")
         shutil.copy2(scripts / "recovery-menu", root / "bin/pidock-recovery")
         for path in (root / "init", root / "bin/pidock-recovery"):
