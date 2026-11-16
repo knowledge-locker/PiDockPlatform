@@ -26,6 +26,25 @@ class ImageToolsTests(unittest.TestCase):
             with self.assertRaises(ValueError): image.resolve_target(root,"/escape/passwd")
             (root/"loop").symlink_to("loop")
             with self.assertRaises(ValueError): image.resolve_target(root,"/loop")
+    def test_minimal_ramdisk_preserves_glibc_library_directory_aliases(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target=Path(temporary)/"target";ramdisk=Path(temporary)/"ramdisk"
+            for root in (target,ramdisk):
+                (root/"lib").mkdir(parents=True)
+                (root/"usr/lib").mkdir(parents=True)
+            (target/"lib64").symlink_to("lib")
+            (target/"usr/lib64").symlink_to("lib")
+            (ramdisk/"lib/libresolv.so.2").write_bytes(b"dependency")
+            (ramdisk/"usr/lib/libcrypto.so.3").write_bytes(b"dependency")
+            image.copy_loader_layout(target,ramdisk)
+            self.assertEqual(b"dependency",(ramdisk/"lib64/libresolv.so.2").read_bytes())
+            self.assertEqual(b"dependency",(ramdisk/"usr/lib64/libcrypto.so.3").read_bytes())
+            archive=image.newc(ramdisk,1234)
+            self.assertIn(b"lib64\0",archive)
+            self.assertIn(b"usr/lib64\0",archive)
+            (target/"usr/lib64").unlink()
+            (target/"usr/lib64").symlink_to("../../../outside")
+            with self.assertRaises(ValueError):image.copy_loader_layout(target,Path(temporary)/"bad")
     def test_cpio_is_deterministic_and_has_root_ownership_and_executable_init(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)
