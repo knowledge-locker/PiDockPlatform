@@ -43,3 +43,9 @@ The broker unit defaults `Broker__EnableAppRecovery=false`. Enable it together w
 ## App image update opt-in
 
 `Broker__EnableAppUpdates=false` is the supplied default. Enabling it requires resources, orchestration and lifecycle permissions. Preserve the private `updates` journals and broker key ring across service/OS upgrades, including accepted operations. The appliance update worker uses current credentials; the broker integrates active-update interruption into coordinated shutdown. See [image-only compatibility and rollback limits](../docs/Application-Updates.md).
+
+## Beta.1 reconciled factory image
+
+`1.0.0-beta.1` (monotonic image sequence 8) includes merged shared application-platform work through PR #21 plus early-boot and installer diagnostics. The immutable root includes the current appliance, broker and updater together. The factory broker uses a private durable app-state path and the same 220-second coordinated-stop allowance as the service installer. Managed-resource, recovery, orchestration, update, backup and removal gates retain their explicit disabled defaults; enabling a gate requires its documented prerequisites. Physical GPIO outputs remain unapproved.
+
+Beta names identify release candidates for hardware acceptance; boot signatures use the development boot key and do not imply OTP enrollment or a successful physical boot. Factory packages remain free of owner/network credentials; personalization is confined to the bounded setup region.
