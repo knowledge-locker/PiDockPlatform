@@ -16,6 +16,10 @@ grep -q '^stage=initramfs_started$' "$root/run/pidock-early.log"
 chroot "$root" /bin/boot-clock 946684800
 chroot "$root" /bin/blkid --version
 if [ "$2" = normal ]; then
+    chroot "$root" /bin/pidock-boot-services
+    grep -q '^Before=pidock-updater.service$' "$root/run/systemd/system/pidock-first-boot-diagnostics.service"
+    ! grep '^Before=' "$root/run/systemd/system/pidock-first-boot-diagnostics.service" | grep -q 'pidock-appliance.service'
+    grep -q '^SyncIntervalSec=1s$' "$root/run/systemd/journald.conf.d/90-pidock-startup.conf"
     chroot "$root" /bin/veritysetup --version
     # Exercise the exact shipped open command, not just the executable's version.
     # A nonexistent input prevents any host device mapping; CLI parsing must pass.

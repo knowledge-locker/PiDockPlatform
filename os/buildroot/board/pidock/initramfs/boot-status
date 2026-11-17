@@ -3,7 +3,7 @@
 # Export only during early boot, before normal services or recovery authentication.
 export PATH=/bin:/sbin
 case "${1:-}" in
-    init_entry|recovery_entry|initramfs_started|console_open|console_ready|clock_check|clock_set|clock_ready|clock_deferred|recovery_key_wait|recovery_key_done|recovery_selected|root_descriptor|root_search|root_wait|root_found|verity_open|verity_failed|verity_mapping_ready|root_mount_failed|root_mounted|handoff|switch_root|recovery_started|recovery_console_open|recovery_console_ready|recovery_confirmation|failed|init_failed) ;;
+    init_entry|recovery_entry|initramfs_started|console_open|console_ready|clock_check|clock_set|clock_ready|clock_deferred|recovery_key_wait|recovery_key_done|recovery_selected|root_descriptor|root_search|root_wait|root_found|verity_open|verity_failed|verity_mapping_ready|root_mount_failed|root_mounted|services_prepared|handoff|switch_root|recovery_started|recovery_console_open|recovery_console_ready|recovery_confirmation|failed|init_failed) ;;
     *) exit 0 ;;
 esac
 mkdir -p /run/pidock-boot 2>/dev/null || exit 0

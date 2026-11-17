@@ -61,6 +61,8 @@ veritysetup open "$root_device" pidock-root "$root_device" "$ROOT_HASH" --hash-o
 pidock-boot-status verity_mapping_ready
 mount -t ext4 -o ro /dev/mapper/pidock-root /newroot >>/run/pidock-init-output.log 2>&1 || { pidock-boot-status root_mount_failed; fail 'verified root cannot be mounted'; }
 pidock-boot-status root_mounted
+pidock-boot-services
+pidock-boot-status services_prepared
 pidock-boot-status handoff
 pidock-boot-status switch_root
 mount --move /dev /newroot/dev
