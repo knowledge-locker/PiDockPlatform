@@ -21,6 +21,8 @@ rm -f "$target/etc/machine-id"
 touch "$target/etc/machine-id"
 board=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 "$HOST_DIR/bin/aarch64-buildroot-linux-gnu-gcc" -O2 -Wall -Wextra -Werror -o "$target/usr/lib/pidock/boot-reboot" "$board/boot-reboot.c"
+"$HOST_DIR/bin/aarch64-buildroot-linux-gnu-gcc" -O2 -Wall -Wextra -Werror -o "$target/usr/lib/pidock/boot-clock" "$board/boot-clock.c"
+"$HOST_DIR/bin/aarch64-buildroot-linux-gnu-gcc" -DPIDOCK_CLOCK_WORKER -O2 -Wall -Wextra -Werror -o "$target/usr/lib/pidock/boot-clock-set" "$board/boot-clock.c"
 python3 - "$target" "$board/image-profile.json" <<'PY'
 import json,os,re,sys
 from pathlib import Path

@@ -1,0 +1,17 @@
+#!/bin/sh
+# All inputs live in the signed initramfs. Never read mutable setup or owner data.
+set -eu
+export PATH=/bin:/sbin
+mkdir -p /run/systemd/system /run/systemd/journald.conf.d /run/systemd/system.conf.d
+# The diagnostic observer must not delay the appliance UI. Retain ordering before
+# the updater so diagnostics cannot remount its boot partition during a trial.
+cat /etc/pidock-boot-diagnostics.service >/run/systemd/system/pidock-first-boot-diagnostics.service
+# Stage the time monitor's complete unit so existing immutable roots receive
+# the chronyc client-socket sandbox correction without changing managed data.
+cat /etc/pidock-boot-time.service >/run/systemd/system/pidock-time.service
+# Preserve later startup events across abrupt resets; keep existing journal limits.
+printf '[Journal]\nSyncIntervalSec=1s\n' >/run/systemd/journald.conf.d/90-pidock-startup.conf
+# The shipped bcm2835 watchdog has a 20-bit timer at 65536 ticks/second.
+# Requests above 15 whole seconds wrap in its register (20 seconds becomes 4).
+# Sort after the immutable root's pidock.conf; retain watchdog protection.
+printf '[Manager]\nRuntimeWatchdogSec=10s\nRebootWatchdogSec=10s\n' >/run/systemd/system.conf.d/zz-pidock-watchdog.conf

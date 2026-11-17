@@ -2,15 +2,41 @@
 # A self-contained signed recovery environment. No systemd, networking or applications start.
 set -eu
 export PATH=/bin:/sbin
+# The initramfs itself is writable before /run exists. Capture entry and mount
+# failures before opening any console; no external setup is read here.
+exec 2>>/pidock-preflight.log
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then pidock-boot-status init_failed "$rc"; fi' EXIT
+printf 'stage=recovery_entry\n' >>/pidock-preflight.log
 mount -t devtmpfs devtmpfs /dev
+printf 'stage=dev_mounted\n' >>/pidock-preflight.log
 mount -t proc proc /proc
-mount -t sysfs sysfs /sys
+printf 'stage=proc_mounted\n' >>/pidock-preflight.log
 mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
+pidock-boot-status recovery_entry
+mount -t sysfs sysfs /sys
+printf 'stage=sys_mounted\n' >>/pidock-preflight.log
 pidock-boot-status recovery_started
-exec </dev/tty1 >/dev/tty1 2>&1
-epoch=$(cat /etc/build-epoch)
-[ "$(date +%s)" -ge "$epoch" ] || date -u -s "@$epoch"
+exec 2>>/run/pidock-init-output.log
+pidock-boot-status recovery_console_open
+exec </dev/tty1 >/dev/tty1
+pidock-boot-status recovery_console_ready
+# A signed build timestamp is only a plausibility floor, never trusted time.
+# Bound the helper and handle failure explicitly: PID 1 must reach verified root
+# and networking even when clock bootstrap is unavailable. Never set the RTC here.
+pidock-boot-status clock_check
+pidock-boot-status clock_set
+clock_status=0
+/bin/boot-clock "$(cat /etc/build-epoch)" >>/run/pidock-init-output.log 2>&1 || clock_status=$?
+if [ "$clock_status" -eq 0 ]; then
+    pidock-boot-status clock_ready
+else
+    printf 'Clock bootstrap failed or timed out (exit %s); continuing with untrusted time.\n' "$clock_status" >>/run/pidock-init-output.log
+    pidock-boot-status clock_deferred "$clock_status"
+fi
+pidock-boot-status recovery_confirmation
 printf '\nPiDockOS physical recovery\nNo network administration is running.\nType RECOVER within 60 seconds to continue: '
+trap - EXIT
+exec 2>/dev/tty1
 answer=
 read -r -t 60 answer || { reboot -f; exit 1; }
 [ "$answer" = RECOVER ] || { reboot -f; exit 1; }

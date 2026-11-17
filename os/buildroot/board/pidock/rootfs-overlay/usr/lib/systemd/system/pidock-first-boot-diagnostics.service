@@ -3,7 +3,7 @@ Description=PiDock first-boot installer diagnostics
 After=var.mount boot-control.mount systemd-journal-flush.service pidock-provision.service pidock-network.service pidock-wifi.service
 Wants=pidock-provision.service pidock-network.service systemd-journal-flush.service
 Requires=var.mount boot-control.mount
-Before=pidock-updater.service pidock-appliance.service
+Before=pidock-updater.service
 ConditionPathExists=!/var/lib/pidock/diagnostics/initial-complete
 [Service]
 Type=oneshot

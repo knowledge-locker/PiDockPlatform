@@ -113,3 +113,70 @@ The first-boot service writes a bounded 64 KiB `pidock-install.log` there with s
 Public reports are generated from a fixed set of status messages. Raw Wi-Fi events and wpa_cli output are never copied: passwords, authenticator seeds/codes, enrollment codes, SSIDs, BSSIDs and assigned addresses are excluded. An owner can also view/download the sanitized report under **PiDockOS → Installer diagnostics** after sign-in. Nothing is automatically uploaded to PiDockCloud.
 
 Detailed system journals remain private on the Linux data partition, bounded to 32 MiB and seven days. They may contain ordinary system/network identifiers and should be handled as private support data. WPA key-debug logging is not enabled. If networking fails, power down, return the card to the computer, and open the two text reports on the first boot partition; no Linux filesystem formatting or ownership reset is needed.
+
+
+### Headless early-boot diagnostics
+
+The signed boot ramdisk records console opening, clock checks/adjustment, physical recovery-key waiting, signed root-descriptor loading, root-device discovery, verity opening, root mounting and the final OS handoff boundary in `pidock-early-boot.log` on the first/control FAT partition. Each marker includes monotonic uptime. Unexpected startup exits record an exit code; startup errors and a bounded tail of early kernel messages accompany each snapshot. The current file stays below 64 KiB, and `pidock-early-boot.previous.log` retains one bounded previous attempt across resets. A sudden kernel panic or storage hang can leave only the last successfully exported boundary; this is not a full persistent kernel console.
+
+Logs are exported before normal services or operator recovery authentication. The exporter does not read provisioning or owner state, and recovery stops exporting before the operator enters commands or credentials. Logs remain diagnostic observations, never a source of root hashes, ownership, verification decisions or trusted time. Inspect the card on another computer after powering the Pi off; no monitor is required. The existing `pidock-install.log` covers subsequent first-boot setup and networking.
+
+Run `os/tests/verify_boot_logging.sh TRUSTED_INITRAMFS.gz` inside an isolated native builder as root with chroot capability. It checks bounded output, previous-attempt retention, rejected stages and duplicate media, then injects clock and console failures into the actual normal startup script to prove their errors reach the SD-readable export. Run the existing initramfs runtime checks too. Updating the diagnostic scripts on existing media requires rebuilding and signing the ramdisks; editing files outside `boot.img` cannot change their trusted code.
+
+
+### Bounded clock bootstrap
+
+Normal and recovery startup use a dedicated signed `boot-clock` helper instead of BusyBox date parsing/formatting. Its worker only advances `CLOCK_REALTIME` to the signed build epoch when necessary; it does not write the hardware RTC or move a newer clock backward. A supervisor measures a five-second deadline with `CLOCK_MONOTONIC`, kills a stalled worker, and returns a distinct timeout code. Startup records `clock_ready` on success or `clock_deferred` with the failure code, then continues to verified-root discovery or physical recovery. An unavailable optional clock bootstrap must not terminate PID 1 or make recovery unreachable.
+
+This signed timestamp is only a plausibility floor. Authenticated NTS time evidence and the existing trusted-clock authentication/TLS rules remain required. Physical attempts on November 16 stopped at the old `clock_set` boundary with an RTC date in 1970; the bounded replacement addresses that startup failure window, while physical acceptance still requires another boot. Native ramdisk checks inject successful, failed and stalled workers and verify startup continues beyond clock bootstrap; the real worker is also checked with clock-setting capability denied.
+
+
+### Verity command compatibility
+
+The physical boot after the clock correction reached root-device discovery and failed before verification because the shipped veritysetup rejected `--readonly`. Its verity `open` implementation always activates a read-only mapping; the unsupported flag has been removed. The signed root hash, data/hash geometry, read-only ext4 mount and restart-on-corruption policy are retained. Native initramfs acceptance now executes the exact signed startup `veritysetup open` command against a deliberately nonexistent device, requiring option parsing to succeed and the nonexistent input to be rejected without creating any mapping. This check reproduces the old command's unknown-option failure and passes the corrected command. Physical successful-root verification and network acceptance remain pending.
+
+
+### Identifying a fresh headless boot
+
+Each signed initramfs now embeds a 64-character `image_marker`, derived from its startup code, root descriptor, build epoch and slot role. The early report also records the kernel's random `boot_id`, which changes on each boot. Compare the image marker with `pidock-boot-expected.json` beside the logs on prepared diagnostic cards. That expectation file explicitly describes prepared files; it is not evidence that they ran. A matching marker in a newly written log and a new boot ID distinguish current-image execution from an unchanged older report. All of these remain diagnostic observations rather than security attestations.
+
+Entry and mount errors are captured in writable initramfs memory before console setup. The first SD export is attempted after devtmpfs, proc and the runtime directory are available, before sysfs, console access and clock bootstrap. Export retries at later stages if the card is not yet discoverable; the previous report is rotated only at the first successful export of that boot. A firmware failure or kernel failure before device discovery cannot be saved by this userspace logger. Existing provisioning and owner data are not read or modified.
+
+
+### Diagnostic observation must not delay the management UI
+
+Physical evidence confirmed a current image marker, successful verified-root handoff and applied setup. The first-boot observer can run for three minutes; ordering it before the appliance service unnecessarily held the UI until that observation ended. It now orders only before the updater, retaining protection against diagnostic remounts during A/B update operations. Normal signed initramfs startup stages the corrected complete unit in `/run/systemd/system` so existing verified roots receive the same ordering fix without changing their payload or user data.
+
+The initramfs also stages a `SyncIntervalSec=1s` journal drop-in before systemd starts. The recovered private journal previously contained only the initial flush near nine seconds, despite later installer observations; faster durable journal synchronization retains later service evidence across abrupt power-off or reset. Existing journal size limits remain unchanged. Earlier boot IDs indicate multiple attempts but do not by themselves establish a watchdog reset. Physical Wi-Fi/time readiness and successful HTTPS access remain to be checked on the next boot.
+
+
+### Pi watchdog timeout correction — November 17, 2026
+
+The new image marker confirmed current code, successful root verification and applied setup. The retained installer report contained 256 distinct attempts, and the recovered private journal contained 407 boot sessions with their last saved events under 25 seconds. Some attempts successfully associated and received a Wi-Fi address, but the appliance did not remain up long enough for authenticated time and HTTPS acceptance.
+
+The shipped Linux 6.12.61 bcm2835 watchdog driver writes `(timeout << 16) & 0x000fffff` directly to its hardware register. Whole-second requests must fit in 15 seconds; the existing 20-second runtime request encodes four seconds, shorter than systemd's refresh interval. The previous 60-second reboot request also wraps. Both settings now use 10 seconds, preserving watchdog recovery within the driver's register range. Regression coverage rejects out-of-range configuration and reproduces the old 20-to-four-second encoding.
+
+Normal signed boot ramdisks stage `/run/systemd/system.conf.d/zz-pidock-watchdog.conf` with valid runtime/reboot values before PID 1 starts, correcting existing immutable roots without altering setup or installed payload. The filename sorts after the old `/etc` drop-in; actual systemd configuration merging was checked. Native ramdisk acceptance verifies the staged values. The existing first-boot UI ordering fix, one-second journal synchronization, unique image marker and per-boot ID remain enabled. Physical stable-boot, authenticated-time and HTTPS acceptance still require the next cold boot.
+
+
+### Authenticated-time monitor socket correction — November 17, 2026
+
+After the watchdog correction, the Pi remained up for over 45 minutes and joined Wi-Fi, but HTTPS port 443 refused connections. The private journal showed Chrony selecting a time source while local identity issuance waited for the time guard. The guard used `ProtectSystem=strict` with only `/run/pidock-time` writable. The shipped chronyc 4.8 creates a random temporary client socket below `/run/chrony`; the sandbox rejected that directory creation with `Read-only file system`, preventing authenticated-time evidence from being read.
+
+The guard now also permits writes to `/run/chrony`. Its capability bound remains only `CAP_DAC_OVERRIDE`, `ProtectClock=true` and `ProtectSystem=strict` remain enabled, and the existing NTS authentication, accuracy, recency and stable-sample criteria are unchanged. Signed normal ramdisks stage the corrected complete time-guard unit in `/run/systemd/system` for existing immutable roots. No certificate is pre-issued and no trusted-time requirement is bypassed.
+
+Run `python3 os/tests/verify_chrony_monitor.py` on the native Docker build host against trusted Buildroot output. It runs the actual target daemon and client with networking and clock control disabled, reproduces the client failure with a read-only socket directory, and verifies a successful monitoring query when only that directory is writable. The returned test report remains unsynchronized; query access itself does not establish trusted time. Fixtures are removed afterward. Native ramdisk checks also inspect the staged unit's exact write paths and retained clock restrictions. Physical certificate issuance and HTTPS acceptance require the next boot.
+
+
+### Power-loss-damaged account key — recovery, November 17, 2026
+
+The time-monitor correction produced authenticated time and a valid local HTTPS identity. The next startup failed while reading the account encryption key ring (`Root element is missing`). The only account key was a zero-byte XML file, and its ID matched the key required by the protected owner record. No usable XML copy was found in the available current or earlier partition snapshots. Do not silently ignore that key, delete the account file, or rerun normal media provisioning over an existing owner.
+
+An operator-reviewed recovery can reconstruct the same original local owner from the privately retained initial setup: identical username, password hash, authenticator secret, accepted-code counter, tenant and role, with a renewed session stamp and a fresh encryption key. This is account recovery, not an automatic startup path. Existing encrypted bytes and the empty key are archived outside the live key directory. The original raw partition copy remains available for rollback. The prepared image retains all other PiDock file contents, including network, broker state and the HTTPS identity. Applying it requires explicit approval and a Terminal writer that checks the physical card identity, partition offset/size, entire unchanged preimage checksum and recovered-image checksum, then verifies raw read-back. Preparation itself never writes the card.
+
+The exact original verified beta.1 root reproduced the damaged-state crash in an isolated native fixture. With the recovered state, the same unprivileged application returned the login form with HTTP 200 over TLS validated against the existing local CA. No account sign-in was performed. Independent framework decryption checked the prepared owner's field equality against the private original setup. Filesystem checks and a complete `/var/lib/pidock` file-content comparison found only the expected account/key and recovery-backup changes.
+
+For subsequent builds, `DurableKeyRepository` stores the standard Data Protection XML through PiDock's file-flush, atomic-rename and directory-sync path before protection can return. It retains the framework reader and fails closed on damaged existing XML. The application discriminator and purposes are unchanged, so the new files remain readable by the old framework. A clean source checkout passed all 465 tests, including three new compatibility/corruption/path tests. This source-level durability fix is not retrofitted into the current immutable Pi payload by the account-only recovery; it must be included in the next full OS build. No private recovery material is committed to the repository.
+
+
+The operator approved the prepared account recovery. The identity/preimage-guarded Terminal writer applied only the managed-data partition, verified its entire raw read-back against the tested recovered-image checksum, and safely ejected the card. The unchanged original raw copy and damaged encrypted files remain preserved. Existing owner credentials, network settings, broker data, recovery/normal boot files and local HTTPS identity were retained; the account session stamp was renewed. Physical login acceptance is pending the next cold boot. The separate durable-key writer source patch still requires the next full OS build.

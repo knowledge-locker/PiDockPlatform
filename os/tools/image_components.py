@@ -128,6 +128,17 @@ def newc(root, epoch):
     entry("TRAILER!!!", 0, b"", 0)
     return output.getvalue()
 
+def write_boot_marker(root, epoch, role):
+    """Bind the diagnostic marker to signed startup inputs, never private setup."""
+    checksum = hashlib.sha256(f"pidock-boot-marker-v1:{epoch}:{role}".encode())
+    for name in ("init", "bin/pidock-boot-status", "etc/root.env", "etc/build-epoch", "bin/pidock-boot-services", "etc/pidock-boot-diagnostics.service", "etc/pidock-boot-time.service"):
+        path = root / name
+        if path.is_file():
+            checksum.update(name.encode() + b"\0" + path.read_bytes())
+    marker = checksum.hexdigest()
+    (root / "etc/pidock-boot-marker").write_text(marker + "\n")
+    return marker
+
 def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode, epoch):
     if not re.fullmatch(r"[0-9a-f]{64}", root_hash) or partition not in (5, 6) or mode not in ("normal", "recovery"):
         raise ValueError("Invalid signed root descriptor")
@@ -137,8 +148,11 @@ def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode
             (root / folder).mkdir()
         copy_binary(target, root, "/bin/busybox")
         copy_binary(target, root, "/usr/lib/pidock/boot-reboot")
+        copy_binary(target, root, "/usr/lib/pidock/boot-clock")
+        copy_binary(target, root, "/usr/lib/pidock/boot-clock-set")
+        (root / "bin/boot-clock").symlink_to("/usr/lib/pidock/boot-clock")
         (root / "bin/boot-reboot").symlink_to("/usr/lib/pidock/boot-reboot")
-        for name in ("sh", "mount", "umount", "sync", "switch_root", "sleep", "reboot", "seq", "grep", "mkdir", "chmod", "date", "cat"):
+        for name in ("sh", "mount", "umount", "sync", "switch_root", "sleep", "reboot", "seq", "grep", "mkdir", "chmod", "date", "cat", "tail", "dmesg"):
             (root / "bin" / name).symlink_to("busybox")
         for program in ("veritysetup", "blkid"):
             found = next((folder + "/" + program for folder in ("/sbin", "/usr/sbin", "/bin", "/usr/bin") if resolve_target(target, folder + "/" + program).is_file()), None)
@@ -152,8 +166,13 @@ def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode
         shutil.copy2(init.parent / "boot-status", root / "bin/pidock-boot-status")
         (root / "bin/pidock-boot-status").chmod(0o755)
         (root / "init").chmod(0o755)
+        shutil.copy2(init.parent / "boot-services", root / "bin/pidock-boot-services")
+        (root / "bin/pidock-boot-services").chmod(0o755)
+        shutil.copy2(init.parent.parent / "rootfs-overlay/usr/lib/systemd/system/pidock-first-boot-diagnostics.service", root / "etc/pidock-boot-diagnostics.service", "etc/pidock-boot-time.service")
+        shutil.copy2(init.parent.parent / "rootfs-overlay/usr/lib/systemd/system/pidock-time.service", root / "etc/pidock-boot-time.service")
         (root / "etc/root.env").write_text(f"ROOT_PARTUUID={DISK_SIGNATURE}-{partition:02d}\nROOT_HASH={root_hash}\nHASH_OFFSET={hash_offset}\nBOOT_MODE={mode}\n")
         (root / "etc/build-epoch").write_text(str(epoch)+"\n")
+        write_boot_marker(root, epoch, f"{mode}-{partition}")
         with output.open("xb") as destination:
             with gzip.GzipFile(fileobj=destination, mode="wb", mtime=epoch, filename="") as compressed:
                 compressed.write(newc(root, epoch))
@@ -166,8 +185,11 @@ def make_recovery_initramfs(target, scripts, output, epoch):
         (root / "tmp").chmod(0o1777)
         copy_binary(target, root, "/bin/busybox")
         copy_binary(target, root, "/usr/lib/pidock/boot-reboot")
+        copy_binary(target, root, "/usr/lib/pidock/boot-clock")
+        copy_binary(target, root, "/usr/lib/pidock/boot-clock-set")
+        (root / "bin/boot-clock").symlink_to("/usr/lib/pidock/boot-clock")
         (root / "bin/boot-reboot").symlink_to("/usr/lib/pidock/boot-reboot")
-        for name in ("sh", "mount", "umount", "mountpoint", "sleep", "reboot", "grep", "mkdir", "chmod", "chown", "date", "sync", "cat"):
+        for name in ("sh", "mount", "umount", "mountpoint", "sleep", "reboot", "grep", "mkdir", "chmod", "chown", "date", "sync", "cat", "tail", "dmesg"):
             (root / "bin" / name).symlink_to("busybox")
         for program in ("blkid", "setpriv"):
             found = next((folder + "/" + program for folder in ("/usr/sbin", "/usr/bin", "/sbin", "/bin") if resolve_target(target, folder + "/" + program).is_file()), None)
@@ -206,6 +228,7 @@ def make_recovery_initramfs(target, scripts, output, epoch):
             source=resolve_target(target,"/etc/"+file)
             if source.is_file():
                 shutil.copy2(source,root/"etc"/file)
+        write_boot_marker(root, epoch, "recovery")
         with output.open("xb") as destination:
             with gzip.GzipFile(fileobj=destination, mode="wb", mtime=epoch, filename="") as compressed:
                 compressed.write(newc(root, epoch))

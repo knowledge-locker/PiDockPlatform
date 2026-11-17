@@ -15,6 +15,40 @@ import image_components as image
 import sign_boot
 
 class ImageToolsTests(unittest.TestCase):
+    def test_time_guard_has_narrow_client_socket_write_access_without_clock_privilege(self):
+        unit = (TOOLS.parent / "buildroot/board/pidock/rootfs-overlay/usr/lib/systemd/system/pidock-time.service").read_text()
+        self.assertIn("ReadWritePaths=/run/pidock-time /run/chrony\n", unit)
+        self.assertIn("ProtectSystem=strict\n", unit)
+        self.assertIn("ProtectClock=true\n", unit)
+        self.assertIn("CapabilityBoundingSet=CAP_DAC_OVERRIDE\n", unit)
+        self.assertNotIn("CAP_SYS_TIME", unit)
+
+    def test_pi_watchdog_timeouts_fit_the_shipped_hardware_register(self):
+        config = (TOOLS.parent / "buildroot/board/pidock/rootfs-overlay/etc/systemd/system.conf.d/pidock.conf").read_text()
+        import re
+        for setting in ("RuntimeWatchdogSec", "RebootWatchdogSec"):
+            seconds = int(re.search(rf"^{setting}=(\d+)s$", config, re.MULTILINE).group(1))
+            self.assertGreater(seconds, 0)
+            self.assertLessEqual(seconds, 0x000fffff >> 16)
+            self.assertEqual(seconds, ((seconds << 16) & 0x000fffff) >> 16)
+        # Reproduce the old request's rollover from the pinned bcm2835 driver.
+        self.assertEqual(4, ((20 << 16) & 0x000fffff) >> 16)
+
+    def test_boot_marker_binds_signed_startup_inputs_and_slot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "etc").mkdir(); (root / "bin").mkdir()
+            (root / "init").write_text("startup-v1")
+            (root / "bin/pidock-boot-status").write_text("logger-v1")
+            (root / "etc/root.env").write_text("ROOT_HASH=trusted")
+            first = image.write_boot_marker(root, 1234, "normal-5")
+            self.assertEqual(64, len(first))
+            self.assertEqual(first, image.write_boot_marker(root, 1234, "normal-5"))
+            self.assertNotEqual(first, image.write_boot_marker(root, 1234, "normal-6"))
+            self.assertNotEqual(first, image.write_boot_marker(root, 1235, "normal-5"))
+            (root / "init").write_text("startup-v2")
+            self.assertNotEqual(first, image.write_boot_marker(root, 1234, "normal-5"))
+
     def test_sysroot_symlinks_never_resolve_against_the_builder_host(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)
