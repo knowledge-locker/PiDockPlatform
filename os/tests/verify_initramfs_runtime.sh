@@ -22,6 +22,9 @@ if [ "$2" = normal ]; then
     grep -q '^RuntimeWatchdogSec=10s$' "$root/run/systemd/system.conf.d/zz-pidock-watchdog.conf"
     grep -q '^RebootWatchdogSec=10s$' "$root/run/systemd/system.conf.d/zz-pidock-watchdog.conf"
     grep -q '^SyncIntervalSec=1s$' "$root/run/systemd/journald.conf.d/90-pidock-startup.conf"
+    grep -q '^ReadWritePaths=/run/pidock-time /run/chrony$' "$root/run/systemd/system/pidock-time.service"
+    grep -q '^ProtectClock=true$' "$root/run/systemd/system/pidock-time.service"
+    grep -q '^CapabilityBoundingSet=CAP_DAC_OVERRIDE$' "$root/run/systemd/system/pidock-time.service"
     chroot "$root" /bin/veritysetup --version
     # Exercise the exact shipped open command, not just the executable's version.
     # A nonexistent input prevents any host device mapping; CLI parsing must pass.

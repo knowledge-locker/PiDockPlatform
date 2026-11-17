@@ -15,8 +15,10 @@ ProtectHome=true
 PrivateTmp=true
 ProtectClock=true
 # chronyd owns a mode-0755 socket inside a mode-0750 directory. Root needs
-# DAC override for the local query; no clock-setting capability is granted.
+# DAC override for the local query. chronyc 4.8 binds its temporary client
+# socket beside the daemon socket; that runtime directory must be writable.
+# No clock-setting capability is granted.
 CapabilityBoundingSet=CAP_DAC_OVERRIDE
-ReadWritePaths=/run/pidock-time
+ReadWritePaths=/run/pidock-time /run/chrony
 [Install]
 WantedBy=multi-user.target

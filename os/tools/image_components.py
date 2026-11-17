@@ -131,7 +131,7 @@ def newc(root, epoch):
 def write_boot_marker(root, epoch, role):
     """Bind the diagnostic marker to signed startup inputs, never private setup."""
     checksum = hashlib.sha256(f"pidock-boot-marker-v1:{epoch}:{role}".encode())
-    for name in ("init", "bin/pidock-boot-status", "etc/root.env", "etc/build-epoch", "bin/pidock-boot-services", "etc/pidock-boot-diagnostics.service"):
+    for name in ("init", "bin/pidock-boot-status", "etc/root.env", "etc/build-epoch", "bin/pidock-boot-services", "etc/pidock-boot-diagnostics.service", "etc/pidock-boot-time.service"):
         path = root / name
         if path.is_file():
             checksum.update(name.encode() + b"\0" + path.read_bytes())
@@ -168,7 +168,8 @@ def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode
         (root / "init").chmod(0o755)
         shutil.copy2(init.parent / "boot-services", root / "bin/pidock-boot-services")
         (root / "bin/pidock-boot-services").chmod(0o755)
-        shutil.copy2(init.parent.parent / "rootfs-overlay/usr/lib/systemd/system/pidock-first-boot-diagnostics.service", root / "etc/pidock-boot-diagnostics.service")
+        shutil.copy2(init.parent.parent / "rootfs-overlay/usr/lib/systemd/system/pidock-first-boot-diagnostics.service", root / "etc/pidock-boot-diagnostics.service", "etc/pidock-boot-time.service")
+        shutil.copy2(init.parent.parent / "rootfs-overlay/usr/lib/systemd/system/pidock-time.service", root / "etc/pidock-boot-time.service")
         (root / "etc/root.env").write_text(f"ROOT_PARTUUID={DISK_SIGNATURE}-{partition:02d}\nROOT_HASH={root_hash}\nHASH_OFFSET={hash_offset}\nBOOT_MODE={mode}\n")
         (root / "etc/build-epoch").write_text(str(epoch)+"\n")
         write_boot_marker(root, epoch, f"{mode}-{partition}")
