@@ -19,6 +19,8 @@ if [ "$2" = normal ]; then
     chroot "$root" /bin/pidock-boot-services
     grep -q '^Before=pidock-updater.service$' "$root/run/systemd/system/pidock-first-boot-diagnostics.service"
     ! grep '^Before=' "$root/run/systemd/system/pidock-first-boot-diagnostics.service" | grep -q 'pidock-appliance.service'
+    grep -q '^RuntimeWatchdogSec=10s$' "$root/run/systemd/system.conf.d/zz-pidock-watchdog.conf"
+    grep -q '^RebootWatchdogSec=10s$' "$root/run/systemd/system.conf.d/zz-pidock-watchdog.conf"
     grep -q '^SyncIntervalSec=1s$' "$root/run/systemd/journald.conf.d/90-pidock-startup.conf"
     chroot "$root" /bin/veritysetup --version
     # Exercise the exact shipped open command, not just the executable's version.

@@ -15,6 +15,17 @@ import image_components as image
 import sign_boot
 
 class ImageToolsTests(unittest.TestCase):
+    def test_pi_watchdog_timeouts_fit_the_shipped_hardware_register(self):
+        config = (TOOLS.parent / "buildroot/board/pidock/rootfs-overlay/etc/systemd/system.conf.d/pidock.conf").read_text()
+        import re
+        for setting in ("RuntimeWatchdogSec", "RebootWatchdogSec"):
+            seconds = int(re.search(rf"^{setting}=(\d+)s$", config, re.MULTILINE).group(1))
+            self.assertGreater(seconds, 0)
+            self.assertLessEqual(seconds, 0x000fffff >> 16)
+            self.assertEqual(seconds, ((seconds << 16) & 0x000fffff) >> 16)
+        # Reproduce the old request's rollover from the pinned bcm2835 driver.
+        self.assertEqual(4, ((20 << 16) & 0x000fffff) >> 16)
+
     def test_boot_marker_binds_signed_startup_inputs_and_slot(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
