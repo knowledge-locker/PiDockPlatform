@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+import gzip
 
 TOOLS=Path(__file__).resolve().parents[1]/"tools"
 sys.path.insert(0,str(TOOLS))
@@ -15,6 +17,24 @@ import image_components as image
 import sign_boot
 
 class ImageToolsTests(unittest.TestCase):
+    def test_normal_ramdisk_packages_both_staged_service_units(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "target"
+            (target / "bin").mkdir(parents=True)
+            for name in ("veritysetup", "blkid"):
+                (target / "bin" / name).touch()
+            archive = Path(temporary) / "initramfs.gz"
+            def copy_fixture_binary(target, root, name):
+                destination = root / name.lstrip("/")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(b"fixture")
+            init = TOOLS.parent / "buildroot/board/pidock/initramfs/init"
+            with patch.object(image, "copy_binary", side_effect=copy_fixture_binary), patch.object(image, "copy_loader_layout"):
+                image.make_initramfs(target, init, archive, "a" * 64, 4096, 5, "normal", 1234)
+            contents = gzip.decompress(archive.read_bytes())
+            for name in ("pidock-boot-diagnostics.service", "pidock-boot-time.service"):
+                self.assertIn(("etc/" + name).encode() + b"\0", contents)
+
     def test_time_guard_has_narrow_client_socket_write_access_without_clock_privilege(self):
         unit = (TOOLS.parent / "buildroot/board/pidock/rootfs-overlay/usr/lib/systemd/system/pidock-time.service").read_text()
         self.assertIn("ReadWritePaths=/run/pidock-time /run/chrony\n", unit)

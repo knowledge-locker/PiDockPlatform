@@ -168,7 +168,7 @@ def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode
         (root / "init").chmod(0o755)
         shutil.copy2(init.parent / "boot-services", root / "bin/pidock-boot-services")
         (root / "bin/pidock-boot-services").chmod(0o755)
-        shutil.copy2(init.parent.parent / "rootfs-overlay/usr/lib/systemd/system/pidock-first-boot-diagnostics.service", root / "etc/pidock-boot-diagnostics.service", "etc/pidock-boot-time.service")
+        shutil.copy2(init.parent.parent / "rootfs-overlay/usr/lib/systemd/system/pidock-first-boot-diagnostics.service", root / "etc/pidock-boot-diagnostics.service")
         shutil.copy2(init.parent.parent / "rootfs-overlay/usr/lib/systemd/system/pidock-time.service", root / "etc/pidock-boot-time.service")
         (root / "etc/root.env").write_text(f"ROOT_PARTUUID={DISK_SIGNATURE}-{partition:02d}\nROOT_HASH={root_hash}\nHASH_OFFSET={hash_offset}\nBOOT_MODE={mode}\n")
         (root / "etc/build-epoch").write_text(str(epoch)+"\n")
