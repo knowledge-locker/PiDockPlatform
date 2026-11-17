@@ -55,7 +55,7 @@ else
         var generation = frameKey;
         try
         {
-            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "/api/platform/v1/ui/bridge/1.0/host.js");
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "/api/platform/v1/ui/bridge/1.0/host.js?v=" + ApplicationUiBridgeAssets.Discovery().Assets.Single(a => a.Name == "host.js").Sha256);
             if (disposed) { await module.DisposeAsync(); return; }
             if (generation != frameKey) return;
             reference ??= DotNetObjectReference.Create(this);
