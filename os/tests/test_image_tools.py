@@ -15,8 +15,32 @@ TOOLS=Path(__file__).resolve().parents[1]/"tools"
 sys.path.insert(0,str(TOOLS))
 import image_components as image
 import sign_boot
+import verify_target
 
 class ImageToolsTests(unittest.TestCase):
+    def test_image_rejects_disconnected_or_inaccessible_updater(self):
+        source = TOOLS.parent / 'buildroot/board/pidock/rootfs-overlay/usr/lib/systemd/system'
+        with tempfile.TemporaryDirectory() as temporary:
+            units = Path(temporary)
+            for name in ('pidock-appliance.service', 'pidock-updater.service'):
+                shutil.copy2(source / name, units / name)
+            verify_target.verify_updater_connection(units)
+            appliance = units / 'pidock-appliance.service'
+            original = appliance.read_text()
+            appliance.write_text(original.replace('Environment=Updates__SocketPath=/run/pidock-updater/update.sock\n', ''))
+            with self.assertRaisesRegex(ValueError, 'private OS updater socket'):
+                verify_target.verify_updater_connection(units)
+            appliance.write_text(original)
+            updater = units / 'pidock-updater.service'
+            updater.write_text(updater.read_text().replace('RuntimeDirectoryMode=0750\n', 'RuntimeDirectoryMode=0700\n'))
+            with self.assertRaisesRegex(ValueError, 'appliance group'):
+                verify_target.verify_updater_connection(units)
+
+    def test_signed_startup_repairs_the_updater_connection_for_existing_roots(self):
+        script = TOOLS.parent / 'buildroot/board/pidock/initramfs/boot-services'
+        self.assertIn('Environment=Updates__SocketPath=/run/pidock-updater/update.sock', script.read_text())
+        self.assertIn('/run/systemd/system/pidock-appliance.service.d/90-pidock-updater.conf', script.read_text())
+
     def test_normal_ramdisk_packages_both_staged_service_units(self):
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "target"

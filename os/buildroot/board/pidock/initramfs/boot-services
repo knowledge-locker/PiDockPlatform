@@ -3,6 +3,10 @@
 set -eu
 export PATH=/bin:/sbin
 mkdir -p /run/systemd/system /run/systemd/journald.conf.d /run/systemd/system.conf.d
+# Keep the private updater connection available when this signed startup image
+# repairs an older immutable root. The factory unit carries the same setting.
+mkdir -p /run/systemd/system/pidock-appliance.service.d
+printf '[Service]\nEnvironment=Updates__SocketPath=/run/pidock-updater/update.sock\n' >/run/systemd/system/pidock-appliance.service.d/90-pidock-updater.conf
 # The diagnostic observer must not delay the appliance UI. Retain ordering before
 # the updater so diagnostics cannot remount its boot partition during a trial.
 cat /etc/pidock-boot-diagnostics.service >/run/systemd/system/pidock-first-boot-diagnostics.service

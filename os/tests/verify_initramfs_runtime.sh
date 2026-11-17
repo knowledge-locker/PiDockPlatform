@@ -17,6 +17,7 @@ chroot "$root" /bin/boot-clock 946684800
 chroot "$root" /bin/blkid --version
 if [ "$2" = normal ]; then
     chroot "$root" /bin/pidock-boot-services
+    grep -q '^Environment=Updates__SocketPath=/run/pidock-updater/update.sock$' "$root/run/systemd/system/pidock-appliance.service.d/90-pidock-updater.conf"
     grep -q '^Before=pidock-updater.service$' "$root/run/systemd/system/pidock-first-boot-diagnostics.service"
     ! grep '^Before=' "$root/run/systemd/system/pidock-first-boot-diagnostics.service" | grep -q 'pidock-appliance.service'
     grep -q '^RuntimeWatchdogSec=10s$' "$root/run/systemd/system.conf.d/zz-pidock-watchdog.conf"

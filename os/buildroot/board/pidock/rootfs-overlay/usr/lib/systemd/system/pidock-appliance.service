@@ -15,6 +15,7 @@ Environment=PiDock__StateDirectory=/var/lib/pidock/appliance
 Environment=PiDock__RequireTrustedClock=true
 Environment="AllowedHosts=localhost;127.0.0.1;[::1];pidock;pidock.local"
 Environment=Broker__SocketPath=/run/pidock/broker.sock
+Environment=Updates__SocketPath=/run/pidock-updater/update.sock
 Environment=Kestrel__Endpoints__Local__Url=https://127.0.0.1:7241
 Environment=Kestrel__Endpoints__Lan__Url=https://0.0.0.0:443
 Environment=Kestrel__Certificates__Default__Path=/var/lib/pidock/identity/server/appliance.pfx

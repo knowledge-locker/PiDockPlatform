@@ -4,8 +4,17 @@ import argparse,json,os,shlex,stat
 from pathlib import Path
 from image_components import resolve_target
 
+def verify_updater_connection(units):
+    appliance=(units/'pidock-appliance.service').read_text()
+    if 'Environment=Updates__SocketPath=/run/pidock-updater/update.sock\n' not in appliance:
+        raise ValueError('Appliance must connect to the private OS updater socket')
+    updater=(units/'pidock-updater.service').read_text()
+    if 'Group=pidock\n' not in updater or 'RuntimeDirectory=pidock-updater pidock-image\n' not in updater or 'RuntimeDirectoryMode=0750\n' not in updater or 'UMask=0007\n' not in updater:
+        raise ValueError('Updater socket must be accessible to the appliance group only')
+
 def verify(target):
     units=target/'usr/lib/systemd/system'
+    verify_updater_connection(units)
     checked=[]
     for unit in sorted(units.glob('pidock-*.service')):
         for line in unit.read_text().splitlines():
