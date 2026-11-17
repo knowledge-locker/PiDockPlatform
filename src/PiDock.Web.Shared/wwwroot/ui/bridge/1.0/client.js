@@ -27,6 +27,11 @@
         capabilities = data.capabilities;
         while (readyWaiters.length) readyWaiters.shift().resolve(capabilities);
         if (subscription) connectStream();
+      } else if (data.type === 'authorizing') {
+        const item = pending.get(data.id); if (!item || item.authorizing) return;
+        item.authorizing = true; clearTimeout(item.timeout);
+        // The trusted host bounds its credential prompt to five minutes, then sends or denies once.
+        item.timeout = setTimeout(()=>{pending.delete(data.id);item.reject(new Error('outcome_unknown'));},315000);
       } else if (data.type === 'result') {
         const item = pending.get(data.id); if (!item) return;
         pending.delete(data.id); clearTimeout(item.timeout);
@@ -60,7 +65,7 @@
         if(message.type==='event')try{send({type:'ack',id:data.id,deliveryId:data.deliveryId});}catch{}
       } else if (data.type === 'closed') { stopped = true; close(data.reason || 'closed'); }
     };
-    port.start(); port.postMessage({type:'ready',nonce:data.nonce,version:'1.0'});
+    port.start(); port.postMessage({type:'ready',nonce:data.nonce,version:'1.0',authorizationWait:true});
   });
   const ready = () => capabilities ? Promise.resolve(capabilities) : new Promise((resolve,reject) => {
     const waiter = {resolve(value){clearTimeout(timer);resolve(value);},reject};

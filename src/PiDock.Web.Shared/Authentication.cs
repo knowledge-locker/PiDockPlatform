@@ -82,7 +82,7 @@ public static class Authentication
                 <body><main class="login"><div class="brand">◈ {appName} <span>PiDockPlatform</span></div><h1>Sign in to {appName}</h1><p>{message}</p>{error}<form method="post" action="/auth/login">
                 <input type="hidden" name="{tokens.FormFieldName}" value="{token}"><input type="hidden" name="invite" value="{invite}"><label>Username<input name="username" autocomplete="username" required maxlength="64"></label>
                 <label>Password<input type="password" name="password" autocomplete="current-password" required maxlength="256"></label><label>Authenticator code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]+" minlength="6" maxlength="6" required></label>
-                <label class="live-switch"><input type="checkbox" name="remember" value="true" checked> Keep me signed in on this browser for 7 days</label><p><small>Uncheck on a shared browser. Protected actions still require your password and a fresh authenticator code.</small></p>
+                <label class="live-switch"><input type="checkbox" name="remember" value="true" checked> Keep me signed in on this browser for 7 days</label><p><small>Uncheck on a shared browser. Protected actions require your password and a fresh authenticator code when your last authorization was five or more minutes ago.</small></p>
                 <button type="submit">Sign in securely →</button></form>{signup}<small>External authenticator required · No network account reset</small></main></body></html>
                 """, "text/html");
         }).AllowAnonymous();

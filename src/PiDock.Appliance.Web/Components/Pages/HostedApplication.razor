@@ -23,9 +23,13 @@ else
         src="@ApplicationUiRules.ContentPath(registration.Contribution)" sandbox="allow-scripts" referrerpolicy="no-referrer" @onload="Loaded"></iframe>
     <p><a href="/applications">Close interface and return to applications</a></p>
 }
+<ReauthenticationDialog @ref="confirmation" />
 @code {
     [Parameter] public string AppId { get; set; } = "";
     [Parameter] public string ContributionId { get; set; } = "";
+    private ReauthenticationDialog confirmation = default!;
+    private CancellationTokenSource workspaceLifetime = new();
+    private bool authorizingCommand;
     private ApplicationUiRegistration? registration;
     private int frameKey, attachedKey = -1;
     private bool loaded, disposed;
@@ -38,6 +42,7 @@ else
     protected override async Task OnParametersSetAsync() => await ResetFrame();
     private async Task ResetFrame()
     {
+        workspaceLifetime.Cancel(); workspaceLifetime.Dispose(); workspaceLifetime = new();
         await StopStream();
         if (module is not null && attachedKey >= 0)
             try { await module.InvokeVoidAsync("dispose", frame); } catch (Exception ex) when (ex is JSException or JSDisconnectedException) { }
@@ -62,9 +67,31 @@ else
     private Task Reload() => ResetFrame();
     [JSInvokable] public async Task<ApplicationUiBridgeCapabilities> GetCapabilities() =>
         Bridge.Capabilities((await Authentication.GetAuthenticationStateAsync()).User, AppId, ContributionId);
+    // Older SDKs cannot wait for a credential prompt. Their commands may only use existing authorization.
     [JSInvokable] public async Task<ApplicationUiCommandResult> ExecuteCommand(ApplicationUiCommand command) =>
         disposed ? new(1, command.CommandId, false, null, "not_authorized") :
-        await Bridge.Command((await Authentication.GetAuthenticationStateAsync()).User, AppId, ContributionId, command, CancellationToken.None);
+        await Bridge.Command((await Authentication.GetAuthenticationStateAsync()).User, AppId, ContributionId, command, workspaceLifetime.Token);
+    [JSInvokable] public async Task<ApplicationUiCommandResult> ExecuteAuthorizedCommand(ApplicationUiCommand command)
+    {
+        if (disposed) return new(1, command.CommandId, false, null, "not_authorized");
+        if (authorizingCommand) return new(1, command.CommandId, false, null, "busy");
+        var app = AppId; var contribution = ContributionId;
+        using var approval = CancellationTokenSource.CreateLinkedTokenSource(workspaceLifetime.Token);
+        approval.CancelAfter(TimeSpan.FromMinutes(5));
+        authorizingCommand = true;
+        try
+        {
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            if (!Bridge.Capabilities(user, app, contribution).Commands.Contains(command.Name))
+                return new(1, command.CommandId, false, null, "command_denied");
+            if (!await confirmation.Request("Authorize app changes", $"Allow {registration?.Contribution.Title} to perform the requested {command.Name} operation using its configured permissions.", cancellationToken: approval.Token)
+                || disposed || approval.IsCancellationRequested)
+                return new(1, command.CommandId, false, null, "not_authorized");
+            user = (await Authentication.GetAuthenticationStateAsync()).User;
+            return await Bridge.Command(user, app, contribution, command, approval.Token);
+        }
+        finally { authorizingCommand = false; }
+    }
     [JSInvokable] public async Task StartStream(string id, ApplicationUiCursor? cursor)
     {
         if (!Guid.TryParse(id, out _) || disposed) return;
@@ -101,7 +128,7 @@ else
     }
     public async ValueTask DisposeAsync()
     {
-        disposed = true; await StopStream();
+        disposed = true; workspaceLifetime.Cancel(); workspaceLifetime.Dispose(); await StopStream();
         if (module is not null)
         {
             try { await module.InvokeVoidAsync("dispose", frame); await module.DisposeAsync(); }

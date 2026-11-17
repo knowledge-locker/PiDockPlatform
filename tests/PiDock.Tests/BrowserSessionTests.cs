@@ -51,6 +51,39 @@ public sealed class BrowserSessionTests : IDisposable
         for (int i = 0; i < 20; i++) store.CreateSession(user, true, now.AddSeconds(i + 1));
         Assert.False(store.IsCurrent(Principal(user, session))); // Bound retained browser sessions per account.
     }
+    [Fact]
+    public void LoginAuthorizationExpiresAtFiveMinutesAndActionsDoNotExtendIt()
+    {
+        var provider = DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(root, "keys")));
+        var store = new UserStore(provider, root); var now = DateTimeOffset.UtcNow; var user = Account(store, now);
+        var principal = Principal(user, store.CreateSession(user, true, now));
+        Assert.True(store.HasRecentAuthorization(principal, now));
+        Assert.True(store.Authorize(principal, "", "", now.AddMinutes(4)));
+        Assert.True(store.HasRecentAuthorization(principal, now.AddMinutes(5).AddTicks(-1)));
+        Assert.False(store.HasRecentAuthorization(principal, now.AddMinutes(5)));
+        Assert.False(store.Authorize(principal, "", "", now.AddMinutes(5)));
+        Assert.False(store.HasRecentAuthorization(principal, now.AddTicks(-1)));
+        var reloaded = new UserStore(provider, root);
+        Assert.True(reloaded.HasRecentAuthorization(principal, now.AddMinutes(4)));
+        Assert.False(reloaded.HasRecentAuthorization(principal, now.AddMinutes(5)));
+    }
+    [Fact]
+    public void SuccessfulReauthorizationRenewsOnlyThatBrowserAndRevocationStillApplies()
+    {
+        var store = new UserStore(new EphemeralDataProtectionProvider(), root); var now = DateTimeOffset.UtcNow; var user = Account(store, now);
+        var first = Principal(user, store.CreateSession(user, true, now));
+        var second = Principal(user, store.CreateSession(user, true, now));
+        var later = now.AddMinutes(6);
+        Assert.False(store.Authorize(first, "wrong", "000000", later));
+        Assert.False(store.HasRecentAuthorization(first, later));
+        Assert.True(store.Authorize(first, Password, Totp.Code(user.Secret, later.ToUnixTimeSeconds() / 30), later));
+        Assert.True(store.Authorize(first, "", "", later.AddMinutes(4)));
+        Assert.False(store.HasRecentAuthorization(second, later));
+        Assert.False(store.HasRecentAuthorization(first, later.AddMinutes(5)));
+        store.RevokeSession(first);
+        Assert.False(store.HasRecentAuthorization(first, later));
+        Assert.False(store.Authorize(first, "", "", later));
+    }
     private static LoginUser Account(UserStore store, DateTimeOffset now)
     {
         var secret = Totp.NewSecret(); store.Add("session-owner", Password, secret, "local", "Owner", true, -1);

@@ -4,6 +4,12 @@ For target acceptance, use the [scoped development gate record](Application-Deve
 
 Agreed platform requirement, November 13, 2026. Every hosted application with a user interface must fit into PiDockOS as a host-openable interface component and reuse its visual language. This contract belongs to PiDockOS and applies to all applications, regardless of implementation language. A Docker deployment boundary does not create a separate product shell.
 
+## Browser authorization window
+
+PiDockOS, PiDockCloud and hosted PiDock apps use a five-minute browser-session authorization window. Successful login or password/authenticator confirmation starts the window; commands do not extend it. Hosted app commands, including Logic Engine edits, activation and engineering controls, use the host’s shared confirmation dialog after the window expires. Apps never collect owner credentials or receive authorization timestamps or reusable owner tokens. Existing per-app grants, command names, session validity and service-credential checks still apply on every command.
+
+Live reading and subscriptions retain their existing session checks without prompting. The host bounds an authorization prompt to five minutes and cancels it when the workspace is reloaded, changed or closed. Cancellation sends no command. The SDK negotiates support for waiting for host authorization. Older SDKs may use existing authorization but receive `authorization_required` after expiry, without queuing a prompt or late command. The current SDK allows time for the host prompt before waiting for the result; unknown outcomes are never automatically retried. App-specific consequence reviews, such as Logic Engine’s activation/reset review, remain separate from credential authorization.
+
 ## Current implementation and required work
 
 The first reusable preview is implemented. The appliance shell remains `src/PiDock.Appliance.Web/Components/Layout/MainLayout.razor`. Its legacy styles now import shared color/font tokens from `src/PiDock.Web.Shared/wwwroot/ui/1.0/tokens.css`. The versioned companion `components.css` provides opt-in `.pidock-app` / `pd-*` primitives for panels, layouts, buttons, fields, status badges, tables and accessible focus treatment. Other frontend languages can use the same CSS without a .NET dependency.

@@ -201,6 +201,25 @@ public sealed class ApplicationUiBridgeTests
         Assert.Equal("not_authorized",(await f.Service.Command(f.User,"sample","main",command with { CommandId = Guid.NewGuid() },default)).ErrorCode);
         Assert.Single(f.Backend.Calls);
     }
+    [Fact]
+    public async Task ExpiredAppAuthorizationDeniesCommandsWhileKeepingLiveReadAccess()
+    {
+        using var f = new Fixture(expiredAuthorization: true);
+        Assert.Contains("counter.increment", f.Service.Capabilities(f.User, "sample", "main").Commands);
+        Assert.Equal("authorization_required", (await f.Service.Command(f.User, "sample", "main", Command(), default)).ErrorCode);
+        Assert.Empty(f.Backend.Calls);
+        f.Users.RevokeSession(f.User);
+        Assert.Equal("not_authorized", (await f.Service.Command(f.User, "sample", "main", Command(), default)).ErrorCode);
+    }
+    [Fact]
+    public async Task ActiveAppCommandsReuseBrowserAuthorizationWithoutExtendingIt()
+    {
+        using var f = new Fixture();
+        Assert.True((await f.Service.Command(f.User, "sample", "main", Command(), default)).Succeeded);
+        Assert.True((await f.Service.Command(f.User, "sample", "main", Command(), default)).Succeeded);
+        Assert.Equal(2, f.Backend.Calls.Count);
+        Assert.False(f.Users.HasRecentAuthorization(f.User, DateTimeOffset.UtcNow.AddMinutes(5)));
+    }
     private sealed class ManagedSource : IApplicationCredentialSource
     {
         public ApplicationCredentialFile? Value;
@@ -230,13 +249,13 @@ public sealed class ApplicationUiBridgeTests
     {
         private readonly string root=Path.Combine(OperatingSystem.IsMacOS()?"/private/tmp":Path.GetTempPath(),"pidock-bridge-test-"+Guid.NewGuid());
         public readonly string Token=new('a',64); public readonly Backend Backend=new(); public readonly IConfigurationRoot Configuration;
-        public readonly ClaimsPrincipal User; public readonly ApplicationUiBridgeService Service; private readonly HttpClient client;
-        public Fixture(string role="Owner", IApplicationCredentialSource? credentials = null)
+        public readonly ClaimsPrincipal User; public readonly UserStore Users; public readonly ApplicationUiBridgeService Service; private readonly HttpClient client;
+        public Fixture(string role="Owner", IApplicationCredentialSource? credentials = null, bool expiredAuthorization = false)
         {
-            var users=new UserStore(new EphemeralDataProtectionProvider(),root);
+            var users=Users=new UserStore(new EphemeralDataProtectionProvider(),root);
             var secret=Totp.NewSecret(); users.Add("bridge-user","integration-test-password",secret,"local",role,role=="Owner",-1);
             var login=users.Authenticate("bridge-user","integration-test-password",Totp.Code(secret,DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30),DateTimeOffset.UtcNow)!;
-            User=users.Principal(login);
+            User=users.Principal(login, session: users.CreateSession(login, true, DateTimeOffset.UtcNow.AddMinutes(expiredAuthorization ? -6 : 0)));
             Configuration=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> {
                 ["PiDock:ApplicationUi:Registrations:0:Contribution:SchemaVersion"]="1",
                 ["PiDock:ApplicationUi:Registrations:0:Contribution:AppId"]="sample",

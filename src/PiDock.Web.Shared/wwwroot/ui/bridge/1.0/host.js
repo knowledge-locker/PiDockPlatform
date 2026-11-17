@@ -4,7 +4,7 @@ const maxBytes = 12288;
 const guid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 export function attach(frame, dotnet) {
   dispose(frame);
-  const binding = { port: null, ready: false, closed: false, nonce: '', subscription: null, established: false, delivery: null, pending: new Set(), last: [] };
+  const binding = { port: null, ready: false, closed: false, nonce: '', subscription: null, established: false, authorizationWait: false, delivery: null, pending: new Set(), last: [] };
   bindings.set(frame, binding);
   const reply = (port, data) => { if (!binding.closed && binding.port === port) port.postMessage(data); };
   async function connect() {
@@ -23,6 +23,7 @@ export function attach(frame, dotnet) {
         try {
           const capabilities = await dotnet.invokeMethodAsync('GetCapabilities');
           if (binding.port !== port) return;
+          binding.authorizationWait = data.authorizationWait === true;
           binding.ready = true; binding.established = true; reply(port, {type:'connected',version:'1.0',capabilities});
         } catch { reply(port, {type:'closed',reason:'not_authorized'}); }
         return;
@@ -36,8 +37,9 @@ export function attach(frame, dotnet) {
         if(binding.pending.has(data.id))return;
         if (binding.pending.size >= 4) { reply(port,{type:'result',id:data.id,ok:false,errorCode:'busy'}); return; }
         binding.pending.add(data.id);
+        if (binding.authorizationWait) reply(port,{type:'authorizing',id:data.id});
         try {
-          const result = await dotnet.invokeMethodAsync('ExecuteCommand', {schemaVersion:1,commandId:data.id,name:data.name,arguments:data.arguments});
+          const result = await dotnet.invokeMethodAsync(binding.authorizationWait ? 'ExecuteAuthorizedCommand' : 'ExecuteCommand', {schemaVersion:1,commandId:data.id,name:data.name,arguments:data.arguments});
           reply(port,{type:'result',id:data.id,ok:result.succeeded,data:result.data,errorCode:result.errorCode});
         } catch { reply(port,{type:'result',id:data.id,ok:false,errorCode:'outcome_unknown'}); }
         finally { binding.pending.delete(data.id); }

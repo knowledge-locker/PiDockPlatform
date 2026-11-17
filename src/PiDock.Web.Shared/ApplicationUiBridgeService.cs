@@ -53,6 +53,8 @@ public sealed class ApplicationUiBridgeService(ApplicationUiRegistry registry, I
     {
         var lease = Authorize(user, app, id);
         if (lease is null) return Task.FromResult(Error(command.CommandId, "not_authorized"));
+        if (!users.HasRecentAuthorization(user, DateTimeOffset.UtcNow))
+            return Task.FromResult(Error(command.CommandId, "authorization_required"));
         if (command.SchemaVersion != 1 || command.CommandId == Guid.Empty || !lease.Registration.Bridge!.Commands.Contains(command.Name, StringComparer.Ordinal))
             return Task.FromResult(Error(command.CommandId, "command_denied"));
         if (command.Arguments.ValueKind != JsonValueKind.Object) return Task.FromResult(Error(command.CommandId, "invalid_arguments"));
@@ -82,6 +84,8 @@ public sealed class ApplicationUiBridgeService(ApplicationUiRegistry registry, I
         ApplicationUiCommandResult result;
         try
         {
+            if (ct.IsCancellationRequested || !Current(user, app, id, lease) || !users.HasRecentAuthorization(user, DateTimeOffset.UtcNow))
+                return Error(commandId, "authorization_required");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct); timeout.CancelAfter(TimeSpan.FromSeconds(10));
             using var request = Request(lease, HttpMethod.Post, lease.Registration.Bridge!.CommandsPath!);
             request.Content = new ByteArrayContent(body); request.Content.Headers.ContentType = new("application/json");

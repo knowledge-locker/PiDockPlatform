@@ -30,7 +30,7 @@ public sealed class ReauthenticationDialogTests
     }
 
     [Fact]
-    public async Task ApprovalRequiresFreshCodeForEveryActionAndRejectsExpiredSessions()
+    public async Task SessionsWithoutBrowserAuthorizationRequireFreshCodesAndRejectExpiredSessions()
     {
         await using var fixture = new Fixture();
         await fixture.Mount();
@@ -88,6 +88,49 @@ public sealed class ReauthenticationDialogTests
         var normal=await fixture.Request();await fixture.Credentials(Totp.Code(fixture.Secret,DateTimeOffset.UtcNow.ToUnixTimeSeconds()/30+1));
         await fixture.Event("onsubmit");Assert.True(await normal);Assert.Equal(1,actions);
     }
+    [Fact]
+    public async Task RecentlyAuthorizedBrowserSkipsPromptAndRunsCredentialActionsOnce()
+    {
+        await using var fixture = new Fixture(recentBrowser: true);
+        await fixture.Mount();
+        Assert.True(await (await fixture.Request()));
+        int actions = 0;
+        Assert.True(await (await fixture.Request((user, password, code) => {
+            Assert.Empty(password); Assert.Empty(code);
+            Assert.True(fixture.Users.Authorize(user, password, code, DateTimeOffset.UtcNow));
+            actions++; return true;
+        })));
+        Assert.Equal(1, actions);
+        Assert.DoesNotContain(fixture.Frames(), f => f.AttributeName == "onsubmit");
+        fixture.Users.RevokeSession(fixture.Identity.User);
+        var revoked = await fixture.Request();
+        Assert.False(revoked.IsCompleted);
+        await fixture.Event("oncancel");
+        Assert.False(await revoked);
+    }
+    [Fact]
+    public async Task ExpiredAuthorizationPromptsOnceThenReusesSuccessfulConfirmation()
+    {
+        await using var fixture = new Fixture(expiredAuthorization: true);
+        await fixture.Mount();
+        var first = await fixture.Request();
+        Assert.False(first.IsCompleted);
+        await fixture.Credentials(Totp.Code(fixture.Secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30));
+        await fixture.Event("onsubmit");
+        Assert.True(await first);
+        Assert.True(await (await fixture.Request()));
+        Assert.DoesNotContain(fixture.Frames(), f => f.AttributeName == "onsubmit");
+    }
+    [Fact]
+    public async Task CancelledHostRequestCannotApproveAnAppCommand()
+    {
+        await using var fixture = new Fixture(); await fixture.Mount();
+        using var stop = new CancellationTokenSource();
+        var request = await fixture.Request(cancellationToken: stop.Token);
+        stop.Cancel();
+        Assert.False(await request.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.DoesNotContain(fixture.Frames(), f => f.AttributeName == "onsubmit");
+    }
     private sealed class Identity : AuthenticationStateProvider
     {
         public ClaimsPrincipal User { get; set; } = new();
@@ -123,7 +166,7 @@ public sealed class ReauthenticationDialogTests
         public UserStore Users {get;}
         public string Secret { get; } = Totp.NewSecret();
         public Identity Identity { get; } = new();
-        public Fixture(string role = "Owner")
+        public Fixture(string role = "Owner", bool recentBrowser = false, bool expiredAuthorization = false)
         {
             var users = Users = new UserStore(new EphemeralDataProtectionProvider(), directory);
             users.Add("test-owner", Password, Secret, "local", role, false, -1);
@@ -131,11 +174,12 @@ public sealed class ReauthenticationDialogTests
             Identity.User = new ClaimsPrincipal(new ClaimsIdentity([
                 new Claim(ClaimTypes.Name,user.Username), new Claim(ClaimTypes.Role,user.Role), new Claim("tenant",user.TenantId), new Claim("stamp",user.Stamp),
                 new Claim("expires",DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds().ToString())], "test"));
+            if (recentBrowser || expiredAuthorization) Identity.User = users.Principal(user, session: users.CreateSession(user, true, DateTimeOffset.UtcNow.AddMinutes(expiredAuthorization ? -6 : 0)));
             services = new ServiceCollection().AddLogging().AddSingleton(users).AddSingleton<AuthenticationStateProvider>(Identity).AddSingleton<IJSRuntime>(new JavaScript()).BuildServiceProvider();
             renderer = new(services, services.GetRequiredService<ILoggerFactory>());
         }
         public Task Mount(bool cloud = false) => renderer.Mount(cloud);
-        public async Task<Task<bool>> Request(Func<ClaimsPrincipal,string,string,bool>? action=null) { Task<bool>? result = null; await renderer.Dispatcher.InvokeAsync(() => { result = renderer.Component.Request("Test action", "Only this action is approved.",action); }); return result!; }
+        public async Task<Task<bool>> Request(Func<ClaimsPrincipal,string,string,bool>? action=null, CancellationToken cancellationToken = default) { Task<bool>? result = null; await renderer.Dispatcher.InvokeAsync(() => { result = renderer.Component.Request("Test action", "Only this action is approved.",action,cancellationToken); }); return result!; }
         public RenderTreeFrame[] Frames() => renderer.Frames();
         public Task Event(string name) => renderer.Event(name, EventArgs.Empty);
         public Task Input(string name, int index, string value) => renderer.Event(name, new ChangeEventArgs { Value = value }, index);

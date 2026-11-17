@@ -37,7 +37,7 @@ public sealed class RegisteredAgentStore
     private void Confirm(ClaimsPrincipal user, string password, string code)
     {
         RequireOwner(user);
-        if (!Enabled || users.Authenticate(user.Identity!.Name!, password, code, clock.GetUtcNow()) is null)
+        if (!Enabled || !users.Authorize(user, password, code, clock.GetUtcNow()))
             throw new UnauthorizedAccessException("Confirm with the owner password and a fresh authenticator code.");
     }
     public RegisteredAgentSummary[] List(ClaimsPrincipal user)

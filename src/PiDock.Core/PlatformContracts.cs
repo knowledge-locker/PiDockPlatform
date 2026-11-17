@@ -397,6 +397,10 @@ public static class PlatformContracts
         App frames use PiDockUi.command(name, arguments) and PiDockUi.subscribe(onEvent, onStatus).
         An exact iframe/MessageChannel binding carries requests over the authenticated host Blazor
         circuit. The server rechecks the current Owner session, contribution and explicit named grants.
+        Commands share the browser's five-minute authorization window with PiDockOS protected actions.
+        The host prompts for credentials after expiry; apps must use the shared SDK and never collect
+        Owner credentials. Commands do not extend authorization. Live subscriptions retain session checks.
+        App-specific consequence reviews remain separate from credential authorization.
         Host configuration supplies Bridge.CredentialId, CommandsPath, Commands and StreamPath;
         the private Credentials:{id}:Token and ExpiresAt stay server-side. Only this app's literal
         configured loopback service receives its separate Bearer credential. No browser app token exists.

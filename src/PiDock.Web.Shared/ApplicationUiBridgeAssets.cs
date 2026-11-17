@@ -17,6 +17,6 @@ public static class ApplicationUiBridgeAssets
         ApplicationUiBridgeRules.MaximumCommandBytes, ApplicationUiBridgeRules.MaximumEventBytes,
         Names.Select(name => new ApplicationUiBridgeAsset(name, $"{PlatformContracts.ApiRoot}/ui/bridge/1.0/{name}",
             Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Read(name)!))), "text/javascript")).ToArray(),
-        ["Owner sessions only", "Explicit per-contribution commands and stream grant", "Server-side expiring app credential",
+        ["Owner sessions only", "Commands require browser authorization within five minutes; host prompts after expiry", "Explicit per-contribution commands and stream grant", "Server-side expiring app credential",
          "No automatic command retry; uncertain outcomes must be reconciled", "No package-driven registration or physical I/O grant"]);
 }

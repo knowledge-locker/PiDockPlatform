@@ -9,7 +9,7 @@ namespace PiDock.Web.Shared;
 
 public sealed record LoginUser(string Username, string PasswordHash, string Secret, string TenantId, string Role,
     string Stamp, long LastStep = -1, int Failures = 0, DateTimeOffset? LockedUntil = null);
-public sealed record BrowserSession(string Id, string Username, string Stamp, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt);
+public sealed record BrowserSession(string Id, string Username, string Stamp, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, DateTimeOffset? AuthorizedAt = null);
 public sealed record Workspace(string Id, string Name);
 public sealed record WorkspaceMembership(string Username, string WorkspaceId, string Role);
 public sealed record WorkspaceAccess(string Id, string Name, string Role);
@@ -195,12 +195,43 @@ public sealed class UserStore
         {
             if (!state.Users.Any(u => u.Username == user.Username && u.Stamp == user.Stamp)) throw new InvalidOperationException("Account is no longer current.");
             var session = new BrowserSession(Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), user.Username, user.Stamp, now,
-                now.Add(remember ? TimeSpan.FromDays(7) : TimeSpan.FromHours(12)));
+                now.Add(remember ? TimeSpan.FromDays(7) : TimeSpan.FromHours(12)), now);
             var active = sessions.Where(s => s.ExpiresAt > now).ToArray();
             var keep = active.Where(s => s.Username != user.Username)
                 .Concat(active.Where(s => s.Username == user.Username).OrderByDescending(s => s.CreatedAt).Take(19));
             SaveSessions(keep.Append(session).ToArray());
             return session;
+        }
+    }
+    // Authorization belongs to a browser session, never to the account or supplied credentials.
+    // Actions within the window do not extend it.
+    public bool HasRecentAuthorization(ClaimsPrincipal principal, DateTimeOffset now)
+    {
+        lock (gate)
+        {
+            if (!IsCurrent(principal, now)) return false;
+            var session = sessions.FirstOrDefault(s => s.Id == principal.FindFirstValue("session"));
+            return session?.AuthorizedAt is { } at && at <= now && now - at < TimeSpan.FromMinutes(5);
+        }
+    }
+    public bool Authorize(ClaimsPrincipal principal, string password, string code, DateTimeOffset now)
+    {
+        lock (gate)
+        {
+            if (!IsCurrent(principal, now)) return false;
+            if (password.Length == 0 && code.Length == 0) return HasRecentAuthorization(principal, now);
+            if (Authenticate(principal.Identity!.Name!, password, code, now) is null) return false;
+            RecordAuthorization(principal, now);
+            return true;
+        }
+    }
+    private void RecordAuthorization(ClaimsPrincipal principal, DateTimeOffset now)
+    {
+        lock (gate)
+        {
+            if (!IsCurrent(principal, now)) return;
+            var id = principal.FindFirstValue("session");
+            if (id is not null) SaveSessions(sessions.Select(s => s.Id == id ? s with { AuthorizedAt = now } : s).ToArray());
         }
     }
     private void SaveSessions(BrowserSession[] next)
