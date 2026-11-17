@@ -31,7 +31,7 @@ public sealed class ApplicationCredentialVault : IApplicationCredentialSource
     public ApplicationCredentialInfo[] Read() { lock (gate) return entries.Select(c => new ApplicationCredentialInfo(c.AppId,c.Id,c.Version,c.Purpose,c.ExpiresAt,c.Token.Length == 0,c.Scopes.ToArray())).ToArray(); }
     private void Confirm(ClaimsPrincipal owner, string password, string code)
     {
-        if (!users.IsCurrent(owner) || !owner.IsInRole("Owner") || users.Authenticate(owner.Identity!.Name!, password, code, clock.GetUtcNow()) is not { Role: "Owner" })
+        if (!users.IsCurrent(owner) || !owner.IsInRole("Owner") || !users.Authorize(owner, password, code, clock.GetUtcNow()))
             throw new UnauthorizedAccessException("Current owner credentials and a fresh authenticator code are required.");
     }
     public void Issue(ClaimsPrincipal owner, string password, string code, string app, string id, string purpose, DateTimeOffset expires, string[] scopes)
