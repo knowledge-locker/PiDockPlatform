@@ -34,12 +34,17 @@ public sealed class ApplicationCredentialVault : IApplicationCredentialSource
         if (!users.IsCurrent(owner) || !owner.IsInRole("Owner") || !users.Authorize(owner, password, code, clock.GetUtcNow()))
             throw new UnauthorizedAccessException("Current owner credentials and a fresh authenticator code are required.");
     }
-    public void Issue(ClaimsPrincipal owner, string password, string code, string app, string id, string purpose, DateTimeOffset expires, string[] scopes)
+    // Side-effect-free preflight for the same settings later authenticated by Issue.
+    public void ValidateIssue(string app, string id, string purpose, DateTimeOffset expires, string[] scopes)
     {
         if (!IdentityRules.IsId(app) || app == "pidockos" || app.Length > 40 || !ApplicationResourceRules.CredentialId(id) || purpose is not ("ui-bridge" or "platform") ||
             expires <= clock.GetUtcNow() || expires > clock.GetUtcNow().AddDays(90) || scopes is not { Length: <= 8 } || scopes.Distinct().Count() != scopes.Length ||
             scopes.Any(s => !AllowedScopes.Contains(s, StringComparer.Ordinal)) || (purpose == "ui-bridge" && scopes.Length != 0) || (purpose == "platform" && scopes.Length == 0))
             throw new ArgumentException("Use a named app credential, a supported purpose and scopes, and an expiry within 90 days.");
+    }
+    public void Issue(ClaimsPrincipal owner, string password, string code, string app, string id, string purpose, DateTimeOffset expires, string[] scopes)
+    {
+        ValidateIssue(app, id, purpose, expires, scopes);
         lock (gate)
         {
             Confirm(owner,password,code);
