@@ -128,6 +128,17 @@ def newc(root, epoch):
     entry("TRAILER!!!", 0, b"", 0)
     return output.getvalue()
 
+def write_boot_marker(root, epoch, role):
+    """Bind the diagnostic marker to signed startup inputs, never private setup."""
+    checksum = hashlib.sha256(f"pidock-boot-marker-v1:{epoch}:{role}".encode())
+    for name in ("init", "bin/pidock-boot-status", "etc/root.env", "etc/build-epoch"):
+        path = root / name
+        if path.is_file():
+            checksum.update(name.encode() + b"\0" + path.read_bytes())
+    marker = checksum.hexdigest()
+    (root / "etc/pidock-boot-marker").write_text(marker + "\n")
+    return marker
+
 def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode, epoch):
     if not re.fullmatch(r"[0-9a-f]{64}", root_hash) or partition not in (5, 6) or mode not in ("normal", "recovery"):
         raise ValueError("Invalid signed root descriptor")
@@ -157,6 +168,7 @@ def make_initramfs(target, init, output, root_hash, hash_offset, partition, mode
         (root / "init").chmod(0o755)
         (root / "etc/root.env").write_text(f"ROOT_PARTUUID={DISK_SIGNATURE}-{partition:02d}\nROOT_HASH={root_hash}\nHASH_OFFSET={hash_offset}\nBOOT_MODE={mode}\n")
         (root / "etc/build-epoch").write_text(str(epoch)+"\n")
+        write_boot_marker(root, epoch, f"{mode}-{partition}")
         with output.open("xb") as destination:
             with gzip.GzipFile(fileobj=destination, mode="wb", mtime=epoch, filename="") as compressed:
                 compressed.write(newc(root, epoch))
@@ -212,6 +224,7 @@ def make_recovery_initramfs(target, scripts, output, epoch):
             source=resolve_target(target,"/etc/"+file)
             if source.is_file():
                 shutil.copy2(source,root/"etc"/file)
+        write_boot_marker(root, epoch, "recovery")
         with output.open("xb") as destination:
             with gzip.GzipFile(fileobj=destination, mode="wb", mtime=epoch, filename="") as compressed:
                 compressed.write(newc(root, epoch))

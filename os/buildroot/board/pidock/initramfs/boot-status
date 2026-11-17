@@ -3,7 +3,7 @@
 # Export only during early boot, before normal services or recovery authentication.
 export PATH=/bin:/sbin
 case "${1:-}" in
-    initramfs_started|console_open|console_ready|clock_check|clock_set|clock_ready|clock_deferred|recovery_key_wait|recovery_key_done|recovery_selected|root_descriptor|root_search|root_wait|root_found|verity_open|verity_failed|verity_mapping_ready|root_mount_failed|root_mounted|handoff|switch_root|recovery_started|recovery_console_open|recovery_console_ready|recovery_confirmation|failed|init_failed) ;;
+    init_entry|recovery_entry|initramfs_started|console_open|console_ready|clock_check|clock_set|clock_ready|clock_deferred|recovery_key_wait|recovery_key_done|recovery_selected|root_descriptor|root_search|root_wait|root_found|verity_open|verity_failed|verity_mapping_ready|root_mount_failed|root_mounted|handoff|switch_root|recovery_started|recovery_console_open|recovery_console_ready|recovery_confirmation|failed|init_failed) ;;
     *) exit 0 ;;
 esac
 mkdir -p /run/pidock-boot 2>/dev/null || exit 0
@@ -24,20 +24,31 @@ count=$(printf '%s\n' "$devices" | grep -c '^/dev/' || true)
 # cp437 is built in; early logging must not depend on a loadable charset module.
 if mount -t vfat -o rw,nosuid,nodev,noexec,iocharset=cp437,umask=0077 "$devices" /run/pidock-boot 2>/dev/null; then
     # Keep one bounded previous attempt; repeated resets must not erase the last failure.
-    case "$1" in initramfs_started|recovery_started)
+    if [ ! -f /run/pidock-log-exported ]; then
         if [ -f /run/pidock-boot/pidock-early-boot.log ]; then
             tail -c 65536 /run/pidock-boot/pidock-early-boot.log >/run/pidock-boot/pidock-early-boot.previous.log 2>/dev/null || true
-        fi ;;
-    esac
+        fi
+    fi
     {
         printf '%s\n' 'PiDockOS early boot — diagnostic status, not a security attestation.'
         printf '%s\n' 'Stages use monotonic uptime; wall-clock time may not be synchronized.'
+        marker=$(cat /etc/pidock-boot-marker 2>/dev/null || true)
+        case "$marker" in ''|*[!0-9a-f]*) marker=unavailable;; esac
+        [ "${#marker}" = 64 ] || marker=unavailable
+        printf 'image_marker=%s\n' "$marker"
+        boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || true)
+        case "$boot_id" in ''|*[!0-9a-f-]*) boot_id=unavailable;; esac
+        [ "${#boot_id}" = 36 ] || boot_id=unavailable
+        printf 'boot_id=%s\n' "$boot_id"
         tail -c 8192 /run/pidock-early.log
+        printf '\n--- entry and mount output (bounded) ---\n'
+        [ ! -f /pidock-preflight.log ] || tail -c 4096 /pidock-preflight.log
         printf '\n--- early startup output (bounded) ---\n'
         [ ! -f /run/pidock-init-output.log ] || tail -c 16384 /run/pidock-init-output.log
         printf '\n--- early kernel messages (bounded; before services) ---\n'
         dmesg 2>/dev/null | tail -c 24576
     } >/run/pidock-boot/pidock-early-boot.log 2>/dev/null || true
+    : >/run/pidock-log-exported 2>/dev/null || true
     sync
     umount /run/pidock-boot 2>/dev/null || true
 fi

@@ -2,12 +2,20 @@
 # A self-contained signed recovery environment. No systemd, networking or applications start.
 set -eu
 export PATH=/bin:/sbin
-mount -t devtmpfs devtmpfs /dev
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
-pidock-boot-status recovery_started
+# The initramfs itself is writable before /run exists. Capture entry and mount
+# failures before opening any console; no external setup is read here.
+exec 2>>/pidock-preflight.log
 trap 'rc=$?; if [ "$rc" -ne 0 ]; then pidock-boot-status init_failed "$rc"; fi' EXIT
+printf 'stage=recovery_entry\n' >>/pidock-preflight.log
+mount -t devtmpfs devtmpfs /dev
+printf 'stage=dev_mounted\n' >>/pidock-preflight.log
+mount -t proc proc /proc
+printf 'stage=proc_mounted\n' >>/pidock-preflight.log
+mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
+pidock-boot-status recovery_entry
+mount -t sysfs sysfs /sys
+printf 'stage=sys_mounted\n' >>/pidock-preflight.log
+pidock-boot-status recovery_started
 exec 2>>/run/pidock-init-output.log
 pidock-boot-status recovery_console_open
 exec </dev/tty1 >/dev/tty1

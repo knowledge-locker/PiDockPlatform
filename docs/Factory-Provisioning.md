@@ -134,3 +134,10 @@ This signed timestamp is only a plausibility floor. Authenticated NTS time evide
 ### Verity command compatibility
 
 The physical boot after the clock correction reached root-device discovery and failed before verification because the shipped veritysetup rejected `--readonly`. Its verity `open` implementation always activates a read-only mapping; the unsupported flag has been removed. The signed root hash, data/hash geometry, read-only ext4 mount and restart-on-corruption policy are retained. Native initramfs acceptance now executes the exact signed startup `veritysetup open` command against a deliberately nonexistent device, requiring option parsing to succeed and the nonexistent input to be rejected without creating any mapping. This check reproduces the old command's unknown-option failure and passes the corrected command. Physical successful-root verification and network acceptance remain pending.
+
+
+### Identifying a fresh headless boot
+
+Each signed initramfs now embeds a 64-character `image_marker`, derived from its startup code, root descriptor, build epoch and slot role. The early report also records the kernel's random `boot_id`, which changes on each boot. Compare the image marker with `pidock-boot-expected.json` beside the logs on prepared diagnostic cards. That expectation file explicitly describes prepared files; it is not evidence that they ran. A matching marker in a newly written log and a new boot ID distinguish current-image execution from an unchanged older report. All of these remain diagnostic observations rather than security attestations.
+
+Entry and mount errors are captured in writable initramfs memory before console setup. The first SD export is attempted after devtmpfs, proc and the runtime directory are available, before sysfs, console access and clock bootstrap. Export retries at later stages if the card is not yet discoverable; the previous report is rotated only at the first successful export of that boot. A firmware failure or kernel failure before device discovery cannot be saved by this userspace logger. Existing provisioning and owner data are not read or modified.

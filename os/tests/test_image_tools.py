@@ -15,6 +15,21 @@ import image_components as image
 import sign_boot
 
 class ImageToolsTests(unittest.TestCase):
+    def test_boot_marker_binds_signed_startup_inputs_and_slot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "etc").mkdir(); (root / "bin").mkdir()
+            (root / "init").write_text("startup-v1")
+            (root / "bin/pidock-boot-status").write_text("logger-v1")
+            (root / "etc/root.env").write_text("ROOT_HASH=trusted")
+            first = image.write_boot_marker(root, 1234, "normal-5")
+            self.assertEqual(64, len(first))
+            self.assertEqual(first, image.write_boot_marker(root, 1234, "normal-5"))
+            self.assertNotEqual(first, image.write_boot_marker(root, 1234, "normal-6"))
+            self.assertNotEqual(first, image.write_boot_marker(root, 1235, "normal-5"))
+            (root / "init").write_text("startup-v2")
+            self.assertNotEqual(first, image.write_boot_marker(root, 1234, "normal-5"))
+
     def test_sysroot_symlinks_never_resolve_against_the_builder_host(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)

@@ -2,12 +2,20 @@
 # This script and root.env are inside the signed boot ramdisk. Never source data-partition files.
 set -eu
 export PATH=/bin:/sbin
-mount -t devtmpfs devtmpfs /dev
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
-pidock-boot-status initramfs_started
+# The initramfs itself is writable before /run exists. Capture entry and mount
+# failures before opening any console; no external setup is read here.
+exec 2>>/pidock-preflight.log
 trap 'rc=$?; if [ "$rc" -ne 0 ]; then pidock-boot-status init_failed "$rc"; fi' EXIT
+printf 'stage=init_entry\n' >>/pidock-preflight.log
+mount -t devtmpfs devtmpfs /dev
+printf 'stage=dev_mounted\n' >>/pidock-preflight.log
+mount -t proc proc /proc
+printf 'stage=proc_mounted\n' >>/pidock-preflight.log
+mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
+pidock-boot-status init_entry
+mount -t sysfs sysfs /sys
+printf 'stage=sys_mounted\n' >>/pidock-preflight.log
+pidock-boot-status initramfs_started
 exec 2>>/run/pidock-init-output.log
 pidock-boot-status console_open
 exec </dev/console >/dev/console
